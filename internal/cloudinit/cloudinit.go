@@ -43,7 +43,7 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 		}
 	}
 
-	// Merge system write_files (hosts) with user write_files
+	// Merge system write_files (hosts, GRUB serial console) with user write_files.
 	var allWriteFiles []config.WriteFile
 	if len(manifest.ExtraHosts) > 0 {
 		allWriteFiles = append(allWriteFiles, config.WriteFile{
@@ -53,32 +53,37 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 			Owner:       "root:root",
 		})
 	}
+	allWriteFiles = append(allWriteFiles, config.WriteFile{
+		Path:        "/etc/default/grub.d/99-serial-console.cfg",
+		Content:     "GRUB_CMDLINE_LINUX_DEFAULT=\"${GRUB_CMDLINE_LINUX_DEFAULT} console=ttyS0,115200\"\nGRUB_TERMINAL=\"serial console\"\nGRUB_SERIAL_COMMAND=\"serial --speed=115200\"\n",
+		Permissions: "0644",
+		Owner:       "root:root",
+	})
 	allWriteFiles = append(allWriteFiles, manifest.CloudInit.WriteFiles...)
 
-	if len(allWriteFiles) > 0 {
-		ud.WriteString("write_files:\n")
-		for _, file := range allWriteFiles {
-			ud.WriteString(fmt.Sprintf("  - path: %s\n", yamlQuote(file.Path)))
-			ud.WriteString(fmt.Sprintf("    owner: %s\n", yamlQuote(file.Owner)))
-			ud.WriteString(fmt.Sprintf("    permissions: %s\n", yamlQuote(file.Permissions)))
-			ud.WriteString("    content: |\n")
-			ud.WriteString(indentBlock(file.Content, "      "))
-		}
+	ud.WriteString("write_files:\n")
+	for _, file := range allWriteFiles {
+		ud.WriteString(fmt.Sprintf("  - path: %s\n", yamlQuote(file.Path)))
+		ud.WriteString(fmt.Sprintf("    owner: %s\n", yamlQuote(file.Owner)))
+		ud.WriteString(fmt.Sprintf("    permissions: %s\n", yamlQuote(file.Permissions)))
+		ud.WriteString("    content: |\n")
+		ud.WriteString(indentBlock(file.Content, "      "))
 	}
 
-	var bootCmds []string
-	bootCmds = append(bootCmds, "systemctl enable --now serial-getty@ttyS0.service")
-	bootCmds = append(bootCmds, manifest.CloudInit.BootCmd...)
-	ud.WriteString("bootcmd:\n")
-	for _, command := range bootCmds {
-		ud.WriteString(fmt.Sprintf("  - %s\n", yamlQuote(command)))
-	}
-
-	if len(manifest.CloudInit.RunCmd) > 0 {
-		ud.WriteString("runcmd:\n")
-		for _, command := range manifest.CloudInit.RunCmd {
+	if len(manifest.CloudInit.BootCmd) > 0 {
+		ud.WriteString("bootcmd:\n")
+		for _, command := range manifest.CloudInit.BootCmd {
 			ud.WriteString(fmt.Sprintf("  - %s\n", yamlQuote(command)))
 		}
+	}
+
+	serialGettyCmd := "systemctl enable --now serial-getty@ttyS0.service && update-grub 2>/dev/null || true"
+	var runCmds []string
+	runCmds = append(runCmds, serialGettyCmd)
+	runCmds = append(runCmds, manifest.CloudInit.RunCmd...)
+	ud.WriteString("runcmd:\n")
+	for _, command := range runCmds {
+		ud.WriteString(fmt.Sprintf("  - %s\n", yamlQuote(command)))
 	}
 
 	md := fmt.Sprintf(

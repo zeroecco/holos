@@ -30,6 +30,9 @@ func Attach(socketPath string) error {
 
 	fmt.Fprintf(os.Stdout, "Connected to serial console. Press Ctrl-] to detach.\r\n")
 
+	// Send a carriage return to nudge any login prompt into redisplaying.
+	conn.Write([]byte("\r"))
+
 	// Either goroutine finishing means the session is over.
 	errc := make(chan error, 1)
 
