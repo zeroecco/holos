@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"sync"
 
 	"golang.org/x/term"
 )
@@ -31,42 +30,41 @@ func Attach(socketPath string) error {
 
 	fmt.Fprintf(os.Stdout, "Connected to serial console. Press Ctrl-] to detach.\r\n")
 
-	var wg sync.WaitGroup
-	done := make(chan struct{})
+	// Either goroutine finishing means the session is over.
+	errc := make(chan error, 1)
 
 	// socket -> stdout
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
-		io.Copy(os.Stdout, conn)
-		close(done)
+		_, err := io.Copy(os.Stdout, conn)
+		errc <- err
 	}()
 
 	// stdin -> socket (with escape detection)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		buf := make([]byte, 256)
 		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-
 			n, err := os.Stdin.Read(buf)
 			if err != nil {
+				errc <- err
 				return
 			}
 			for i := 0; i < n; i++ {
 				if buf[i] == escapeChar {
+					errc <- nil
 					return
 				}
 			}
-			conn.Write(buf[:n])
+			if _, err := conn.Write(buf[:n]); err != nil {
+				errc <- err
+				return
+			}
 		}
 	}()
 
-	wg.Wait()
+	// Wait for the first goroutine to finish, then close the conn
+	// to unblock the other.
+	<-errc
+	conn.Close()
+
 	return nil
 }
