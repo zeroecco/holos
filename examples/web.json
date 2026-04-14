@@ -1,5 +1,5 @@
 {
-  "api_version": "holosteric/v1alpha1",
+  "api_version": "holos/v1alpha1",
   "kind": "Service",
   "name": "web",
   "replicas": 2,

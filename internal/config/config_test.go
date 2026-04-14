@@ -36,7 +36,7 @@ func TestLoadManifestDefaultsAndPathResolution(t *testing.T) {
 		t.Fatalf("load manifest: %v", err)
 	}
 
-	if manifest.APIVersion != "holosteric/v1alpha1" {
+	if manifest.APIVersion != "holos/v1alpha1" {
 		t.Fatalf("unexpected api version: %s", manifest.APIVersion)
 	}
 	if manifest.Replicas != 1 {

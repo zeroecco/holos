@@ -192,7 +192,7 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir string, network NetworkPlan, hosts map[string]string, instanceIPs []string) (config.Manifest, error) {
 	replicas := svc.Replicas
 	if replicas == 0 {
-		replicas = 1
+		replicas = config.DefaultReplicas
 	}
 
 	ports, err := parsePorts(svc.Ports)
@@ -212,24 +212,24 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 
 	vcpu := svc.VM.VCPU
 	if vcpu == 0 {
-		vcpu = 1
+		vcpu = config.DefaultVCPU
 	}
 	memMB := svc.VM.MemoryMB
 	if memMB == 0 {
-		memMB = 512
+		memMB = config.DefaultMemoryMB
 	}
 	machine := svc.VM.Machine
 	if machine == "" {
-		machine = "q35"
+		machine = config.DefaultMachine
 	}
 	cpuModel := svc.VM.CPUModel
 	if cpuModel == "" {
-		cpuModel = "host"
+		cpuModel = config.DefaultCPUModel
 	}
 
 	user := svc.CloudInit.User
 	if user == "" {
-		user = "ubuntu"
+		user = config.DefaultUser
 	}
 
 	writeFiles := make([]config.WriteFile, len(svc.CloudInit.WriteFiles))
@@ -250,7 +250,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		}
 	}
 
-	baseMAC := generateMAC(f.Name, name)
+	baseMAC := generateMAC(0x00, f.Name, name)
 
 	devices := make([]config.Device, len(svc.Devices))
 	for i, d := range svc.Devices {
@@ -266,7 +266,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	}
 
 	return config.Manifest{
-		APIVersion:  "holosteric/v1alpha1",
+		APIVersion:  "holos/v1alpha1",
 		Kind:        "Service",
 		Name:        name,
 		Replicas:    replicas,
@@ -298,7 +298,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			Subnet:         network.Subnet,
 			InstanceIPs:    instanceIPs,
 			BaseMAC:        baseMAC,
-			UserBaseMAC:    generateUserMAC(f.Name, name),
+			UserBaseMAC:    generateMAC(0x01, f.Name, name),
 		},
 		ExtraHosts: hosts,
 	}, nil
@@ -392,18 +392,11 @@ func (f *File) specHash() (string, error) {
 	return hex.EncodeToString(sum[:8]), nil
 }
 
-func generateMAC(project, service string) string {
+func generateMAC(prefix byte, project, service string) string {
 	h := fnv.New32a()
 	h.Write([]byte(project + "/" + service))
 	sum := h.Sum32()
-	return fmt.Sprintf("52:54:00:%02x:%02x:00", byte(sum>>8), byte(sum))
-}
-
-func generateUserMAC(project, service string) string {
-	h := fnv.New32a()
-	h.Write([]byte(project + "/" + service))
-	sum := h.Sum32()
-	return fmt.Sprintf("52:54:01:%02x:%02x:00", byte(sum>>8), byte(sum))
+	return fmt.Sprintf("52:54:%02x:%02x:%02x:00", prefix, byte(sum>>8), byte(sum))
 }
 
 func parsePorts(specs []string) ([]config.PortForward, error) {

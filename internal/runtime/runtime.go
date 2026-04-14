@@ -4,31 +4,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/zeroecco/holos/internal/cloudinit"
 	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/qemu"
 )
 
+// Manager coordinates project lifecycle and state persistence.
 type Manager struct {
 	stateDir string
 }
 
+// Record types persisted to disk.
+
 type ProjectRecord struct {
-	Name     string          `json:"name"`
-	SpecHash string          `json:"spec_hash"`
-	Services []ServiceRecord `json:"services"`
-	Network  NetworkState    `json:"network"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	Name      string          `json:"name"`
+	SpecHash  string          `json:"spec_hash"`
+	Services  []ServiceRecord `json:"services"`
+	Network   NetworkState    `json:"network"`
+	UpdatedAt time.Time       `json:"updated_at"`
 }
 
 type NetworkState struct {
@@ -65,19 +65,19 @@ func NewManager(stateDir string) *Manager {
 }
 
 func DefaultStateDir() string {
-	if value := os.Getenv("HOLOSTERIC_STATE_DIR"); value != "" {
+	if value := os.Getenv("HOLOS_STATE_DIR"); value != "" {
 		return value
 	}
 
 	if os.Geteuid() == 0 {
-		return "/var/lib/holosteric"
+		return "/var/lib/holos"
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".holosteric"
+		return ".holos"
 	}
-	return filepath.Join(home, ".local", "state", "holosteric")
+	return filepath.Join(home, ".local", "state", "holos")
 }
 
 // Up brings a compose project to the desired state, starting services
@@ -128,7 +128,6 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 		services = append(services, *svcRecord)
 	}
 
-	// Remove services that no longer exist in the compose file.
 	for name, existing := range existingByService {
 		if _, ok := project.Services[name]; !ok {
 			m.stopAllInstances(existing.Instances)
@@ -318,7 +317,6 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		instances = append(instances, inst)
 	}
 
-	// Scale down excess instances.
 	if existing != nil {
 		for _, inst := range existing.Instances {
 			if inst.Index >= manifest.Replicas {
@@ -335,218 +333,10 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 	return svc, nil
 }
 
-func (m *Manager) startInstance(project string, manifest config.Manifest, index int) (InstanceRecord, error) {
-	workDir := projectInstanceDir(m.stateDir, project, manifest.Name, index)
-	if err := os.RemoveAll(workDir); err != nil {
-		return InstanceRecord{}, fmt.Errorf("remove instance workdir: %w", err)
-	}
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return InstanceRecord{}, fmt.Errorf("create instance workdir: %w", err)
-	}
-
-	overlayPath := filepath.Join(workDir, "root.qcow2")
-	if err := m.createOverlay(manifest, overlayPath); err != nil {
-		return InstanceRecord{}, err
-	}
-
-	instanceName := manifest.InstanceName(index)
-
-	seedPath, err := m.createSeedImage(manifest, instanceName, index, workDir)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-
-	ports, err := allocatePorts(manifest, index)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-
-	logPath := filepath.Join(workDir, "console.log")
-	serialPath := filepath.Join(workDir, "serial.sock")
-	qmpPath := filepath.Join(workDir, "qmp.sock")
-	qemuLogPath := filepath.Join(workDir, "qemu.log")
-
-	spec := qemu.LaunchSpec{
-		Name:        instanceName,
-		Index:       index,
-		OverlayPath: overlayPath,
-		SeedPath:    seedPath,
-		LogPath:     logPath,
-		SerialPath:  serialPath,
-		QMPPath:     qmpPath,
-		Ports:       ports,
-	}
-
-	if manifest.VM.UEFI {
-		ovmfCode, ovmfVars, err := m.prepareUEFI(workDir)
-		if err != nil {
-			return InstanceRecord{}, err
-		}
-		spec.OVMFCode = ovmfCode
-		spec.OVMFVars = ovmfVars
-	}
-
-	args, err := qemu.BuildArgs(manifest, spec)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-
-	qemuLog, err := os.OpenFile(qemuLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return InstanceRecord{}, fmt.Errorf("open qemu log: %w", err)
-	}
-	defer qemuLog.Close()
-
-	command, err := m.qemuSystemCommand(args...)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-	command.Stdout = qemuLog
-	command.Stderr = qemuLog
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	if err := command.Start(); err != nil {
-		return InstanceRecord{}, fmt.Errorf("start qemu: %w", err)
-	}
-
-	pid := command.Process.Pid
-	_ = command.Process.Release()
-
-	time.Sleep(300 * time.Millisecond)
-	if !processAlive(pid) {
-		content, _ := os.ReadFile(qemuLogPath)
-		return InstanceRecord{}, fmt.Errorf("qemu exited early for %s: %s", instanceName, strings.TrimSpace(string(content)))
-	}
-
-	return InstanceRecord{
-		Name:        instanceName,
-		Index:       index,
-		PID:         pid,
-		Status:      "running",
-		WorkDir:     workDir,
-		OverlayPath: overlayPath,
-		SeedPath:    seedPath,
-		LogPath:     logPath,
-		SerialPath:  serialPath,
-		QMPPath:     qmpPath,
-		Ports:       ports,
-		LastStarted: time.Now().UTC(),
-	}, nil
-}
-
-func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) error {
-	qemuImg, err := m.qemuImgBinary()
-	if err != nil {
-		return err
-	}
-
-	args := []string{
-		"create",
-		"-f", "qcow2",
-		"-F", manifest.ImageFormat,
-		"-b", manifest.Image,
-		overlayPath,
-	}
-	if output, err := exec.Command(qemuImg, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("create overlay: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func (m *Manager) createSeedImage(manifest config.Manifest, instanceName string, index int, workDir string) (string, error) {
-	userData, metaData, networkConfig := cloudinit.Render(manifest, instanceName, index)
-	seedDir := filepath.Join(workDir, "seed")
-	if err := os.MkdirAll(seedDir, 0o755); err != nil {
-		return "", fmt.Errorf("create seed dir: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(seedDir, "user-data"), []byte(userData), 0o644); err != nil {
-		return "", fmt.Errorf("write user-data: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(seedDir, "meta-data"), []byte(metaData), 0o644); err != nil {
-		return "", fmt.Errorf("write meta-data: %w", err)
-	}
-
-	hasNetwork := networkConfig != ""
-	if hasNetwork {
-		if err := os.WriteFile(filepath.Join(seedDir, "network-config"), []byte(networkConfig), 0o644); err != nil {
-			return "", fmt.Errorf("write network-config: %w", err)
-		}
-	}
-
-	if cloudLocalDS, err := exec.LookPath("cloud-localds"); err == nil {
-		outputPath := filepath.Join(workDir, "seed.img")
-		args := []string{}
-		if hasNetwork {
-			args = append(args, "--network-config", filepath.Join(seedDir, "network-config"))
-		}
-		args = append(args, outputPath, filepath.Join(seedDir, "user-data"), filepath.Join(seedDir, "meta-data"))
-		command := exec.Command(cloudLocalDS, args...)
-		if output, err := command.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("create cloud-init seed: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return outputPath, nil
-	}
-
-	outputPath := filepath.Join(workDir, "seed.iso")
-	isoBuilder, args, err := isoCommand(outputPath, seedDir, hasNetwork)
-	if err != nil {
-		return "", err
-	}
-
-	command := exec.Command(isoBuilder, args...)
-	if output, err := command.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("create seed iso: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return outputPath, nil
-}
-
 func (m *Manager) tearDownProject(record *ProjectRecord) error {
 	for i := len(record.Services) - 1; i >= 0; i-- {
 		m.stopAllInstances(record.Services[i].Instances)
 		m.removeInstanceDirs(record.Services[i].Instances)
-	}
-	return nil
-}
-
-func (m *Manager) stopAllInstances(instances []InstanceRecord) {
-	for idx := range instances {
-		_ = m.stopInstance(instances[idx])
-		instances[idx].Status = "stopped"
-		instances[idx].PID = 0
-		instances[idx].LastExitTime = time.Now().UTC()
-	}
-}
-
-func (m *Manager) removeInstanceDirs(instances []InstanceRecord) {
-	for _, inst := range instances {
-		_ = os.RemoveAll(inst.WorkDir)
-	}
-}
-
-func (m *Manager) stopInstance(instance InstanceRecord) error {
-	if instance.PID == 0 || !processAlive(instance.PID) {
-		return nil
-	}
-
-	process, err := os.FindProcess(instance.PID)
-	if err != nil {
-		return fmt.Errorf("find process %d: %w", instance.PID, err)
-	}
-
-	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("signal pid %d: %w", instance.PID, err)
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if !processAlive(instance.PID) {
-			return nil
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-
-	if err := process.Signal(syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("kill pid %d: %w", instance.PID, err)
 	}
 	return nil
 }
@@ -565,14 +355,7 @@ func (m *Manager) refreshProject(record *ProjectRecord) {
 	}
 }
 
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	return syscall.Kill(pid, 0) == nil
-}
-
-// State directory layout.
+// State directory layout and persistence.
 
 func (m *Manager) ensureLayout() error {
 	for _, dir := range []string{m.stateDir, projectsDir(m.stateDir), instancesRoot(m.stateDir)} {
@@ -626,6 +409,8 @@ func projectInstanceDir(root, project, service string, index int) string {
 	return filepath.Join(instancesRoot(root), project, fmt.Sprintf("%s-%d", service, index))
 }
 
+// QEMU binary lookup.
+
 func (m *Manager) qemuSystemCommand(args ...string) (*exec.Cmd, error) {
 	binary, err := m.qemuSystemBinary()
 	if err != nil {
@@ -635,160 +420,23 @@ func (m *Manager) qemuSystemCommand(args ...string) (*exec.Cmd, error) {
 }
 
 func (m *Manager) qemuSystemBinary() (string, error) {
-	if value := os.Getenv("HOLOSTERIC_QEMU_SYSTEM"); value != "" {
+	if value := os.Getenv("HOLOS_QEMU_SYSTEM"); value != "" {
 		return value, nil
 	}
 	binary, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
-		return "", errors.New("qemu-system-x86_64 not found; install QEMU/KVM or set HOLOSTERIC_QEMU_SYSTEM")
+		return "", errors.New("qemu-system-x86_64 not found; install QEMU/KVM or set HOLOS_QEMU_SYSTEM")
 	}
 	return binary, nil
 }
 
 func (m *Manager) qemuImgBinary() (string, error) {
-	if value := os.Getenv("HOLOSTERIC_QEMU_IMG"); value != "" {
+	if value := os.Getenv("HOLOS_QEMU_IMG"); value != "" {
 		return value, nil
 	}
 	binary, err := exec.LookPath("qemu-img")
 	if err != nil {
-		return "", errors.New("qemu-img not found; install QEMU tools or set HOLOSTERIC_QEMU_IMG")
+		return "", errors.New("qemu-img not found; install QEMU tools or set HOLOS_QEMU_IMG")
 	}
 	return binary, nil
-}
-
-func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, error) {
-	mappings := make([]qemu.PortMapping, 0, len(manifest.Ports))
-	for _, port := range manifest.Ports {
-		hostPort := port.HostPort
-		if hostPort > 0 {
-			hostPort += index
-			if err := ensureTCPPortAvailable(hostPort); err != nil {
-				return nil, err
-			}
-		} else {
-			allocated, err := allocateEphemeralTCPPort()
-			if err != nil {
-				return nil, err
-			}
-			hostPort = allocated
-		}
-
-		mappings = append(mappings, qemu.PortMapping{
-			Name:      port.Name,
-			HostPort:  hostPort,
-			GuestPort: port.GuestPort,
-			Protocol:  port.Protocol,
-		})
-	}
-	return mappings, nil
-}
-
-func ensureTCPPortAvailable(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-	if err != nil {
-		return fmt.Errorf("host port %d is unavailable: %w", port, err)
-	}
-	return listener.Close()
-}
-
-func allocateEphemeralTCPPort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("allocate ephemeral port: %w", err)
-	}
-	defer listener.Close()
-
-	address, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, errors.New("unexpected tcp listener address type")
-	}
-	return address.Port, nil
-}
-
-func isoCommand(outputPath, seedDir string, hasNetwork bool) (string, []string, error) {
-	files := []string{
-		filepath.Join(seedDir, "user-data"),
-		filepath.Join(seedDir, "meta-data"),
-	}
-	if hasNetwork {
-		files = append(files, filepath.Join(seedDir, "network-config"))
-	}
-
-	for _, candidate := range []string{"genisoimage", "mkisofs"} {
-		if binary, err := exec.LookPath(candidate); err == nil {
-			args := []string{"-output", outputPath, "-volid", "cidata", "-joliet", "-rock"}
-			args = append(args, files...)
-			return binary, args, nil
-		}
-	}
-
-	if binary, err := exec.LookPath("xorriso"); err == nil {
-		args := []string{"-as", "mkisofs", "-output", outputPath, "-volid", "cidata", "-joliet", "-rock"}
-		args = append(args, files...)
-		return binary, args, nil
-	}
-
-	return "", nil, errors.New("no cloud-init media builder found; install cloud-localds, genisoimage, mkisofs, or xorriso")
-}
-
-// UEFI / OVMF support for GPU passthrough.
-
-var ovmfCodePaths = []string{
-	"/usr/share/OVMF/OVMF_CODE_4M.fd",
-	"/usr/share/OVMF/OVMF_CODE.fd",
-	"/usr/share/edk2/ovmf/OVMF_CODE.fd",
-	"/usr/share/edk2-ovmf/x64/OVMF_CODE.fd",
-	"/usr/share/qemu/OVMF_CODE.fd",
-}
-
-var ovmfVarsPaths = []string{
-	"/usr/share/OVMF/OVMF_VARS_4M.fd",
-	"/usr/share/OVMF/OVMF_VARS.fd",
-	"/usr/share/edk2/ovmf/OVMF_VARS.fd",
-	"/usr/share/edk2-ovmf/x64/OVMF_VARS.fd",
-	"/usr/share/qemu/OVMF_VARS.fd",
-}
-
-func (m *Manager) prepareUEFI(workDir string) (codePath, varsPath string, err error) {
-	codePath, err = findOVMF("HOLOSTERIC_OVMF_CODE", ovmfCodePaths)
-	if err != nil {
-		return "", "", err
-	}
-
-	templatePath, err := findOVMF("HOLOSTERIC_OVMF_VARS", ovmfVarsPaths)
-	if err != nil {
-		return "", "", err
-	}
-
-	varsPath = filepath.Join(workDir, "OVMF_VARS.fd")
-	if err := copyFile(templatePath, varsPath); err != nil {
-		return "", "", fmt.Errorf("copy OVMF_VARS: %w", err)
-	}
-
-	return codePath, varsPath, nil
-}
-
-func findOVMF(envVar string, searchPaths []string) (string, error) {
-	if value := os.Getenv(envVar); value != "" {
-		if _, err := os.Stat(value); err == nil {
-			return value, nil
-		}
-		return "", fmt.Errorf("%s=%q not found", envVar, value)
-	}
-
-	for _, path := range searchPaths {
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("OVMF firmware not found; install ovmf/edk2-ovmf or set %s", envVar)
-}
-
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0o644)
 }

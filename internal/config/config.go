@@ -14,18 +14,28 @@ import (
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+const (
+	DefaultReplicas = 1
+	DefaultVCPU     = 1
+	DefaultMemoryMB = 512
+	DefaultMachine  = "q35"
+	DefaultCPUModel = "host"
+	DefaultUser     = "ubuntu"
+	DefaultProtocol = "tcp"
+)
+
 type Manifest struct {
-	APIVersion  string            `json:"api_version"`
-	Kind        string            `json:"kind"`
-	Name        string            `json:"name"`
-	Replicas    int               `json:"replicas"`
-	Image       string            `json:"image"`
-	ImageFormat string            `json:"image_format"`
-	VM          VMConfig          `json:"vm"`
-	Network     NetworkConfig     `json:"network"`
-	Ports       []PortForward     `json:"ports"`
-	Mounts      []Mount           `json:"mounts"`
-	CloudInit   CloudInit         `json:"cloud_init"`
+	APIVersion      string                 `json:"api_version"`
+	Kind            string                 `json:"kind"`
+	Name            string                 `json:"name"`
+	Replicas        int                    `json:"replicas"`
+	Image           string                 `json:"image"`
+	ImageFormat     string                 `json:"image_format"`
+	VM              VMConfig               `json:"vm"`
+	Network         NetworkConfig          `json:"network"`
+	Ports           []PortForward          `json:"ports"`
+	Mounts          []Mount                `json:"mounts"`
+	CloudInit       CloudInit              `json:"cloud_init"`
 	Labels          map[string]string      `json:"labels"`
 	Devices         []Device               `json:"devices,omitempty"`
 	InternalNetwork *InternalNetworkConfig `json:"internal_network,omitempty"`
@@ -61,19 +71,17 @@ type InternalNetworkConfig struct {
 }
 
 func (n *InternalNetworkConfig) InstanceMAC(index int) string {
-	parts := strings.Split(n.BaseMAC, ":")
-	if len(parts) != 6 {
-		return n.BaseMAC
-	}
-	last, _ := strconv.ParseUint(parts[5], 16, 8)
-	parts[5] = fmt.Sprintf("%02x", byte(last)+byte(index))
-	return strings.Join(parts, ":")
+	return offsetMAC(n.BaseMAC, index)
 }
 
 func (n *InternalNetworkConfig) UserMAC(index int) string {
-	parts := strings.Split(n.UserBaseMAC, ":")
+	return offsetMAC(n.UserBaseMAC, index)
+}
+
+func offsetMAC(base string, index int) string {
+	parts := strings.Split(base, ":")
 	if len(parts) != 6 {
-		return n.UserBaseMAC
+		return base
 	}
 	last, _ := strconv.ParseUint(parts[5], 16, 8)
 	parts[5] = fmt.Sprintf("%02x", byte(last)+byte(index))
@@ -143,38 +151,38 @@ func LoadManifest(path string) (Manifest, error) {
 
 func (m *Manifest) applyDefaults() {
 	if m.APIVersion == "" {
-		m.APIVersion = "holosteric/v1alpha1"
+		m.APIVersion = "holos/v1alpha1"
 	}
 	if m.Kind == "" {
 		m.Kind = "Service"
 	}
 	if m.Replicas == 0 {
-		m.Replicas = 1
+		m.Replicas = DefaultReplicas
 	}
 	if m.ImageFormat == "" {
 		m.ImageFormat = inferImageFormat(m.Image)
 	}
 	if m.VM.VCPU == 0 {
-		m.VM.VCPU = 1
+		m.VM.VCPU = DefaultVCPU
 	}
 	if m.VM.MemoryMB == 0 {
-		m.VM.MemoryMB = 512
+		m.VM.MemoryMB = DefaultMemoryMB
 	}
 	if m.VM.Machine == "" {
-		m.VM.Machine = "q35"
+		m.VM.Machine = DefaultMachine
 	}
 	if m.VM.CPUModel == "" {
-		m.VM.CPUModel = "host"
+		m.VM.CPUModel = DefaultCPUModel
 	}
 	if m.Network.Mode == "" {
 		m.Network.Mode = "user"
 	}
 	if m.CloudInit.User == "" {
-		m.CloudInit.User = "ubuntu"
+		m.CloudInit.User = DefaultUser
 	}
 	for i := range m.Ports {
 		if m.Ports[i].Protocol == "" {
-			m.Ports[i].Protocol = "tcp"
+			m.Ports[i].Protocol = DefaultProtocol
 		}
 	}
 	for i := range m.CloudInit.WriteFiles {

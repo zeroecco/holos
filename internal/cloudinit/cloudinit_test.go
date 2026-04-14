@@ -33,12 +33,12 @@ func TestRenderIncludesUserFilesAndCommands(t *testing.T) {
 
 	for _, needle := range []string{
 		"#cloud-config",
-		`hostname: "api-0"`,
-		`name: "ubuntu"`,
-		`- "curl"`,
-		`path: "/etc/api.env"`,
+		"hostname: api-0",
+		"name: ubuntu",
+		"- curl",
+		"path: /etc/api.env",
 		"PORT=8080",
-		`- "systemctl restart api"`,
+		"- systemctl restart api",
 	} {
 		if !strings.Contains(userData, needle) {
 			t.Fatalf("expected user-data to contain %q, got:\n%s", needle, userData)
@@ -71,7 +71,7 @@ func TestRenderWithExtraHosts(t *testing.T) {
 	if !strings.Contains(userData, "manage_etc_hosts: false") {
 		t.Fatal("expected manage_etc_hosts: false with extra hosts")
 	}
-	if !strings.Contains(userData, `path: "/etc/hosts"`) {
+	if !strings.Contains(userData, "path: /etc/hosts") {
 		t.Fatal("expected /etc/hosts write_file entry")
 	}
 	if !strings.Contains(userData, "10.10.0.2") {

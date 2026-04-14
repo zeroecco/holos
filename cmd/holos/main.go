@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -453,8 +454,7 @@ func printLogTail(path string, lines int) {
 		return
 	}
 
-	content := string(data)
-	allLines := splitLines(content)
+	allLines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
 	start := len(allLines) - lines
 	if start < 0 {
 		start = 0
@@ -462,26 +462,6 @@ func printLogTail(path string, lines int) {
 	for _, line := range allLines[start:] {
 		fmt.Println(line)
 	}
-}
-
-func splitLines(s string) []string {
-	if s == "" {
-		return nil
-	}
-	var lines []string
-	for len(s) > 0 {
-		idx := 0
-		for idx < len(s) && s[idx] != '\n' {
-			idx++
-		}
-		lines = append(lines, s[:idx])
-		if idx < len(s) {
-			s = s[idx+1:]
-		} else {
-			break
-		}
-	}
-	return lines
 }
 
 func servicePorts(svc runtime.ServiceRecord) string {

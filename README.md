@@ -1,4 +1,4 @@
-# holosteric
+# holos
 
 Docker compose for KVM. Define multi-VM stacks in a single YAML file. No libvirt, no XML, no distributed control plane.
 
