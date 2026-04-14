@@ -137,6 +137,33 @@ services:
 
 Available: `alpine`, `arch`, `debian`, `ubuntu`, `fedora`. Run `holos images` to see all tags.
 
+### Dockerfile
+
+Use a Dockerfile to provision a VM. `RUN`, `COPY`, `ENV`, and `WORKDIR` instructions are converted into a shell script that runs via cloud-init:
+
+```yaml
+services:
+  api:
+    dockerfile: ./Dockerfile
+    ports:
+      - "3000:3000"
+```
+
+```dockerfile
+FROM ubuntu:noble
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y nodejs npm
+COPY server.js /opt/app/
+WORKDIR /opt/app
+RUN npm init -y && npm install express
+```
+
+When `image` is omitted, the base image is taken from the Dockerfile's `FROM` line. The Dockerfile's instructions run before any `cloud_init.runcmd` entries.
+
+Supported: `FROM`, `RUN`, `COPY`, `ENV`, `WORKDIR`. Unsupported instructions (`CMD`, `ENTRYPOINT`, `EXPOSE`, etc.) are silently skipped. `COPY` sources are resolved relative to the Dockerfile's directory and must be files, not directories — use `volumes` for directory mounts.
+
 ### Extra QEMU Arguments
 
 Pass arbitrary flags straight to `qemu-system-x86_64` with `extra_args`:

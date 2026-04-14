@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/zeroecco/holos/internal/config"
+	"github.com/zeroecco/holos/internal/dockerfile"
 	"github.com/zeroecco/holos/internal/images"
 	"gopkg.in/yaml.v3"
 )
@@ -28,10 +29,11 @@ type File struct {
 }
 
 type Service struct {
-	Image       string    `yaml:"image"`
-	ImageFormat string    `yaml:"image_format,omitempty"`
-	Replicas    int       `yaml:"replicas,omitempty"`
-	VM          VM        `yaml:"vm,omitempty"`
+	Image       string          `yaml:"image"`
+	ImageFormat string          `yaml:"image_format,omitempty"`
+	Dockerfile  string          `yaml:"dockerfile,omitempty"`
+	Replicas    int             `yaml:"replicas,omitempty"`
+	VM          VM              `yaml:"vm,omitempty"`
 	Ports       []string        `yaml:"ports,omitempty"`
 	Volumes     []string        `yaml:"volumes,omitempty"`
 	Devices     []ComposeDevice `yaml:"devices,omitempty"`
@@ -205,6 +207,24 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		return config.Manifest{}, err
 	}
 
+	var dfWriteFiles []config.WriteFile
+	var dfRunCmd []string
+	if svc.Dockerfile != "" {
+		dfPath := svc.Dockerfile
+		if !filepath.IsAbs(dfPath) {
+			dfPath = filepath.Join(baseDir, dfPath)
+		}
+		dfResult, err := dockerfile.Parse(dfPath, filepath.Dir(dfPath))
+		if err != nil {
+			return config.Manifest{}, fmt.Errorf("dockerfile: %w", err)
+		}
+		if svc.Image == "" && dfResult.FromImage != "" {
+			svc.Image = dfResult.FromImage
+		}
+		dfWriteFiles = dfResult.WriteFiles
+		dfRunCmd = []string{dockerfile.BuildCommand()}
+	}
+
 	image, imageFormat, err := resolveImage(svc.Image, svc.ImageFormat, baseDir, cacheDir)
 	if err != nil {
 		return config.Manifest{}, err
@@ -232,8 +252,9 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		user = config.DefaultUser
 	}
 
-	writeFiles := make([]config.WriteFile, len(svc.CloudInit.WriteFiles))
-	for i, wf := range svc.CloudInit.WriteFiles {
+	writeFiles := make([]config.WriteFile, 0, len(dfWriteFiles)+len(svc.CloudInit.WriteFiles))
+	writeFiles = append(writeFiles, dfWriteFiles...)
+	for _, wf := range svc.CloudInit.WriteFiles {
 		perms := wf.Permissions
 		if perms == "" {
 			perms = "0644"
@@ -242,12 +263,12 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		if owner == "" {
 			owner = "root:root"
 		}
-		writeFiles[i] = config.WriteFile{
+		writeFiles = append(writeFiles, config.WriteFile{
 			Path:        wf.Path,
 			Content:     wf.Content,
 			Permissions: perms,
 			Owner:       owner,
-		}
+		})
 	}
 
 	baseMAC := generateMAC(0x00, f.Name, name)
@@ -289,7 +310,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			SSHAuthorizedKeys: svc.CloudInit.SSHAuthorizedKeys,
 			Packages:          svc.CloudInit.Packages,
 			WriteFiles:        writeFiles,
-			RunCmd:            svc.CloudInit.RunCmd,
+			RunCmd:            append(dfRunCmd, svc.CloudInit.RunCmd...),
 			BootCmd:           svc.CloudInit.BootCmd,
 		},
 		InternalNetwork: &config.InternalNetworkConfig{

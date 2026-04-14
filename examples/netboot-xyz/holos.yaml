@@ -1,0 +1,11 @@
+name: netboot-xyz
+
+services:
+  netboot:
+    dockerfile: ./Dockerfile
+    ports:
+      - "8080:80"
+    cloud_init:
+      runcmd:
+        - systemctl enable nginx
+        - systemctl restart nginx
