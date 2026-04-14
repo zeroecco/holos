@@ -113,6 +113,84 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 	}, nil
 }
 
+// restartInstance boots an existing stopped instance without recreating
+// its overlay or seed image, preserving VM disk state across stop/start.
+func (m *Manager) restartInstance(manifest config.Manifest, prev InstanceRecord) (InstanceRecord, error) {
+	qemuLogPath := filepath.Join(prev.WorkDir, "qemu.log")
+
+	ports, err := allocatePorts(manifest, prev.Index)
+	if err != nil {
+		return InstanceRecord{}, err
+	}
+
+	spec := qemu.LaunchSpec{
+		Name:        prev.Name,
+		Index:       prev.Index,
+		OverlayPath: prev.OverlayPath,
+		SeedPath:    prev.SeedPath,
+		LogPath:     prev.LogPath,
+		SerialPath:  prev.SerialPath,
+		QMPPath:     prev.QMPPath,
+		Ports:       ports,
+	}
+
+	if manifest.VM.UEFI {
+		ovmfCode, err := findOVMF("HOLOS_OVMF_CODE", ovmfCodePaths)
+		if err != nil {
+			return InstanceRecord{}, err
+		}
+		spec.OVMFCode = ovmfCode
+		spec.OVMFVars = filepath.Join(prev.WorkDir, "OVMF_VARS.fd")
+	}
+
+	args, err := qemu.BuildArgs(manifest, spec)
+	if err != nil {
+		return InstanceRecord{}, err
+	}
+
+	qemuLog, err := os.OpenFile(qemuLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return InstanceRecord{}, fmt.Errorf("open qemu log: %w", err)
+	}
+	defer qemuLog.Close()
+
+	command, err := m.qemuSystemCommand(args...)
+	if err != nil {
+		return InstanceRecord{}, err
+	}
+	command.Stdout = qemuLog
+	command.Stderr = qemuLog
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := command.Start(); err != nil {
+		return InstanceRecord{}, fmt.Errorf("start qemu: %w", err)
+	}
+
+	pid := command.Process.Pid
+	_ = command.Process.Release()
+
+	time.Sleep(300 * time.Millisecond)
+	if !processAlive(pid) {
+		content, _ := os.ReadFile(qemuLogPath)
+		return InstanceRecord{}, fmt.Errorf("qemu exited early for %s: %s", prev.Name, strings.TrimSpace(string(content)))
+	}
+
+	return InstanceRecord{
+		Name:        prev.Name,
+		Index:       prev.Index,
+		PID:         pid,
+		Status:      "running",
+		WorkDir:     prev.WorkDir,
+		OverlayPath: prev.OverlayPath,
+		SeedPath:    prev.SeedPath,
+		LogPath:     prev.LogPath,
+		SerialPath:  prev.SerialPath,
+		QMPPath:     prev.QMPPath,
+		Ports:       ports,
+		LastStarted: time.Now().UTC(),
+	}, nil
+}
+
 func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) error {
 	qemuImg, err := m.qemuImgBinary()
 	if err != nil {
@@ -180,4 +258,9 @@ func processAlive(pid int) bool {
 		return false
 	}
 	return syscall.Kill(pid, 0) == nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

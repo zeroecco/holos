@@ -306,8 +306,13 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 			continue
 		}
 
-		if inst, ok := existingInstances[index]; ok {
-			_ = os.RemoveAll(inst.WorkDir)
+		if prev, ok := existingInstances[index]; ok && prev.WorkDir != "" && dirExists(prev.WorkDir) {
+			inst, err := m.restartInstance(manifest, *prev)
+			if err != nil {
+				return nil, err
+			}
+			instances = append(instances, inst)
+			continue
 		}
 
 		inst, err := m.startInstance(project, manifest, index)
