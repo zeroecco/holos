@@ -115,7 +115,7 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 
 	cc.BootCmd = manifest.CloudInit.BootCmd
 
-	cc.RunCmd = append([]string{serialGettyCmd}, manifest.CloudInit.RunCmd...)
+	cc.RunCmd = append(manifest.CloudInit.RunCmd, serialGettyCmd)
 
 	data, _ := yaml.Marshal(cc)
 	ud := "#cloud-config\n" + string(data)
