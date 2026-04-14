@@ -30,15 +30,13 @@ func Attach(socketPath string) error {
 
 	fmt.Fprintf(os.Stdout, "Connected to serial console. Press Ctrl-] to detach.\r\n")
 
-	// Send a carriage return to nudge any login prompt into redisplaying.
 	conn.Write([]byte("\r"))
 
-	// Either goroutine finishing means the session is over.
 	errc := make(chan error, 2)
 
-	// socket -> stdout
+	// socket -> stdout (with \r cleanup)
 	go func() {
-		_, err := io.Copy(os.Stdout, conn)
+		_, err := io.Copy(&crCleanWriter{w: os.Stdout}, conn)
 		errc <- err
 	}()
 
@@ -64,10 +62,32 @@ func Attach(socketPath string) error {
 		}
 	}()
 
-	// Wait for the first goroutine to finish, then close the conn
-	// to unblock the other.
 	<-errc
 	conn.Close()
 
 	return nil
+}
+
+// crCleanWriter wraps a writer and inserts an ANSI "erase to end of
+// line" escape after every bare \r (i.e. \r not followed by \n).
+// This prevents APT-style progress bars from leaving line remnants
+// when overwritten by shorter text.
+type crCleanWriter struct {
+	w io.Writer
+}
+
+var eraseEOL = []byte("\x1b[K")
+
+func (c *crCleanWriter) Write(p []byte) (int, error) {
+	buf := make([]byte, 0, len(p))
+	for i := 0; i < len(p); i++ {
+		buf = append(buf, p[i])
+		if p[i] == '\r' && (i+1 >= len(p) || p[i+1] != '\n') {
+			buf = append(buf, eraseEOL...)
+		}
+	}
+	if _, err := c.w.Write(buf); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
