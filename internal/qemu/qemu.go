@@ -117,6 +117,8 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		args = append(args, "-device", vfioOpts)
 	}
 
+	args = append(args, manifest.VM.ExtraArgs...)
+
 	return args, nil
 }
 

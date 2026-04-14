@@ -33,12 +33,13 @@ type Manifest struct {
 }
 
 type VMConfig struct {
-	VCPU     int      `json:"vcpu"`
-	MemoryMB int      `json:"memory_mb"`
-	Machine  string   `json:"machine"`
-	CPUModel string   `json:"cpu_model"`
-	Features []string `json:"features"`
-	UEFI     bool     `json:"uefi,omitempty"`
+	VCPU      int      `json:"vcpu"`
+	MemoryMB  int      `json:"memory_mb"`
+	Machine   string   `json:"machine"`
+	CPUModel  string   `json:"cpu_model"`
+	Features  []string `json:"features"`
+	UEFI      bool     `json:"uefi,omitempty"`
+	ExtraArgs []string `json:"extra_args,omitempty"`
 }
 
 type Device struct {

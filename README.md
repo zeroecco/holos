@@ -137,6 +137,26 @@ services:
 
 Available: `alpine`, `arch`, `debian`, `ubuntu`, `fedora`. Run `holos images` to see all tags.
 
+### Extra QEMU Arguments
+
+Pass arbitrary flags straight to `qemu-system-x86_64` with `extra_args`:
+
+```yaml
+services:
+  gpu:
+    image: ubuntu:noble
+    vm:
+      vcpu: 4
+      memory_mb: 8192
+      extra_args:
+        - "-device"
+        - "virtio-gpu-pci"
+        - "-display"
+        - "egl-headless"
+```
+
+Arguments are appended after all holos-managed flags. No validation -- you own it.
+
 ### Resource Defaults
 
 | Field | Default |

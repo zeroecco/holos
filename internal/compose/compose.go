@@ -40,11 +40,12 @@ type Service struct {
 }
 
 type VM struct {
-	VCPU     int    `yaml:"vcpu,omitempty"`
-	MemoryMB int    `yaml:"memory_mb,omitempty"`
-	Machine  string `yaml:"machine,omitempty"`
-	CPUModel string `yaml:"cpu_model,omitempty"`
-	UEFI     bool   `yaml:"uefi,omitempty"`
+	VCPU      int      `yaml:"vcpu,omitempty"`
+	MemoryMB  int      `yaml:"memory_mb,omitempty"`
+	Machine   string   `yaml:"machine,omitempty"`
+	CPUModel  string   `yaml:"cpu_model,omitempty"`
+	UEFI      bool     `yaml:"uefi,omitempty"`
+	ExtraArgs []string `yaml:"extra_args,omitempty"`
 }
 
 type ComposeDevice struct {
@@ -272,11 +273,12 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		Image:       image,
 		ImageFormat: imageFormat,
 		VM: config.VMConfig{
-			VCPU:     vcpu,
-			MemoryMB: memMB,
-			Machine:  machine,
-			CPUModel: cpuModel,
-			UEFI:     uefi,
+			VCPU:      vcpu,
+			MemoryMB:  memMB,
+			Machine:   machine,
+			CPUModel:  cpuModel,
+			UEFI:      uefi,
+			ExtraArgs: svc.VM.ExtraArgs,
 		},
 		Devices: devices,
 		Network: config.NetworkConfig{Mode: "user"},
