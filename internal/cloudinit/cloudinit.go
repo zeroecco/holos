@@ -59,6 +59,13 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 		Permissions: "0644",
 		Owner:       "root:root",
 	})
+	allWriteFiles = append(allWriteFiles, config.WriteFile{
+		Path: "/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf",
+		Content: fmt.Sprintf("[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin %s --noclear %%I $TERM\n",
+			manifest.CloudInit.User),
+		Permissions: "0644",
+		Owner:       "root:root",
+	})
 	allWriteFiles = append(allWriteFiles, manifest.CloudInit.WriteFiles...)
 
 	ud.WriteString("write_files:\n")
@@ -77,7 +84,7 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 		}
 	}
 
-	serialGettyCmd := "systemctl enable --now serial-getty@ttyS0.service && update-grub 2>/dev/null || true"
+	serialGettyCmd := "systemctl daemon-reload && systemctl enable --now serial-getty@ttyS0.service && update-grub 2>/dev/null || true"
 	var runCmds []string
 	runCmds = append(runCmds, serialGettyCmd)
 	runCmds = append(runCmds, manifest.CloudInit.RunCmd...)
