@@ -1,0 +1,67 @@
+name: web-stack
+
+services:
+  db:
+    image: ../output/images/base/holosteric-base.qcow2
+    vm:
+      vcpu: 2
+      memory_mb: 1024
+    cloud_init:
+      packages:
+        - postgresql
+        - postgresql-client
+      runcmd:
+        - systemctl enable postgresql
+        - systemctl start postgresql
+
+  api:
+    image: ../output/images/base/holosteric-base.qcow2
+    depends_on:
+      - db
+    vm:
+      vcpu: 1
+      memory_mb: 768
+    ports:
+      - "3000:3000"
+    cloud_init:
+      packages:
+        - nodejs
+        - npm
+      write_files:
+        - path: /etc/api.env
+          content: |
+            DATABASE_HOST=db
+            DATABASE_PORT=5432
+      runcmd:
+        - systemctl daemon-reload
+
+  web:
+    image: ../output/images/base/holosteric-base.qcow2
+    replicas: 2
+    depends_on:
+      - api
+    vm:
+      vcpu: 1
+      memory_mb: 512
+    ports:
+      - "8080:80"
+    volumes:
+      - ../examples/www:/srv/www:ro
+    cloud_init:
+      packages:
+        - nginx
+      write_files:
+        - path: /etc/nginx/sites-enabled/default
+          content: |
+            server {
+                listen 80;
+                location / {
+                    proxy_pass http://api:3000;
+                }
+                location /static/ {
+                    alias /srv/www/;
+                }
+            }
+      runcmd:
+        - systemctl enable nginx
+        - systemctl restart nginx

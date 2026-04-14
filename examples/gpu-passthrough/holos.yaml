@@ -1,0 +1,20 @@
+name: gpu-workload
+
+services:
+  ml:
+    image: ubuntu:noble
+    vm:
+      vcpu: 8
+      memory_mb: 16384
+      # uefi: true is inferred automatically when devices are present
+    devices:
+      - pci: "01:00.0"       # GPU
+      - pci: "01:00.1"       # GPU audio (same IOMMU group)
+    ports:
+      - "8888:8888"
+    cloud_init:
+      packages:
+        - build-essential
+        - python3-pip
+      runcmd:
+        - echo "GPU passthrough VM ready"

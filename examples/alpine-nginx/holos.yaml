@@ -1,0 +1,14 @@
+name: alpine-nginx
+
+services:
+  web:
+    image: alpine
+    replicas: 2
+    ports:
+      - "8080:80"
+    cloud_init:
+      packages:
+        - nginx
+      runcmd:
+        - rc-update add nginx default
+        - rc-service nginx start
