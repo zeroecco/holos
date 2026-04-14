@@ -84,7 +84,7 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 		}
 	}
 
-	serialGettyCmd := "systemctl daemon-reload && systemctl enable --now serial-getty@ttyS0.service && update-grub 2>/dev/null || true"
+	serialGettyCmd := "systemctl daemon-reload && systemctl enable serial-getty@ttyS0.service && systemctl restart serial-getty@ttyS0.service && update-grub 2>/dev/null || true"
 	var runCmds []string
 	runCmds = append(runCmds, serialGettyCmd)
 	runCmds = append(runCmds, manifest.CloudInit.RunCmd...)
