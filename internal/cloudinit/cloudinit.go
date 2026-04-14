@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/rich/holosteric/internal/config"
+	"github.com/zeroecco/holos/internal/config"
 )
 
 // Render produces cloud-init user-data, meta-data, and network-config.
@@ -66,11 +66,12 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 		}
 	}
 
-	if len(manifest.CloudInit.BootCmd) > 0 {
-		ud.WriteString("bootcmd:\n")
-		for _, command := range manifest.CloudInit.BootCmd {
-			ud.WriteString(fmt.Sprintf("  - %s\n", yamlQuote(command)))
-		}
+	var bootCmds []string
+	bootCmds = append(bootCmds, "systemctl enable --now serial-getty@ttyS0.service")
+	bootCmds = append(bootCmds, manifest.CloudInit.BootCmd...)
+	ud.WriteString("bootcmd:\n")
+	for _, command := range bootCmds {
+		ud.WriteString(fmt.Sprintf("  - %s\n", yamlQuote(command)))
 	}
 
 	if len(manifest.CloudInit.RunCmd) > 0 {
@@ -137,16 +138,18 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 		return ""
 	}
 
-	return fmt.Sprintf(`network:
-  version: 2
-  ethernets:
-    internal:
-      match:
-        macaddress: %q
-      dhcp4: false
-      addresses:
-        - %s/24
-`, mac, ip)
+	userMAC := manifest.InternalNetwork.UserMAC(instanceIndex)
+
+	var buf strings.Builder
+	buf.WriteString("network:\n  version: 2\n  ethernets:\n")
+
+	if userMAC != "" {
+		fmt.Fprintf(&buf, "    external:\n      match:\n        macaddress: %q\n      dhcp4: true\n", userMAC)
+	}
+
+	fmt.Fprintf(&buf, "    internal:\n      match:\n        macaddress: %q\n      dhcp4: false\n      addresses:\n        - %s/24\n", mac, ip)
+
+	return buf.String()
 }
 
 func indentBlock(value, prefix string) string {

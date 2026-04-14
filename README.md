@@ -13,7 +13,7 @@ name: my-stack
 
 services:
   db:
-    image: ./output/images/base/holosteric-base.qcow2
+    image: ubuntu:noble
     vm:
       vcpu: 2
       memory_mb: 1024
@@ -25,7 +25,7 @@ services:
         - systemctl start postgresql
 
   web:
-    image: ./output/images/base/holosteric-base.qcow2
+    image: ubuntu:noble
     replicas: 2
     depends_on:
       - db
@@ -58,15 +58,16 @@ That's it. Two nginx VMs and a postgres VM, all on the same host, all talking to
 ## CLI
 
 ```
-holos up [-f holos.yaml]         start all services
-holos down [-f holos.yaml]       stop and remove all services
-holos ps                         list running projects
-holos stop [-f holos.yaml] [svc] stop a service or all services
-holos logs [-f holos.yaml] <svc> show service logs
-holos validate [-f holos.yaml]   validate compose file
-holos pull <image>               pull a cloud image (e.g. alpine, ubuntu:noble)
-holos images                     list available images
-holos devices [--gpu]            list PCI devices and IOMMU groups
+holos up [-f holos.yaml]             start all services
+holos down [-f holos.yaml]           stop and remove all services
+holos ps                             list running projects
+holos stop [-f holos.yaml] [svc]     stop a service or all services
+holos console [-f holos.yaml] <inst> attach serial console to an instance
+holos logs [-f holos.yaml] <svc>     show service logs
+holos validate [-f holos.yaml]       validate compose file
+holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
+holos images                         list available images
+holos devices [--gpu]                list PCI devices and IOMMU groups
 ```
 
 ## Compose File

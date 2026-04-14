@@ -9,10 +9,11 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/rich/holosteric/internal/compose"
-	"github.com/rich/holosteric/internal/images"
-	"github.com/rich/holosteric/internal/runtime"
-	"github.com/rich/holosteric/internal/vfio"
+	"github.com/zeroecco/holos/internal/compose"
+	"github.com/zeroecco/holos/internal/console"
+	"github.com/zeroecco/holos/internal/images"
+	"github.com/zeroecco/holos/internal/runtime"
+	"github.com/zeroecco/holos/internal/vfio"
 )
 
 func main() {
@@ -37,6 +38,8 @@ func run(args []string) error {
 		return runPS(args[1:])
 	case "stop":
 		return runStop(args[1:])
+	case "console":
+		return runConsole(args[1:])
 	case "logs":
 		return runLogs(args[1:])
 	case "validate":
@@ -221,6 +224,48 @@ func runLogs(args []string) error {
 	}
 
 	return fmt.Errorf("service %q not found in project %q", serviceName, project.Name)
+}
+
+func runConsole(args []string) error {
+	flags := flag.NewFlagSet("console", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml")
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("console requires an instance name (e.g. web-0)")
+	}
+
+	instanceName := flags.Arg(0)
+
+	project, err := loadProject(*filePath, *stateDir)
+	if err != nil {
+		return err
+	}
+
+	manager := runtime.NewManager(*stateDir)
+	record, err := manager.ProjectStatus(project.Name)
+	if err != nil {
+		return err
+	}
+
+	for _, svc := range record.Services {
+		for _, inst := range svc.Instances {
+			if inst.Name == instanceName {
+				if inst.Status != "running" {
+					return fmt.Errorf("instance %q is %s", instanceName, inst.Status)
+				}
+				if inst.SerialPath == "" {
+					return fmt.Errorf("instance %q has no serial console (created before console support)", instanceName)
+				}
+				return console.Attach(inst.SerialPath)
+			}
+		}
+	}
+
+	return fmt.Errorf("instance %q not found in project %q", instanceName, project.Name)
 }
 
 func runValidate(args []string) error {
@@ -456,14 +501,15 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `holos - docker compose for KVM
 
 Usage:
-  holos up [-f holos.yaml]         start all services
-  holos down [-f holos.yaml]       stop and remove all services
-  holos ps                         list running projects
-  holos stop [-f holos.yaml] [svc] stop a service or all services
-  holos logs [-f holos.yaml] <svc> show service logs
-  holos validate [-f holos.yaml]   validate compose file
-  holos pull <image>               pull a cloud image (e.g. alpine, ubuntu:noble)
-  holos images                     list available images
-  holos devices [--gpu]            list PCI devices and IOMMU groups
+  holos up [-f holos.yaml]             start all services
+  holos down [-f holos.yaml]           stop and remove all services
+  holos ps                             list running projects
+  holos stop [-f holos.yaml] [svc]     stop a service or all services
+  holos console [-f holos.yaml] <inst> attach serial console to an instance
+  holos logs [-f holos.yaml] <svc>     show service logs
+  holos validate [-f holos.yaml]       validate compose file
+  holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
+  holos images                         list available images
+  holos devices [--gpu]                list PCI devices and IOMMU groups
 `)
 }

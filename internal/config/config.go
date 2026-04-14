@@ -56,12 +56,23 @@ type InternalNetworkConfig struct {
 	Subnet         string   `json:"subnet"`
 	InstanceIPs    []string `json:"instance_ips"`
 	BaseMAC        string   `json:"base_mac"`
+	UserBaseMAC    string   `json:"user_base_mac"`
 }
 
 func (n *InternalNetworkConfig) InstanceMAC(index int) string {
 	parts := strings.Split(n.BaseMAC, ":")
 	if len(parts) != 6 {
 		return n.BaseMAC
+	}
+	last, _ := strconv.ParseUint(parts[5], 16, 8)
+	parts[5] = fmt.Sprintf("%02x", byte(last)+byte(index))
+	return strings.Join(parts, ":")
+}
+
+func (n *InternalNetworkConfig) UserMAC(index int) string {
+	parts := strings.Split(n.UserBaseMAC, ":")
+	if len(parts) != 6 {
+		return n.UserBaseMAC
 	}
 	last, _ := strconv.ParseUint(parts[5], 16, 8)
 	parts[5] = fmt.Sprintf("%02x", byte(last)+byte(index))

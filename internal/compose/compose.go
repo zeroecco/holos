@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rich/holosteric/internal/config"
-	"github.com/rich/holosteric/internal/images"
+	"github.com/zeroecco/holos/internal/config"
+	"github.com/zeroecco/holos/internal/images"
 	"gopkg.in/yaml.v3"
 )
 
@@ -296,6 +296,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			Subnet:         network.Subnet,
 			InstanceIPs:    instanceIPs,
 			BaseMAC:        baseMAC,
+			UserBaseMAC:    generateUserMAC(f.Name, name),
 		},
 		ExtraHosts: hosts,
 	}, nil
@@ -394,6 +395,13 @@ func generateMAC(project, service string) string {
 	h.Write([]byte(project + "/" + service))
 	sum := h.Sum32()
 	return fmt.Sprintf("52:54:00:%02x:%02x:00", byte(sum>>8), byte(sum))
+}
+
+func generateUserMAC(project, service string) string {
+	h := fnv.New32a()
+	h.Write([]byte(project + "/" + service))
+	sum := h.Sum32()
+	return fmt.Sprintf("52:54:01:%02x:%02x:00", byte(sum>>8), byte(sum))
 }
 
 func parsePorts(specs []string) ([]config.PortForward, error) {

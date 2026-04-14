@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rich/holosteric/internal/cloudinit"
-	"github.com/rich/holosteric/internal/compose"
-	"github.com/rich/holosteric/internal/config"
-	"github.com/rich/holosteric/internal/qemu"
+	"github.com/zeroecco/holos/internal/cloudinit"
+	"github.com/zeroecco/holos/internal/compose"
+	"github.com/zeroecco/holos/internal/config"
+	"github.com/zeroecco/holos/internal/qemu"
 )
 
 type Manager struct {
@@ -53,6 +53,7 @@ type InstanceRecord struct {
 	OverlayPath  string             `json:"overlay_path"`
 	SeedPath     string             `json:"seed_path"`
 	LogPath      string             `json:"log_path"`
+	SerialPath   string             `json:"serial_path"`
 	QMPPath      string             `json:"qmp_path"`
 	Ports        []qemu.PortMapping `json:"ports"`
 	LastStarted  time.Time          `json:"last_started"`
@@ -361,6 +362,7 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 	}
 
 	logPath := filepath.Join(workDir, "console.log")
+	serialPath := filepath.Join(workDir, "serial.sock")
 	qmpPath := filepath.Join(workDir, "qmp.sock")
 	qemuLogPath := filepath.Join(workDir, "qemu.log")
 
@@ -370,6 +372,7 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		OverlayPath: overlayPath,
 		SeedPath:    seedPath,
 		LogPath:     logPath,
+		SerialPath:  serialPath,
 		QMPPath:     qmpPath,
 		Ports:       ports,
 	}
@@ -424,6 +427,7 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		OverlayPath: overlayPath,
 		SeedPath:    seedPath,
 		LogPath:     logPath,
+		SerialPath:  serialPath,
 		QMPPath:     qmpPath,
 		Ports:       ports,
 		LastStarted: time.Now().UTC(),

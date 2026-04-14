@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rich/holosteric/internal/config"
+	"github.com/zeroecco/holos/internal/config"
 )
 
 func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {

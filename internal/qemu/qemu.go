@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/rich/holosteric/internal/config"
+	"github.com/zeroecco/holos/internal/config"
 )
 
 type PortMapping struct {
@@ -21,6 +21,7 @@ type LaunchSpec struct {
 	OverlayPath string
 	SeedPath    string
 	LogPath     string
+	SerialPath  string
 	QMPPath     string
 	Ports       []PortMapping
 	OVMFCode    string // path to OVMF_CODE.fd (read-only, shared)
@@ -43,7 +44,8 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		"-nodefaults",
 		"-no-user-config",
 		"-display", "none",
-		"-serial", fmt.Sprintf("file:%s", spec.LogPath),
+		"-chardev", fmt.Sprintf("socket,id=console0,path=%s,server=on,wait=off,logfile=%s,logappend=on", spec.SerialPath, spec.LogPath),
+		"-serial", "chardev:console0",
 		"-chardev", fmt.Sprintf("socket,id=qmp,path=%s,server=on,wait=off", spec.QMPPath),
 		"-mon", "chardev=qmp,mode=control",
 		"-device", "virtio-rng-pci",
@@ -67,7 +69,13 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, "-netdev", netdev, "-device", "virtio-net-pci,netdev=net0")
+	userDevice := "virtio-net-pci,netdev=net0"
+	if manifest.InternalNetwork != nil {
+		if userMAC := manifest.InternalNetwork.UserMAC(spec.Index); userMAC != "" {
+			userDevice += ",mac=" + userMAC
+		}
+	}
+	args = append(args, "-netdev", netdev, "-device", userDevice)
 
 	// Socket multicast NIC for inter-VM networking.
 	if manifest.InternalNetwork != nil {
