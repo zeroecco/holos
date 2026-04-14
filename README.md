@@ -61,6 +61,7 @@ That's it. Two nginx VMs and a postgres VM, all on the same host, all talking to
 holos up [-f holos.yaml]             start all services
 holos down [-f holos.yaml]           stop and remove all services
 holos ps                             list running projects
+holos start [-f holos.yaml] [svc]    start a stopped service or all services
 holos stop [-f holos.yaml] [svc]     stop a service or all services
 holos console [-f holos.yaml] <inst> attach serial console to an instance
 holos logs [-f holos.yaml] <svc>     show service logs

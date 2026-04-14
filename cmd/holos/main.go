@@ -37,6 +37,8 @@ func run(args []string) error {
 		return runDown(args[1:])
 	case "ps":
 		return runPS(args[1:])
+	case "start":
+		return runStart(args[1:])
 	case "stop":
 		return runStop(args[1:])
 	case "console":
@@ -154,6 +156,44 @@ func runPS(args []string) error {
 		}
 	}
 	return writer.Flush()
+}
+
+func runStart(args []string) error {
+	flags := flag.NewFlagSet("start", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml")
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	project, err := loadProject(*filePath, *stateDir)
+	if err != nil {
+		return err
+	}
+
+	if flags.NArg() > 0 {
+		svcName := flags.Arg(0)
+		if _, ok := project.Services[svcName]; !ok {
+			return fmt.Errorf("service %q not found in project %q", svcName, project.Name)
+		}
+		// Filter to just the requested service so Up only reconciles it.
+		for name := range project.Services {
+			if name != svcName {
+				delete(project.Services, name)
+			}
+		}
+		project.ServiceOrder = []string{svcName}
+	}
+
+	manager := runtime.NewManager(*stateDir)
+	record, err := manager.Up(project)
+	if err != nil {
+		return err
+	}
+
+	printProjectStatus(record)
+	return nil
 }
 
 func runStop(args []string) error {
@@ -484,6 +524,7 @@ Usage:
   holos up [-f holos.yaml]             start all services
   holos down [-f holos.yaml]           stop and remove all services
   holos ps                             list running projects
+  holos start [-f holos.yaml] [svc]    start a stopped service or all services
   holos stop [-f holos.yaml] [svc]     stop a service or all services
   holos console [-f holos.yaml] <inst> attach serial console to an instance
   holos logs [-f holos.yaml] <svc>     show service logs
