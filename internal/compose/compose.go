@@ -336,8 +336,8 @@ func (f *File) validate() error {
 		if !namePattern.MatchString(name) {
 			return fmt.Errorf("service name %q must match %s", name, namePattern.String())
 		}
-		if svc.Image == "" {
-			return fmt.Errorf("service %q requires an image", name)
+		if svc.Image == "" && svc.Dockerfile == "" {
+			return fmt.Errorf("service %q requires an image (or a dockerfile with FROM)", name)
 		}
 		for _, dep := range svc.DependsOn {
 			if _, ok := f.Services[dep]; !ok {
