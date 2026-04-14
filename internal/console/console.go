@@ -34,7 +34,7 @@ func Attach(socketPath string) error {
 	conn.Write([]byte("\r"))
 
 	// Either goroutine finishing means the session is over.
-	errc := make(chan error, 1)
+	errc := make(chan error, 2)
 
 	// socket -> stdout
 	go func() {
