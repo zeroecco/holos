@@ -60,6 +60,18 @@ func TestResolveLocalPathReturnsNil(t *testing.T) {
 	}
 }
 
+// A registry reference whose tag happens to end in a disk-image extension
+// must still be routed through the registry, not treated as a local path.
+// Regression guard for the earlier over-broad extension check.
+func TestResolveTaggedRefWithExtensionIsNotLocal(t *testing.T) {
+	t.Parallel()
+
+	_, err := Resolve("ubuntu:noble.img")
+	if err == nil {
+		t.Fatal("expected unknown-image error, got nil (ref was misclassified as local path)")
+	}
+}
+
 func TestResolveUnknownImage(t *testing.T) {
 	t.Parallel()
 

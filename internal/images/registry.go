@@ -172,9 +172,20 @@ func parseRef(ref string) (name, tag string) {
 	return ref, ""
 }
 
+// isLocalPath decides whether a reference should be treated as a filesystem
+// path rather than a registry name. We accept:
+//
+//   - Absolute paths ("/...")
+//   - Relative paths explicitly rooted at "./" or "../"
+//   - Bare filenames ending in .qcow2/.raw/.img, but only if they contain
+//     no colon (so registry references like "ubuntu:noble" are never
+//     misinterpreted even if a future tag happened to end in ".img")
 func isLocalPath(ref string) bool {
 	if strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "../") {
 		return true
+	}
+	if strings.ContainsRune(ref, ':') {
+		return false
 	}
 	if strings.HasSuffix(ref, ".qcow2") || strings.HasSuffix(ref, ".raw") || strings.HasSuffix(ref, ".img") {
 		return true

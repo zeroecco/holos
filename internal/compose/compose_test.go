@@ -157,6 +157,19 @@ func TestParsePort(t *testing.T) {
 	}
 }
 
+// parsePort previously accepted "/udp" and other non-TCP protocol suffixes,
+// only for manifest validation to reject them later. The error must now
+// surface at parse time.
+func TestParsePortRejectsNonTCPProtocol(t *testing.T) {
+	t.Parallel()
+
+	for _, spec := range []string{"53:53/udp", "80/sctp"} {
+		if _, err := parsePort(spec); err == nil {
+			t.Fatalf("parsePort(%q): expected error for non-tcp protocol", spec)
+		}
+	}
+}
+
 func TestParseVolume(t *testing.T) {
 	t.Parallel()
 

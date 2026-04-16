@@ -71,8 +71,17 @@ func Parse(path string, contextDir string) (*Result, error) {
 			dir := strings.TrimSpace(args)
 			fmt.Fprintf(&script, "mkdir -p %s && cd %s\n", shellQuote(dir), shellQuote(dir))
 
+		case "USER":
+			// USER changes the effective UID for subsequent RUN
+			// instructions in a container build. In our shell-script
+			// provisioning model there is no equivalent: everything
+			// runs as root. Silently dropping this would surprise
+			// users whose Dockerfile expects later RUN steps to
+			// execute as a non-root user, so emit a warning.
+			fmt.Fprintf(os.Stderr, "holos: warning: Dockerfile USER %s ignored; RUN steps execute as root\n", strings.TrimSpace(args))
+			continue
 		case "EXPOSE", "CMD", "ENTRYPOINT", "LABEL", "VOLUME",
-			"HEALTHCHECK", "STOPSIGNAL", "SHELL", "ONBUILD", "ARG", "USER":
+			"HEALTHCHECK", "STOPSIGNAL", "SHELL", "ONBUILD", "ARG":
 			continue
 		}
 	}

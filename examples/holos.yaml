@@ -45,8 +45,6 @@ services:
       memory_mb: 512
     ports:
       - "8080:80"
-    volumes:
-      - ../examples/www:/srv/www:ro
     cloud_init:
       packages:
         - nginx
@@ -57,9 +55,6 @@ services:
                 listen 80;
                 location / {
                     proxy_pass http://api:3000;
-                }
-                location /static/ {
-                    alias /srv/www/;
                 }
             }
       runcmd:

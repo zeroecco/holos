@@ -82,6 +82,74 @@ func TestRenderWithExtraHosts(t *testing.T) {
 	}
 }
 
+// The serial-getty runcmd assumes systemd. Previously it was emitted
+// unconditionally, which meant Alpine guests ran failing `systemctl` chains.
+// The renderer must now branch on the image family and emit neither the
+// systemd drop-in nor the systemctl runcmd when the image looks like Alpine.
+func TestRenderAlpineSkipsSystemdBits(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:  "web",
+		Image: "/var/cache/holos/images/alpine-3.21-abcd.qcow2",
+		CloudInit: config.CloudInit{
+			User:     "ubuntu",
+			Packages: []string{"nginx"},
+			RunCmd:   []string{"rc-service nginx start"},
+		},
+	}
+
+	userData, _, _ := Render(manifest, "web-0", 0)
+
+	for _, forbidden := range []string{
+		"/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf",
+		"/etc/default/grub.d/99-serial-console.cfg",
+		"systemctl enable serial-getty",
+		"/bin/bash",
+		"- adm",
+	} {
+		if strings.Contains(userData, forbidden) {
+			t.Fatalf("expected Alpine user-data to omit %q, got:\n%s", forbidden, userData)
+		}
+	}
+
+	for _, required := range []string{
+		"name: ubuntu",
+		"- nginx",
+		"- rc-service nginx start",
+	} {
+		if !strings.Contains(userData, required) {
+			t.Fatalf("expected Alpine user-data to contain %q, got:\n%s", required, userData)
+		}
+	}
+}
+
+// Conversely, when the image isn't Alpine, the existing systemd-oriented
+// configuration must still be emitted.
+func TestRenderSystemdIncludesSerialGetty(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:  "web",
+		Image: "/var/cache/holos/images/ubuntu-noble-abcd.qcow2",
+		CloudInit: config.CloudInit{
+			User: "ubuntu",
+		},
+	}
+
+	userData, _, _ := Render(manifest, "web-0", 0)
+
+	for _, required := range []string{
+		"/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf",
+		"systemctl enable serial-getty",
+		"shell: /bin/bash",
+	} {
+		if !strings.Contains(userData, required) {
+			t.Fatalf("expected systemd user-data to contain %q, got:\n%s", required, userData)
+		}
+	}
+}
+
 func TestRenderNetworkConfig(t *testing.T) {
 	t.Parallel()
 
