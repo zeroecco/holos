@@ -28,6 +28,7 @@ type File struct {
 	Volumes  map[string]Volume   `yaml:"volumes,omitempty"`
 }
 
+// Service is a single VM definition within the compose file.
 type Service struct {
 	Image       string          `yaml:"image"`
 	ImageFormat string          `yaml:"image_format,omitempty"`
@@ -41,6 +42,7 @@ type Service struct {
 	CloudInit   CloudInit       `yaml:"cloud_init,omitempty"`
 }
 
+// VM configures the virtual hardware for a service.
 type VM struct {
 	VCPU      int      `yaml:"vcpu,omitempty"`
 	MemoryMB  int      `yaml:"memory_mb,omitempty"`
@@ -50,11 +52,13 @@ type VM struct {
 	ExtraArgs []string `yaml:"extra_args,omitempty"`
 }
 
+// ComposeDevice is a PCI device to pass through to the VM via VFIO.
 type ComposeDevice struct {
 	PCI     string `yaml:"pci"`
 	ROMFile string `yaml:"rom_file,omitempty"`
 }
 
+// CloudInit holds cloud-init configuration embedded in the compose file.
 type CloudInit struct {
 	User              string      `yaml:"user,omitempty"`
 	SSHAuthorizedKeys []string    `yaml:"ssh_authorized_keys,omitempty"`
@@ -64,6 +68,7 @@ type CloudInit struct {
 	BootCmd           []string    `yaml:"bootcmd,omitempty"`
 }
 
+// WriteFile is a file to create inside the VM via cloud-init.
 type WriteFile struct {
 	Path        string `yaml:"path"`
 	Content     string `yaml:"content"`
@@ -71,6 +76,7 @@ type WriteFile struct {
 	Owner       string `yaml:"owner,omitempty"`
 }
 
+// Volume is a placeholder for top-level named volumes (reserved for future use).
 type Volume struct{}
 
 // Project is the resolved, validated form ready for the runtime.
@@ -82,6 +88,7 @@ type Project struct {
 	Network      NetworkPlan
 }
 
+// NetworkPlan describes the internal network assigned to a project.
 type NetworkPlan struct {
 	MulticastGroup string
 	MulticastPort  int

@@ -8,6 +8,8 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
+// PortMapping is a resolved host-to-guest TCP port forward assigned to a
+// running instance.
 type PortMapping struct {
 	Name      string `json:"name"`
 	HostPort  int    `json:"host_port"`
@@ -15,6 +17,9 @@ type PortMapping struct {
 	Protocol  string `json:"protocol"`
 }
 
+// LaunchSpec carries the per-instance paths and port mappings needed to
+// construct QEMU arguments. The runtime populates this after creating the
+// overlay, seed image, and allocating ports.
 type LaunchSpec struct {
 	Name        string
 	Index       int
@@ -28,6 +33,8 @@ type LaunchSpec struct {
 	OVMFVars    string // path to per-instance OVMF_VARS.fd copy (writable)
 }
 
+// BuildArgs produces the full qemu-system-x86_64 argument list for launching
+// a single VM instance.
 func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	machineOpts := fmt.Sprintf("%s,accel=kvm", manifest.VM.Machine)
 	if len(manifest.Devices) > 0 {

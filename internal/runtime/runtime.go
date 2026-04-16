@@ -23,6 +23,7 @@ type Manager struct {
 
 // Record types persisted to disk.
 
+// ProjectRecord is the on-disk JSON state for a running or stopped project.
 type ProjectRecord struct {
 	Name      string          `json:"name"`
 	SpecHash  string          `json:"spec_hash"`
@@ -31,6 +32,7 @@ type ProjectRecord struct {
 	UpdatedAt time.Time       `json:"updated_at"`
 }
 
+// NetworkState records the internal network configuration for a project.
 type NetworkState struct {
 	MulticastGroup string            `json:"multicast_group"`
 	MulticastPort  int               `json:"multicast_port"`
@@ -38,12 +40,15 @@ type NetworkState struct {
 	Hosts          map[string]string `json:"hosts"`
 }
 
+// ServiceRecord tracks the desired and actual replica count for one service.
 type ServiceRecord struct {
 	Name            string           `json:"name"`
 	DesiredReplicas int              `json:"desired_replicas"`
 	Instances       []InstanceRecord `json:"instances"`
 }
 
+// InstanceRecord is the persisted state of a single QEMU VM instance,
+// including its PID, work directory paths, and port mappings.
 type InstanceRecord struct {
 	Name         string             `json:"name"`
 	Index        int                `json:"index"`
@@ -60,10 +65,13 @@ type InstanceRecord struct {
 	LastExitTime time.Time          `json:"last_exit_time,omitempty"`
 }
 
+// NewManager creates a Manager that stores state under the given directory.
 func NewManager(stateDir string) *Manager {
 	return &Manager{stateDir: stateDir}
 }
 
+// DefaultStateDir returns the state directory: HOLOS_STATE_DIR if set,
+// /var/lib/holos for root, or ~/.local/state/holos for regular users.
 func DefaultStateDir() string {
 	if value := os.Getenv("HOLOS_STATE_DIR"); value != "" {
 		return value
@@ -256,6 +264,7 @@ func (m *Manager) ListProjects() ([]*ProjectRecord, error) {
 	return projects, nil
 }
 
+// RunningCount returns the number of instances with status "running".
 func (s *ServiceRecord) RunningCount() int {
 	count := 0
 	for _, instance := range s.Instances {
@@ -266,6 +275,8 @@ func (s *ServiceRecord) RunningCount() int {
 	return count
 }
 
+// PortSummary returns a human-readable string like "8080->80/tcp" for display
+// in status tables, or "-" if no ports are mapped.
 func (i InstanceRecord) PortSummary() string {
 	if len(i.Ports) == 0 {
 		return "-"

@@ -24,6 +24,8 @@ const (
 	DefaultProtocol = "tcp"
 )
 
+// Manifest is the fully resolved description of a single service, consumed
+// by the runtime and qemu packages to launch VM instances.
 type Manifest struct {
 	APIVersion      string                 `json:"api_version"`
 	Kind            string                 `json:"kind"`
@@ -42,6 +44,8 @@ type Manifest struct {
 	ExtraHosts      map[string]string      `json:"extra_hosts,omitempty"`
 }
 
+// VMConfig specifies virtual hardware: CPU count, memory, machine type,
+// CPU model, UEFI boot, and arbitrary extra QEMU arguments.
 type VMConfig struct {
 	VCPU      int      `json:"vcpu"`
 	MemoryMB  int      `json:"memory_mb"`
@@ -52,15 +56,20 @@ type VMConfig struct {
 	ExtraArgs []string `json:"extra_args,omitempty"`
 }
 
+// Device is a PCI device for VFIO passthrough.
 type Device struct {
 	PCI    string `json:"pci,omitempty"`
 	ROMFile string `json:"rom_file,omitempty"`
 }
 
+// NetworkConfig selects the QEMU networking mode (currently only "user").
 type NetworkConfig struct {
 	Mode string `json:"mode"`
 }
 
+// InternalNetworkConfig describes the socket-multicast inter-VM network
+// assigned by the compose resolver: multicast group/port, subnet, per-replica
+// IPs, and base MAC addresses for both the internal and user-mode NICs.
 type InternalNetworkConfig struct {
 	MulticastGroup string   `json:"multicast_group"`
 	MulticastPort  int      `json:"multicast_port"`
@@ -70,10 +79,12 @@ type InternalNetworkConfig struct {
 	UserBaseMAC    string   `json:"user_base_mac"`
 }
 
+// InstanceMAC returns the internal NIC MAC address for the given replica index.
 func (n *InternalNetworkConfig) InstanceMAC(index int) string {
 	return offsetMAC(n.BaseMAC, index)
 }
 
+// UserMAC returns the user-mode NIC MAC address for the given replica index.
 func (n *InternalNetworkConfig) UserMAC(index int) string {
 	return offsetMAC(n.UserBaseMAC, index)
 }
@@ -88,6 +99,8 @@ func offsetMAC(base string, index int) string {
 	return strings.Join(parts, ":")
 }
 
+// InstanceIP returns the static IP for the given replica index, or "" if
+// the index is out of range.
 func (n *InternalNetworkConfig) InstanceIP(index int) string {
 	if index < len(n.InstanceIPs) {
 		return n.InstanceIPs[index]
@@ -95,6 +108,7 @@ func (n *InternalNetworkConfig) InstanceIP(index int) string {
 	return ""
 }
 
+// PortForward maps a host TCP port to a guest TCP port.
 type PortForward struct {
 	Name      string `json:"name"`
 	HostPort  int    `json:"host_port"`
@@ -102,12 +116,14 @@ type PortForward struct {
 	Protocol  string `json:"protocol"`
 }
 
+// Mount describes a host directory shared into the VM via 9p/virtfs.
 type Mount struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	ReadOnly bool   `json:"read_only"`
 }
 
+// CloudInit holds the cloud-init parameters written into the NoCloud seed.
 type CloudInit struct {
 	Hostname          string      `json:"hostname"`
 	User              string      `json:"user"`
@@ -118,6 +134,7 @@ type CloudInit struct {
 	WriteFiles        []WriteFile `json:"write_files"`
 }
 
+// WriteFile is a file to create inside the VM during cloud-init.
 type WriteFile struct {
 	Path        string `json:"path"`
 	Content     string `json:"content"`
@@ -125,6 +142,8 @@ type WriteFile struct {
 	Owner       string `json:"owner"`
 }
 
+// LoadManifest reads a JSON manifest file, applies defaults, resolves
+// relative paths against the manifest's directory, and validates the result.
 func LoadManifest(path string) (Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -216,6 +235,8 @@ func (m *Manifest) resolvePaths(baseDir string) error {
 	return nil
 }
 
+// Validate checks that all manifest fields are within acceptable ranges and
+// formats. Returns the first validation error encountered, or nil.
 func (m Manifest) Validate() error {
 	if !serviceNamePattern.MatchString(m.Name) {
 		return fmt.Errorf("name %q must match %s", m.Name, serviceNamePattern.String())
@@ -262,6 +283,7 @@ func (m Manifest) Validate() error {
 	return nil
 }
 
+// SpecHash returns the full hex-encoded SHA-256 of the JSON-marshaled manifest.
 func (m Manifest) SpecHash() (string, error) {
 	payload, err := json.Marshal(m)
 	if err != nil {
@@ -271,6 +293,8 @@ func (m Manifest) SpecHash() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// InstanceName returns the name for the replica at the given index
+// (e.g. "web-0", "web-1").
 func (m Manifest) InstanceName(index int) string {
 	return fmt.Sprintf("%s-%d", m.Name, index)
 }
