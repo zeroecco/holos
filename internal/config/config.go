@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -58,7 +58,7 @@ type VMConfig struct {
 
 // Device is a PCI device for VFIO passthrough.
 type Device struct {
-	PCI    string `json:"pci,omitempty"`
+	PCI     string `json:"pci,omitempty"`
 	ROMFile string `json:"rom_file,omitempty"`
 }
 

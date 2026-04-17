@@ -22,9 +22,9 @@ var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // File is the user-facing YAML compose format.
 type File struct {
-	Name     string              `yaml:"name"`
-	Services map[string]Service  `yaml:"services"`
-	Volumes  map[string]Volume   `yaml:"volumes,omitempty"`
+	Name     string             `yaml:"name"`
+	Services map[string]Service `yaml:"services"`
+	Volumes  map[string]Volume  `yaml:"volumes,omitempty"`
 }
 
 // Service is a single VM definition within the compose file.
