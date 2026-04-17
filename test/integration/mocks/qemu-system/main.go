@@ -7,13 +7,18 @@
 //
 // Behavior:
 //   - Writes the full argv to a log file (path from HOLOS_MOCK_QEMU_LOG if
-//     set, otherwise <first -name value>.args in the current dir).
+//     set, otherwise not logged).
 //   - Creates the chardev socket files listed in -chardev so tests can
 //     observe their existence.
-//   - Sleeps until SIGTERM/SIGKILL, imitating a long-running VM process.
+//   - For chardev id=qmp, speaks the QEMU Machine Protocol: sends a
+//     greeting, ACKs every command, and exits 0 when system_powerdown is
+//     received so tests can verify the graceful-shutdown path.
+//   - Sleeps until SIGTERM/SIGKILL otherwise, imitating a long-running VM.
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -31,7 +36,8 @@ func main() {
 		appendArgs(logPath, args)
 	}
 
-	createSocketsFromChardevs(args)
+	powerdown := make(chan struct{}, 1)
+	createSocketsFromChardevs(args, powerdown)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
@@ -40,14 +46,27 @@ func main() {
 		if delay, err := time.ParseDuration(delayStr); err == nil {
 			select {
 			case <-time.After(delay):
+				logEvent("exit-after")
 				os.Exit(1)
 			case <-signals:
+				logEvent("sigterm")
+				os.Exit(0)
+			case <-powerdown:
+				logEvent("qmp-powerdown")
 				os.Exit(0)
 			}
 		}
 	}
 
-	<-signals
+	select {
+	case <-signals:
+		logEvent("sigterm")
+	case <-powerdown:
+		logEvent("qmp-powerdown")
+		// Simulate a short shutdown latency so tests observe the guest
+		// halting after the ACK rather than instantly.
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func appendArgs(path string, args []string) {
@@ -59,10 +78,23 @@ func appendArgs(path string, args []string) {
 	fmt.Fprintln(file, strings.Join(args, "\x00"))
 }
 
-// createSocketsFromChardevs scans -chardev arguments for socket paths and
-// opens a listening UNIX socket on each one. The holos runtime occasionally
-// checks for the existence of serial/qmp sockets after launch.
-func createSocketsFromChardevs(args []string) {
+func logEvent(tag string) {
+	path := os.Getenv("HOLOS_MOCK_QEMU_LOG")
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	fmt.Fprintf(file, "EVENT:%s\n", tag)
+}
+
+// createSocketsFromChardevs opens a listening unix socket for every
+// `-chardev socket,...` argument, routing the QMP socket (id=qmp) to a
+// proper QMP responder and all others to a plain accept loop.
+func createSocketsFromChardevs(args []string, powerdown chan<- struct{}) {
 	for i, a := range args {
 		if a != "-chardev" || i+1 >= len(args) {
 			continue
@@ -71,10 +103,16 @@ func createSocketsFromChardevs(args []string) {
 		if len(parts) == 0 || !strings.HasPrefix(parts[0], "socket") {
 			continue
 		}
-		var path string
+		var (
+			path string
+			id   string
+		)
 		for _, p := range parts {
-			if strings.HasPrefix(p, "path=") {
+			switch {
+			case strings.HasPrefix(p, "path="):
 				path = strings.TrimPrefix(p, "path=")
+			case strings.HasPrefix(p, "id="):
+				id = strings.TrimPrefix(p, "id=")
 			}
 		}
 		if path == "" {
@@ -82,7 +120,12 @@ func createSocketsFromChardevs(args []string) {
 		}
 		_ = os.MkdirAll(filepath.Dir(path), 0o755)
 		ln, err := net.Listen("unix", path)
-		if err == nil {
+		if err != nil {
+			continue
+		}
+		if id == "qmp" {
+			go acceptQMP(ln, powerdown)
+		} else {
 			go acceptForever(ln)
 		}
 	}
@@ -95,5 +138,50 @@ func acceptForever(ln net.Listener) {
 			return
 		}
 		_ = conn.Close()
+	}
+}
+
+func acceptQMP(ln net.Listener, powerdown chan<- struct{}) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go handleQMP(conn, powerdown)
+	}
+}
+
+func handleQMP(conn net.Conn, powerdown chan<- struct{}) {
+	defer conn.Close()
+
+	greeting := `{"QMP":{"version":{"qemu":{"major":0,"minor":0,"micro":0,"package":"holos-mock"}},"capabilities":[]}}` + "\n"
+	if _, err := conn.Write([]byte(greeting)); err != nil {
+		return
+	}
+
+	rd := bufio.NewReader(conn)
+	for {
+		line, err := rd.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var cmd struct {
+			Execute string `json:"execute"`
+		}
+		_ = json.Unmarshal(line, &cmd)
+
+		if _, err := conn.Write([]byte(`{"return":{}}` + "\n")); err != nil {
+			return
+		}
+
+		if cmd.Execute == "system_powerdown" {
+			// Signal the main goroutine to terminate, emulating the
+			// guest completing its ACPI shutdown.
+			select {
+			case powerdown <- struct{}{}:
+			default:
+			}
+			return
+		}
 	}
 }

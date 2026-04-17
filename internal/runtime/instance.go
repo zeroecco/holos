@@ -12,6 +12,21 @@ import (
 
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/qemu"
+	"github.com/zeroecco/holos/internal/qmp"
+)
+
+const (
+	// qmpHandshakeTimeout bounds how long we wait for the capability
+	// negotiation and the system_powerdown ACK before abandoning QMP.
+	// The ACK is expected to return promptly; the guest itself may take
+	// far longer to actually halt.
+	qmpHandshakeTimeout = 2 * time.Second
+
+	// sigtermGrace is the window we give a process to exit after SIGTERM
+	// before escalating to SIGKILL. This applies both as a fallback after
+	// a failed QMP attempt and as a safety net for VMs that don't honour
+	// ACPI powerdown.
+	sigtermGrace = 10 * time.Second
 )
 
 func (m *Manager) startInstance(project string, manifest config.Manifest, index int) (InstanceRecord, error) {
@@ -98,18 +113,19 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 	}
 
 	return InstanceRecord{
-		Name:        instanceName,
-		Index:       index,
-		PID:         pid,
-		Status:      "running",
-		WorkDir:     workDir,
-		OverlayPath: overlayPath,
-		SeedPath:    seedPath,
-		LogPath:     logPath,
-		SerialPath:  serialPath,
-		QMPPath:     qmpPath,
-		Ports:       ports,
-		LastStarted: time.Now().UTC(),
+		Name:               instanceName,
+		Index:              index,
+		PID:                pid,
+		Status:             "running",
+		WorkDir:            workDir,
+		OverlayPath:        overlayPath,
+		SeedPath:           seedPath,
+		LogPath:            logPath,
+		SerialPath:         serialPath,
+		QMPPath:            qmpPath,
+		Ports:              ports,
+		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		LastStarted:        time.Now().UTC(),
 	}, nil
 }
 
@@ -176,18 +192,19 @@ func (m *Manager) restartInstance(manifest config.Manifest, prev InstanceRecord)
 	}
 
 	return InstanceRecord{
-		Name:        prev.Name,
-		Index:       prev.Index,
-		PID:         pid,
-		Status:      "running",
-		WorkDir:     prev.WorkDir,
-		OverlayPath: prev.OverlayPath,
-		SeedPath:    prev.SeedPath,
-		LogPath:     prev.LogPath,
-		SerialPath:  prev.SerialPath,
-		QMPPath:     prev.QMPPath,
-		Ports:       ports,
-		LastStarted: time.Now().UTC(),
+		Name:               prev.Name,
+		Index:              prev.Index,
+		PID:                pid,
+		Status:             "running",
+		WorkDir:            prev.WorkDir,
+		OverlayPath:        prev.OverlayPath,
+		SeedPath:           prev.SeedPath,
+		LogPath:            prev.LogPath,
+		SerialPath:         prev.SerialPath,
+		QMPPath:            prev.QMPPath,
+		Ports:              ports,
+		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		LastStarted:        time.Now().UTC(),
 	}, nil
 }
 
@@ -210,9 +227,33 @@ func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) er
 	return nil
 }
 
+// stopInstance requests a graceful shutdown, escalating as needed:
+//
+//  1. Send QMP system_powerdown and wait up to StopGracePeriodSec for the
+//     guest to halt (ACPI shutdown — lets the guest flush disks, unmount,
+//     run shutdown units).
+//  2. If the guest is still running after the grace period (or QMP was
+//     unreachable), send SIGTERM to the qemu process and wait briefly.
+//  3. If the process still hasn't exited, SIGKILL it.
+//
+// Returning nil means the process is no longer alive. A non-nil return
+// from the signal sends is propagated so callers can surface kill errors,
+// but any partial progress (QMP ACK, successful SIGTERM) is not rolled
+// back.
 func (m *Manager) stopInstance(instance InstanceRecord) error {
 	if instance.PID == 0 || !processAlive(instance.PID) {
 		return nil
+	}
+
+	grace := time.Duration(instance.StopGracePeriodSec) * time.Second
+	if grace <= 0 {
+		grace = config.DefaultStopGracePeriodSec * time.Second
+	}
+
+	if instance.QMPPath != "" && requestPowerdown(instance.QMPPath) {
+		if waitForExit(instance.PID, grace) {
+			return nil
+		}
 	}
 
 	process, err := os.FindProcess(instance.PID)
@@ -223,19 +264,51 @@ func (m *Manager) stopInstance(instance InstanceRecord) error {
 	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("signal pid %d: %w", instance.PID, err)
 	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if !processAlive(instance.PID) {
-			return nil
-		}
-		time.Sleep(250 * time.Millisecond)
+	if waitForExit(instance.PID, sigtermGrace) {
+		return nil
 	}
 
 	if err := process.Signal(syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return fmt.Errorf("kill pid %d: %w", instance.PID, err)
 	}
 	return nil
+}
+
+// requestPowerdown dials the QMP socket, completes the handshake, and
+// sends system_powerdown. It returns true only when the server ACKs the
+// command. Any failure (missing socket, handshake timeout, QMP error) is
+// swallowed and reported as false so the caller falls through to SIGTERM.
+// If the HOLOS_DEBUG_QMP environment variable is set, failures are logged
+// to stderr to aid debugging.
+func requestPowerdown(socketPath string) bool {
+	client, err := qmp.Dial(socketPath, qmpHandshakeTimeout)
+	if err != nil {
+		if os.Getenv("HOLOS_DEBUG_QMP") != "" {
+			fmt.Fprintf(os.Stderr, "qmp dial %s: %v\n", socketPath, err)
+		}
+		return false
+	}
+	defer client.Close()
+	if err := client.Powerdown(qmpHandshakeTimeout); err != nil {
+		if os.Getenv("HOLOS_DEBUG_QMP") != "" {
+			fmt.Fprintf(os.Stderr, "qmp powerdown %s: %v\n", socketPath, err)
+		}
+		return false
+	}
+	return true
+}
+
+// waitForExit polls processAlive at 250ms intervals and returns true as
+// soon as the process is no longer alive. Returns false on timeout.
+func waitForExit(pid int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return !processAlive(pid)
 }
 
 func (m *Manager) stopAllInstances(instances []InstanceRecord) {

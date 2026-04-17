@@ -15,33 +15,35 @@ import (
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 const (
-	DefaultReplicas = 1
-	DefaultVCPU     = 1
-	DefaultMemoryMB = 512
-	DefaultMachine  = "q35"
-	DefaultCPUModel = "host"
-	DefaultUser     = "ubuntu"
-	DefaultProtocol = "tcp"
+	DefaultReplicas           = 1
+	DefaultVCPU               = 1
+	DefaultMemoryMB           = 512
+	DefaultMachine            = "q35"
+	DefaultCPUModel           = "host"
+	DefaultUser               = "ubuntu"
+	DefaultProtocol           = "tcp"
+	DefaultStopGracePeriodSec = 30
 )
 
 // Manifest is the fully resolved description of a single service, consumed
 // by the runtime and qemu packages to launch VM instances.
 type Manifest struct {
-	APIVersion      string                 `json:"api_version"`
-	Kind            string                 `json:"kind"`
-	Name            string                 `json:"name"`
-	Replicas        int                    `json:"replicas"`
-	Image           string                 `json:"image"`
-	ImageFormat     string                 `json:"image_format"`
-	VM              VMConfig               `json:"vm"`
-	Network         NetworkConfig          `json:"network"`
-	Ports           []PortForward          `json:"ports"`
-	Mounts          []Mount                `json:"mounts"`
-	CloudInit       CloudInit              `json:"cloud_init"`
-	Labels          map[string]string      `json:"labels"`
-	Devices         []Device               `json:"devices,omitempty"`
-	InternalNetwork *InternalNetworkConfig `json:"internal_network,omitempty"`
-	ExtraHosts      map[string]string      `json:"extra_hosts,omitempty"`
+	APIVersion         string                 `json:"api_version"`
+	Kind               string                 `json:"kind"`
+	Name               string                 `json:"name"`
+	Replicas           int                    `json:"replicas"`
+	Image              string                 `json:"image"`
+	ImageFormat        string                 `json:"image_format"`
+	VM                 VMConfig               `json:"vm"`
+	Network            NetworkConfig          `json:"network"`
+	Ports              []PortForward          `json:"ports"`
+	Mounts             []Mount                `json:"mounts"`
+	CloudInit          CloudInit              `json:"cloud_init"`
+	Labels             map[string]string      `json:"labels"`
+	Devices            []Device               `json:"devices,omitempty"`
+	InternalNetwork    *InternalNetworkConfig `json:"internal_network,omitempty"`
+	ExtraHosts         map[string]string      `json:"extra_hosts,omitempty"`
+	StopGracePeriodSec int                    `json:"stop_grace_period_sec,omitempty"`
 }
 
 // VMConfig specifies virtual hardware: CPU count, memory, machine type,
@@ -199,6 +201,9 @@ func (m *Manifest) applyDefaults() {
 	if m.CloudInit.User == "" {
 		m.CloudInit.User = DefaultUser
 	}
+	if m.StopGracePeriodSec == 0 {
+		m.StopGracePeriodSec = DefaultStopGracePeriodSec
+	}
 	for i := range m.Ports {
 		if m.Ports[i].Protocol == "" {
 			m.Ports[i].Protocol = DefaultProtocol
@@ -258,6 +263,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.Network.Mode != "user" {
 		return fmt.Errorf("network.mode %q is unsupported; only user is implemented", m.Network.Mode)
+	}
+	if m.StopGracePeriodSec < 0 {
+		return fmt.Errorf("stop_grace_period_sec must be >= 0")
 	}
 	for _, port := range m.Ports {
 		if port.GuestPort < 1 || port.GuestPort > 65535 {

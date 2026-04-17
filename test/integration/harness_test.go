@@ -108,10 +108,23 @@ func newHarness(t *testing.T) *harness {
 	holos, mockDir := buildArtifacts(t)
 
 	workDir := t.TempDir()
-	stateDir := filepath.Join(workDir, "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+
+	// Unix socket paths (QMP, serial, QMP chardev) must fit in
+	// sockaddr_un.sun_path — 108 bytes on Linux, ~104 on macOS. The
+	// per-test t.TempDir() can overflow, especially on macOS where
+	// $TMPDIR resolves to something like
+	// /var/folders/xx/yyyy/T/TestName<big-id>/001/, leaving no room for
+	// the nested state/instances/<project>/<svc-N>/qmp.sock path.
+	//
+	// Create the state directory under /tmp directly so the absolute
+	// path stays well within the kernel limit. This matches the real
+	// deployment layout (DefaultStateDir is /var/lib/holos or
+	// ~/.local/state/holos — both short).
+	stateDir, err := os.MkdirTemp("/tmp", "ht-")
+	if err != nil {
 		t.Fatalf("mkdir state: %v", err)
 	}
+	t.Cleanup(func() { _ = os.RemoveAll(stateDir) })
 
 	return &harness{
 		t:        t,
@@ -134,6 +147,7 @@ func (h *harness) env() []string {
 		"HOLOS_QEMU_SYSTEM=" + filepath.Join(h.mockBin, "qemu-system-x86_64"),
 		"HOLOS_QEMU_IMG=" + filepath.Join(h.mockBin, "qemu-img"),
 		"HOLOS_MOCK_QEMU_LOG=" + h.qemuLog,
+		"HOLOS_DEBUG_QMP=1",
 	}
 	env = append(env, h.extraEnv...)
 	return env

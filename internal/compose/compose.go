@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/dockerfile"
@@ -29,16 +30,17 @@ type File struct {
 
 // Service is a single VM definition within the compose file.
 type Service struct {
-	Image       string          `yaml:"image"`
-	ImageFormat string          `yaml:"image_format,omitempty"`
-	Dockerfile  string          `yaml:"dockerfile,omitempty"`
-	Replicas    int             `yaml:"replicas,omitempty"`
-	VM          VM              `yaml:"vm,omitempty"`
-	Ports       []string        `yaml:"ports,omitempty"`
-	Volumes     []string        `yaml:"volumes,omitempty"`
-	Devices     []ComposeDevice `yaml:"devices,omitempty"`
-	DependsOn   []string        `yaml:"depends_on,omitempty"`
-	CloudInit   CloudInit       `yaml:"cloud_init,omitempty"`
+	Image           string          `yaml:"image"`
+	ImageFormat     string          `yaml:"image_format,omitempty"`
+	Dockerfile      string          `yaml:"dockerfile,omitempty"`
+	Replicas        int             `yaml:"replicas,omitempty"`
+	VM              VM              `yaml:"vm,omitempty"`
+	Ports           []string        `yaml:"ports,omitempty"`
+	Volumes         []string        `yaml:"volumes,omitempty"`
+	Devices         []ComposeDevice `yaml:"devices,omitempty"`
+	DependsOn       []string        `yaml:"depends_on,omitempty"`
+	CloudInit       CloudInit       `yaml:"cloud_init,omitempty"`
+	StopGracePeriod string          `yaml:"stop_grace_period,omitempty"`
 }
 
 // VM configures the virtual hardware for a service.
@@ -292,6 +294,11 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		uefi = true
 	}
 
+	gracePeriodSec, err := parseStopGracePeriod(svc.StopGracePeriod)
+	if err != nil {
+		return config.Manifest{}, err
+	}
+
 	return config.Manifest{
 		APIVersion:  "holos/v1alpha1",
 		Kind:        "Service",
@@ -327,8 +334,30 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			BaseMAC:        baseMAC,
 			UserBaseMAC:    generateMAC(0x01, f.Name, name),
 		},
-		ExtraHosts: hosts,
+		ExtraHosts:         hosts,
+		StopGracePeriodSec: gracePeriodSec,
 	}, nil
+}
+
+// parseStopGracePeriod accepts a Go duration string (e.g. "30s", "2m") and
+// returns it as whole seconds. Empty string yields 0 so callers can apply
+// their own default.
+func parseStopGracePeriod(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("stop_grace_period %q: %w", raw, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("stop_grace_period %q: must be non-negative", raw)
+	}
+	seconds := int(d.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	return seconds, nil
 }
 
 func (f *File) validate() error {

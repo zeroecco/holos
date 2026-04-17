@@ -50,19 +50,20 @@ type ServiceRecord struct {
 // InstanceRecord is the persisted state of a single QEMU VM instance,
 // including its PID, work directory paths, and port mappings.
 type InstanceRecord struct {
-	Name         string             `json:"name"`
-	Index        int                `json:"index"`
-	PID          int                `json:"pid"`
-	Status       string             `json:"status"`
-	WorkDir      string             `json:"work_dir"`
-	OverlayPath  string             `json:"overlay_path"`
-	SeedPath     string             `json:"seed_path"`
-	LogPath      string             `json:"log_path"`
-	SerialPath   string             `json:"serial_path"`
-	QMPPath      string             `json:"qmp_path"`
-	Ports        []qemu.PortMapping `json:"ports"`
-	LastStarted  time.Time          `json:"last_started"`
-	LastExitTime time.Time          `json:"last_exit_time,omitempty"`
+	Name               string             `json:"name"`
+	Index              int                `json:"index"`
+	PID                int                `json:"pid"`
+	Status             string             `json:"status"`
+	WorkDir            string             `json:"work_dir"`
+	OverlayPath        string             `json:"overlay_path"`
+	SeedPath           string             `json:"seed_path"`
+	LogPath            string             `json:"log_path"`
+	SerialPath         string             `json:"serial_path"`
+	QMPPath            string             `json:"qmp_path"`
+	Ports              []qemu.PortMapping `json:"ports"`
+	StopGracePeriodSec int                `json:"stop_grace_period_sec,omitempty"`
+	LastStarted        time.Time          `json:"last_started"`
+	LastExitTime       time.Time          `json:"last_exit_time,omitempty"`
 }
 
 // NewManager creates a Manager that stores state under the given directory.

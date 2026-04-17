@@ -81,6 +81,22 @@ The `holos.yaml` format is deliberately similar to docker-compose:
 - **volumes** - `"./source:/target:ro"` syntax, mounted via virtfs
 - **replicas** - run N instances of a service
 - **cloud_init** - packages, write_files, runcmd -- standard cloud-init
+- **stop_grace_period** - how long to wait for ACPI shutdown before SIGTERM/SIGKILL (e.g. `"30s"`, `"2m"`); defaults to 30s
+
+### Graceful shutdown
+
+`holos stop` and `holos down` send QMP `system_powerdown` to the guest
+(equivalent to pressing the power button), then wait up to
+`stop_grace_period` for QEMU to exit on its own. If the guest doesn't
+halt in time — or QMP is unreachable — the runtime falls back to SIGTERM,
+then SIGKILL, matching docker-compose semantics.
+
+```yaml
+services:
+  db:
+    image: ubuntu:noble
+    stop_grace_period: 60s    # flush DB buffers before hard stop
+```
 
 ### Networking
 

@@ -18,12 +18,13 @@ type psProject struct {
 		Name            string `json:"name"`
 		DesiredReplicas int    `json:"desired_replicas"`
 		Instances       []struct {
-			Name    string `json:"name"`
-			Index   int    `json:"index"`
-			PID     int    `json:"pid"`
-			Status  string `json:"status"`
-			WorkDir string `json:"work_dir"`
-			Ports   []struct {
+			Name               string `json:"name"`
+			Index              int    `json:"index"`
+			PID                int    `json:"pid"`
+			Status             string `json:"status"`
+			WorkDir            string `json:"work_dir"`
+			StopGracePeriodSec int    `json:"stop_grace_period_sec"`
+			Ports              []struct {
 				HostPort  int    `json:"host_port"`
 				GuestPort int    `json:"guest_port"`
 				Protocol  string `json:"protocol"`
