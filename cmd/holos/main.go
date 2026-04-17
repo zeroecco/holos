@@ -6,14 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 
 	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/console"
 	"github.com/zeroecco/holos/internal/images"
 	"github.com/zeroecco/holos/internal/runtime"
+	"github.com/zeroecco/holos/internal/systemd"
 	"github.com/zeroecco/holos/internal/vfio"
 )
 
@@ -43,6 +46,8 @@ func run(args []string) error {
 		return runStop(args[1:])
 	case "console":
 		return runConsole(args[1:])
+	case "exec":
+		return runExec(args[1:])
 	case "logs":
 		return runLogs(args[1:])
 	case "validate":
@@ -53,6 +58,10 @@ func run(args []string) error {
 		return runImages(args[1:])
 	case "devices":
 		return runDevices(args[1:])
+	case "install":
+		return runInstall(args[1:])
+	case "uninstall":
+		return runUninstall(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -267,6 +276,92 @@ func runLogs(args []string) error {
 	return fmt.Errorf("service %q not found in project %q", serviceName, project.Name)
 }
 
+// runExec opens an ssh session to a running instance.
+//
+// Layout: holos exec [-f holos.yaml] [-u user] <instance> [-- cmd ...]
+//
+//   - The project is resolved from -f (or auto-discovered in cwd) so
+//     we know which project owns the instance's keypair and cloud-init
+//     user.
+//   - When no command is given we allocate a TTY and drop the operator
+//     into a login shell; with a command we pass it verbatim to ssh and
+//     inherit stdin so pipes work ("holos exec db-0 psql < dump.sql").
+//   - Host-key checks are disabled because guests are ephemeral and
+//     their fingerprints rotate on every `down`/`up`. Keys live on
+//     /dev/null so we never pollute the operator's known_hosts.
+func runExec(args []string) error {
+	flags := flag.NewFlagSet("exec", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml")
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	user := flags.String("u", "", "override login user (default: service's cloud-init user)")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() < 1 {
+		return errors.New("exec requires an instance name (e.g. web-0)")
+	}
+
+	instanceName := flags.Arg(0)
+	cmd := flags.Args()[1:]
+
+	project, err := loadProject(*filePath, *stateDir)
+	if err != nil {
+		return err
+	}
+
+	manager := runtime.NewManager(*stateDir)
+	inst, svcName, err := manager.FindInstance(project.Name, instanceName)
+	if err != nil {
+		return err
+	}
+	if inst.Status != "running" {
+		return fmt.Errorf("instance %q is %s", instanceName, inst.Status)
+	}
+	if inst.SSHPort == 0 {
+		return fmt.Errorf("instance %q has no ssh port (created before exec support; recreate the stack)", instanceName)
+	}
+
+	loginUser := *user
+	if loginUser == "" {
+		if svc, ok := project.Services[svcName]; ok && svc.CloudInit.User != "" {
+			loginUser = svc.CloudInit.User
+		} else {
+			loginUser = "ubuntu"
+		}
+	}
+
+	keyPath, err := manager.ProjectSSHKeyPath(project.Name)
+	if err != nil {
+		return err
+	}
+
+	sshArgs := []string{
+		"-i", keyPath,
+		"-p", fmt.Sprintf("%d", inst.SSHPort),
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
+	}
+	if len(cmd) == 0 {
+		sshArgs = append(sshArgs, "-t")
+	}
+	sshArgs = append(sshArgs, fmt.Sprintf("%s@127.0.0.1", loginUser))
+	sshArgs = append(sshArgs, cmd...)
+
+	sshBin, err := exec.LookPath("ssh")
+	if err != nil {
+		return fmt.Errorf("ssh client not found in PATH: %w", err)
+	}
+
+	// Inherit file descriptors directly so the user's terminal, signals,
+	// and tty modes flow through to the remote shell. We use
+	// syscall.Exec to replace the holos process entirely, which makes
+	// Ctrl-C and exit codes behave exactly like a direct ssh call.
+	argv := append([]string{sshBin}, sshArgs...)
+	return syscall.Exec(sshBin, argv, os.Environ())
+}
+
 func runConsole(args []string) error {
 	flags := flag.NewFlagSet("console", flag.ContinueOnError)
 	filePath := flags.String("f", "", "path to holos.yaml")
@@ -437,6 +532,167 @@ func runDevices(args []string) error {
 	return nil
 }
 
+// runInstall writes a systemd unit so the project comes back up after
+// a host reboot. By default we install a --user unit (no sudo needed);
+// --system installs to /etc/systemd/system for pre-login boot.
+//
+// Flags:
+//
+//	-f <path>      compose file (auto-discovered if omitted)
+//	--system       install system-wide instead of --user
+//	--user <name>  only with --system: User= directive in the unit
+//	--enable       also enable --now so it starts immediately
+//	--dry-run      print the unit to stdout and exit (no write)
+//
+// We resolve every path to an absolute before handing it to the
+// generator; systemd units run with almost no environment, so relative
+// paths or a PATH-dependent "holos" binary would break silently on
+// reboot.
+func runInstall(args []string) error {
+	flags := flag.NewFlagSet("install", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml")
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	system := flags.Bool("system", false, "install system-wide (/etc/systemd/system) instead of --user")
+	runAs := flags.String("user", "", "with --system, run the service as this user")
+	enable := flags.Bool("enable", false, "run systemctl enable --now after installing")
+	dryRun := flags.Bool("dry-run", false, "print the unit content without writing to disk")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	project, absCompose, err := loadProjectWithPath(*filePath, *stateDir)
+	if err != nil {
+		return err
+	}
+
+	holosPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve holos binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(holosPath); err == nil {
+		holosPath = resolved
+	}
+
+	absState, err := filepath.Abs(*stateDir)
+	if err != nil {
+		return fmt.Errorf("resolve state dir: %w", err)
+	}
+
+	scope := systemd.ScopeUser
+	if *system {
+		scope = systemd.ScopeSystem
+	}
+
+	spec := systemd.UnitSpec{
+		Project:     project.Name,
+		ComposeFile: absCompose,
+		HolosBinary: holosPath,
+		StateDir:    absState,
+		Scope:       scope,
+		User:        *runAs,
+	}
+
+	if *dryRun {
+		path, content, err := systemd.Render(spec)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("# would write to: %s\n%s", path, content)
+		return nil
+	}
+
+	res, err := systemd.Install(spec, *enable)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("installed %s unit: %s\n", res.Scope, res.UnitPath)
+	if res.SystemctlMissing {
+		fmt.Println("note: systemctl not found on PATH; unit is on disk but not loaded")
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	if !*enable && !res.SystemctlMissing {
+		hint := "systemctl --user enable --now"
+		if scope == systemd.ScopeSystem {
+			hint = "sudo systemctl enable --now"
+		}
+		fmt.Printf("to activate at boot: %s holos-%s.service\n", hint, project.Name)
+	}
+	return nil
+}
+
+// runUninstall removes the systemd unit written by `holos install`.
+// It does not stop the project — operators that want a clean teardown
+// should `holos down` separately.
+func runUninstall(args []string) error {
+	flags := flag.NewFlagSet("uninstall", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml")
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	system := flags.Bool("system", false, "uninstall the system unit instead of --user")
+	name := flags.String("name", "", "project name (defaults to the name parsed from -f)")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	projectName := *name
+	if projectName == "" {
+		project, _, err := loadProjectWithPath(*filePath, *stateDir)
+		if err != nil {
+			return err
+		}
+		projectName = project.Name
+	}
+
+	scope := systemd.ScopeUser
+	if *system {
+		scope = systemd.ScopeSystem
+	}
+
+	res, err := systemd.Uninstall(scope, projectName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("removed %s unit: %s\n", res.Scope, res.UnitPath)
+	for _, w := range res.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	return nil
+}
+
+// loadProjectWithPath is loadProject plus the absolute path of the
+// compose file it found — installers need the path to embed in the
+// unit's ExecStart=.
+func loadProjectWithPath(filePath, stateDir string) (*compose.Project, string, error) {
+	if filePath == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return nil, "", fmt.Errorf("get working directory: %w", err)
+		}
+		found, err := compose.FindFile(cwd)
+		if err != nil {
+			return nil, "", err
+		}
+		filePath = found
+	}
+	abs, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve compose path: %w", err)
+	}
+
+	file, err := compose.Load(abs)
+	if err != nil {
+		return nil, "", err
+	}
+	project, err := file.Resolve(filepath.Dir(abs), stateDir)
+	if err != nil {
+		return nil, "", err
+	}
+	return project, abs, nil
+}
+
 // loadProject finds, loads, and resolves a compose file.
 func loadProject(filePath string, stateDir string) (*compose.Project, error) {
 	if filePath == "" {
@@ -527,10 +783,15 @@ Usage:
   holos start [-f holos.yaml] [svc]    start a stopped service or all services
   holos stop [-f holos.yaml] [svc]     stop a service or all services
   holos console [-f holos.yaml] <inst> attach serial console to an instance
+  holos exec [-f holos.yaml] <inst> [cmd...]  ssh into an instance (project's generated key)
   holos logs [-f holos.yaml] <svc>     show service logs
   holos validate [-f holos.yaml]       validate compose file
   holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
   holos images                         list available images
   holos devices [--gpu]                list PCI devices and IOMMU groups
+  holos install [-f holos.yaml] [--system] [--enable]
+                                       emit a systemd unit so the project comes back up on reboot
+  holos uninstall [-f holos.yaml] [--system]
+                                       remove the systemd unit written by 'holos install'
 `)
 }

@@ -55,10 +55,20 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		return InstanceRecord{}, err
 	}
 
+	sshPort, err := allocateEphemeralTCPPort()
+	if err != nil {
+		return InstanceRecord{}, fmt.Errorf("allocate ssh port: %w", err)
+	}
+
 	logPath := filepath.Join(workDir, "console.log")
 	serialPath := filepath.Join(workDir, "serial.sock")
 	qmpPath := filepath.Join(workDir, "qmp.sock")
 	qemuLogPath := filepath.Join(workDir, "qemu.log")
+
+	volumes, err := materializeInstanceVolumes(m.stateDir, project, workDir, manifest.Mounts)
+	if err != nil {
+		return InstanceRecord{}, err
+	}
 
 	spec := qemu.LaunchSpec{
 		Name:        instanceName,
@@ -69,6 +79,8 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		SerialPath:  serialPath,
 		QMPPath:     qmpPath,
 		Ports:       ports,
+		Volumes:     volumes,
+		SSHPort:     sshPort,
 	}
 
 	if manifest.VM.UEFI {
@@ -125,18 +137,39 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		QMPPath:            qmpPath,
 		Ports:              ports,
 		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		SSHPort:            sshPort,
 		LastStarted:        time.Now().UTC(),
 	}, nil
 }
 
 // restartInstance boots an existing stopped instance without recreating
 // its overlay or seed image, preserving VM disk state across stop/start.
-func (m *Manager) restartInstance(manifest config.Manifest, prev InstanceRecord) (InstanceRecord, error) {
+func (m *Manager) restartInstance(project string, manifest config.Manifest, prev InstanceRecord) (InstanceRecord, error) {
 	qemuLogPath := filepath.Join(prev.WorkDir, "qemu.log")
 
 	ports, err := allocatePorts(manifest, prev.Index)
 	if err != nil {
 		return InstanceRecord{}, err
+	}
+
+	// Volume symlinks may have been removed manually or by a partial
+	// cleanup; recreate them idempotently before boot.
+	volumes, err := materializeInstanceVolumes(m.stateDir, project, prev.WorkDir, manifest.Mounts)
+	if err != nil {
+		return InstanceRecord{}, err
+	}
+
+	// Restarts try to keep the previously-issued ssh port so that an
+	// operator's shell history (`ssh -p 51234 ...`) and any ambient
+	// firewall rules keep working. If that port got grabbed by
+	// another process between stop and start, fall back to a fresh
+	// allocation rather than failing the boot.
+	sshPort := prev.SSHPort
+	if sshPort == 0 || ensureTCPPortAvailable(sshPort) != nil {
+		sshPort, err = allocateEphemeralTCPPort()
+		if err != nil {
+			return InstanceRecord{}, fmt.Errorf("allocate ssh port: %w", err)
+		}
 	}
 
 	spec := qemu.LaunchSpec{
@@ -148,6 +181,8 @@ func (m *Manager) restartInstance(manifest config.Manifest, prev InstanceRecord)
 		SerialPath:  prev.SerialPath,
 		QMPPath:     prev.QMPPath,
 		Ports:       ports,
+		Volumes:     volumes,
+		SSHPort:     sshPort,
 	}
 
 	if manifest.VM.UEFI {
@@ -204,6 +239,7 @@ func (m *Manager) restartInstance(manifest config.Manifest, prev InstanceRecord)
 		QMPPath:            prev.QMPPath,
 		Ports:              ports,
 		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		SSHPort:            sshPort,
 		LastStarted:        time.Now().UTC(),
 	}, nil
 }

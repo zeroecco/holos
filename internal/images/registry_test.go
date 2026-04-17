@@ -1,6 +1,13 @@
 package images
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,6 +107,67 @@ func TestParseRef(t *testing.T) {
 			t.Fatalf("parseRef(%q) = (%q, %q), want (%q, %q)", tt.ref, name, tag, tt.name, tt.tag)
 		}
 	}
+}
+
+// TestPull_ChecksumVerification spins up a local HTTP server that returns
+// a known payload. A registry-like entry with the correct hash succeeds;
+// one with a wrong hash fails and leaves no partial file in the cache.
+func TestPull_ChecksumVerification(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte("not a real image, but deterministic bytes")
+	sum := sha256.Sum256(payload)
+	correctHex := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(payload)
+	}))
+	t.Cleanup(srv.Close)
+
+	cacheDir := t.TempDir()
+
+	t.Run("correct hash succeeds", func(t *testing.T) {
+		dest := filepath.Join(cacheDir, "ok.qcow2")
+		if err := download(srv.URL+"/ok", dest, correctHex); err != nil {
+			t.Fatalf("download with correct hash: %v", err)
+		}
+		got, err := os.ReadFile(dest)
+		if err != nil {
+			t.Fatalf("read cached: %v", err)
+		}
+		if string(got) != string(payload) {
+			t.Fatal("cached payload does not match source")
+		}
+	})
+
+	t.Run("empty hash skips verification", func(t *testing.T) {
+		dest := filepath.Join(cacheDir, "skip.qcow2")
+		if err := download(srv.URL+"/skip", dest, ""); err != nil {
+			t.Fatalf("download without expected hash: %v", err)
+		}
+		if _, err := os.Stat(dest); err != nil {
+			t.Fatalf("expected cached file: %v", err)
+		}
+	})
+
+	t.Run("wrong hash fails and leaves no file", func(t *testing.T) {
+		dest := filepath.Join(cacheDir, "bad.qcow2")
+		bogus := strings.Repeat("0", 64)
+		err := download(srv.URL+"/bad", dest, bogus)
+		if err == nil {
+			t.Fatal("expected mismatch error")
+		}
+		if !strings.Contains(err.Error(), "sha256 mismatch") {
+			t.Fatalf("error should mention sha256 mismatch; got %v", err)
+		}
+		if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+			t.Fatalf("partial file left behind after mismatch: %v", statErr)
+		}
+		if _, statErr := os.Stat(dest + ".part"); !os.IsNotExist(statErr) {
+			t.Fatalf("temp file left behind after mismatch: %v", statErr)
+		}
+	})
 }
 
 func TestCacheFilename(t *testing.T) {

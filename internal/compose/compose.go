@@ -41,6 +41,79 @@ type Service struct {
 	DependsOn       []string        `yaml:"depends_on,omitempty"`
 	CloudInit       CloudInit       `yaml:"cloud_init,omitempty"`
 	StopGracePeriod string          `yaml:"stop_grace_period,omitempty"`
+	Healthcheck     *Healthcheck    `yaml:"healthcheck,omitempty"`
+}
+
+// Healthcheck declares a liveness probe for a service. When set,
+// `holos up` blocks on every dependent until this service reports
+// healthy — mirroring docker-compose's `depends_on: condition:
+// service_healthy` without requiring the verbose map form.
+//
+// The probe is a shell command run inside each replica over the
+// project's auto-generated `holos exec` ssh key. Exit 0 is healthy;
+// any other exit or a transport error counts as an attempt failure.
+type Healthcheck struct {
+	// Test is the shell command to run inside the VM. Accepts either
+	// a YAML list (["pg_isready"]) or a single string ("curl -f
+	// http://localhost").
+	Test []string `yaml:"test,omitempty"`
+
+	// Interval between probe attempts (e.g. "10s"). Defaults to 30s.
+	Interval string `yaml:"interval,omitempty"`
+	// Retries is how many consecutive failures count as unhealthy
+	// AFTER start_period has elapsed. Defaults to 3.
+	Retries int `yaml:"retries,omitempty"`
+	// StartPeriod is a grace window right after boot during which
+	// failures do not count toward `retries`. Defaults to 0 (no grace).
+	StartPeriod string `yaml:"start_period,omitempty"`
+	// Timeout bounds a single probe's wall-clock budget. Defaults
+	// to 5s.
+	Timeout string `yaml:"timeout,omitempty"`
+}
+
+// UnmarshalYAML accepts Healthcheck.Test as either a list of strings
+// (canonical docker-compose form) or a single shell string. The single-
+// string form is wrapped in ["sh", "-c", ...] so it runs through the
+// shell exactly like docker-compose's CMD-SHELL variant.
+func (h *Healthcheck) UnmarshalYAML(node *yaml.Node) error {
+	type rawHealthcheck struct {
+		Test        yaml.Node `yaml:"test"`
+		Interval    string    `yaml:"interval"`
+		Retries     int       `yaml:"retries"`
+		StartPeriod string    `yaml:"start_period"`
+		Timeout     string    `yaml:"timeout"`
+	}
+	var raw rawHealthcheck
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+
+	h.Interval = raw.Interval
+	h.Retries = raw.Retries
+	h.StartPeriod = raw.StartPeriod
+	h.Timeout = raw.Timeout
+
+	switch raw.Test.Kind {
+	case 0:
+		// omitted
+	case yaml.ScalarNode:
+		var s string
+		if err := raw.Test.Decode(&s); err != nil {
+			return err
+		}
+		if s != "" {
+			h.Test = []string{"sh", "-c", s}
+		}
+	case yaml.SequenceNode:
+		var list []string
+		if err := raw.Test.Decode(&list); err != nil {
+			return err
+		}
+		h.Test = list
+	default:
+		return fmt.Errorf("healthcheck.test must be a string or list of strings")
+	}
+	return nil
 }
 
 // VM configures the virtual hardware for a service.
@@ -77,8 +150,16 @@ type WriteFile struct {
 	Owner       string `yaml:"owner,omitempty"`
 }
 
-// Volume is a placeholder for top-level named volumes (reserved for future use).
-type Volume struct{}
+// Volume configures a top-level named volume. Named volumes are
+// qcow2-backed block devices that persist across `holos down` — they
+// live under state_dir/volumes/<project>/<name>.qcow2 and are symlinked
+// into each instance's workdir so teardown only removes the symlink.
+type Volume struct {
+	// Size is a human-friendly capacity like "10G", "500M", "1T".
+	// Empty defaults to 10 GiB. The value is the VIRTUAL size of the
+	// qcow2; on-disk usage grows sparsely with actual writes.
+	Size string `yaml:"size,omitempty"`
+}
 
 // Project is the resolved, validated form ready for the runtime.
 type Project struct {
@@ -87,6 +168,16 @@ type Project struct {
 	ServiceOrder []string
 	Services     map[string]config.Manifest
 	Network      NetworkPlan
+	// Volumes holds every named volume referenced anywhere in the
+	// compose file, keyed by volume name. The runtime uses this to
+	// pre-provision qcow2 backing files before any service starts.
+	Volumes map[string]VolumeSpec
+}
+
+// VolumeSpec is the resolved form of a top-level named volume.
+type VolumeSpec struct {
+	Name      string
+	SizeBytes int64
 }
 
 // NetworkPlan describes the internal network assigned to a project.
@@ -190,13 +281,59 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 		return nil, err
 	}
 
+	volumes, err := f.resolveVolumes(services)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Project{
 		Name:         f.Name,
 		SpecHash:     specHash,
 		ServiceOrder: order,
 		Services:     services,
 		Network:      network,
+		Volumes:      volumes,
 	}, nil
+}
+
+// resolveVolumes gathers every named volume actually referenced by a
+// service and returns them with their resolved sizes. Unreferenced
+// top-level volumes are intentionally omitted so `holos down` never
+// leaves behind qcow2 files for volumes nothing asked for. A reference
+// to a volume that's not declared is an error (prevents typos from
+// silently degrading to bind mounts).
+func (f *File) resolveVolumes(services map[string]config.Manifest) (map[string]VolumeSpec, error) {
+	used := make(map[string]bool)
+	for name, manifest := range services {
+		for _, m := range manifest.Mounts {
+			if m.Kind != config.MountKindVolume {
+				continue
+			}
+			if _, ok := f.Volumes[m.VolumeName]; !ok {
+				return nil, fmt.Errorf(
+					"service %q references volume %q not declared in top-level volumes:",
+					name, m.VolumeName)
+			}
+			used[m.VolumeName] = true
+		}
+	}
+
+	if len(used) == 0 {
+		return nil, nil
+	}
+
+	out := make(map[string]VolumeSpec, len(used))
+	for name := range used {
+		size, err := parseVolumeSize(f.Volumes[name].Size)
+		if err != nil {
+			return nil, fmt.Errorf("volume %q: %w", name, err)
+		}
+		if !namePattern.MatchString(name) {
+			return nil, fmt.Errorf("volume name %q must match %s", name, namePattern.String())
+		}
+		out[name] = VolumeSpec{Name: name, SizeBytes: size}
+	}
+	return out, nil
 }
 
 func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir string, network NetworkPlan, hosts map[string]string, instanceIPs []string) (config.Manifest, error) {
@@ -210,7 +347,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		return config.Manifest{}, err
 	}
 
-	mounts, err := parseVolumes(svc.Volumes, baseDir)
+	mounts, err := parseVolumes(svc.Volumes, baseDir, f.Volumes)
 	if err != nil {
 		return config.Manifest{}, err
 	}
@@ -299,6 +436,11 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		return config.Manifest{}, err
 	}
 
+	healthcheck, err := resolveHealthcheck(svc.Healthcheck)
+	if err != nil {
+		return config.Manifest{}, err
+	}
+
 	return config.Manifest{
 		APIVersion:  "holos/v1alpha1",
 		Kind:        "Service",
@@ -336,7 +478,66 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		},
 		ExtraHosts:         hosts,
 		StopGracePeriodSec: gracePeriodSec,
+		Healthcheck:        healthcheck,
+		DependsOn:          append([]string(nil), svc.DependsOn...),
 	}, nil
+}
+
+// resolveHealthcheck validates and normalises a compose healthcheck
+// block into the resolved config form. Absent blocks pass through as
+// nil so consumers never have to check zero-value fields.
+func resolveHealthcheck(h *Healthcheck) (*config.HealthcheckConfig, error) {
+	if h == nil {
+		return nil, nil
+	}
+	if len(h.Test) == 0 {
+		return nil, fmt.Errorf("healthcheck.test is required")
+	}
+	intervalSec, err := parseDurationSec(h.Interval, config.DefaultHealthIntervalSec)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck.interval: %w", err)
+	}
+	startSec, err := parseDurationSec(h.StartPeriod, 0)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck.start_period: %w", err)
+	}
+	timeoutSec, err := parseDurationSec(h.Timeout, config.DefaultHealthTimeoutSec)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck.timeout: %w", err)
+	}
+	retries := h.Retries
+	if retries == 0 {
+		retries = config.DefaultHealthRetries
+	}
+	return &config.HealthcheckConfig{
+		Test:           append([]string{}, h.Test...),
+		IntervalSec:    intervalSec,
+		Retries:        retries,
+		StartPeriodSec: startSec,
+		TimeoutSec:     timeoutSec,
+	}, nil
+}
+
+// parseDurationSec accepts a Go duration string and returns whole
+// seconds, returning the fallback when the input is empty. Values
+// below 1s round up to 1s so healthcheck loops never busy-spin on
+// fractional intervals.
+func parseDurationSec(raw string, fallback int) (int, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, err
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("duration %q must be non-negative", raw)
+	}
+	seconds := int(d.Seconds())
+	if d > 0 && seconds < 1 {
+		seconds = 1
+	}
+	return seconds, nil
 }
 
 // parseStopGracePeriod accepts a Go duration string (e.g. "30s", "2m") and
@@ -527,10 +728,10 @@ func parsePort(spec string) (config.PortForward, error) {
 	}
 }
 
-func parseVolumes(specs []string, baseDir string) ([]config.Mount, error) {
+func parseVolumes(specs []string, baseDir string, declared map[string]Volume) ([]config.Mount, error) {
 	mounts := make([]config.Mount, 0, len(specs))
 	for _, spec := range specs {
-		mount, err := parseVolume(spec, baseDir)
+		mount, err := parseVolume(spec, baseDir, declared)
 		if err != nil {
 			return nil, fmt.Errorf("volume %q: %w", spec, err)
 		}
@@ -539,7 +740,11 @@ func parseVolumes(specs []string, baseDir string) ([]config.Mount, error) {
 	return mounts, nil
 }
 
-func parseVolume(spec string, baseDir string) (config.Mount, error) {
+// parseVolume splits a compose-style volume spec ("source:target[:ro]")
+// into a typed Mount. Sources that match a declared top-level volume are
+// treated as named (block) volumes; everything else is a host bind mount
+// (virtfs), preserving existing behavior.
+func parseVolume(spec string, baseDir string, declared map[string]Volume) (config.Mount, error) {
 	parts := strings.SplitN(spec, ":", 3)
 	if len(parts) < 2 {
 		return config.Mount{}, fmt.Errorf("volume requires source:target")
@@ -549,6 +754,33 @@ func parseVolume(spec string, baseDir string) (config.Mount, error) {
 	target := parts[1]
 	readOnly := len(parts) == 3 && parts[2] == "ro"
 
+	if vol, ok := declared[source]; ok {
+		sizeBytes, err := parseVolumeSize(vol.Size)
+		if err != nil {
+			return config.Mount{}, fmt.Errorf("volume %q: %w", source, err)
+		}
+		return config.Mount{
+			Kind:       config.MountKindVolume,
+			VolumeName: source,
+			SizeBytes:  sizeBytes,
+			Target:     target,
+			ReadOnly:   readOnly,
+		}, nil
+	}
+
+	// Distinguish bind mounts from named volumes the same way docker
+	// compose does: anything that looks like a path (absolute, ./,
+	// ../, or containing a separator) is a bind mount; anything else
+	// is a named-volume reference that must match a declared volume.
+	// Treating a bare identifier as an implicit relative bind mount
+	// would mask typos like `dta:/mnt`, so we reject it explicitly.
+	if !looksLikePath(source) {
+		return config.Mount{}, fmt.Errorf(
+			"volume source %q is not a declared top-level volume and does not look like a path; "+
+				"add it under volumes: or prefix with ./ for a bind mount",
+			source)
+	}
+
 	if !filepath.IsAbs(source) {
 		source = filepath.Join(baseDir, source)
 		if abs, err := filepath.Abs(source); err == nil {
@@ -557,11 +789,81 @@ func parseVolume(spec string, baseDir string) (config.Mount, error) {
 	}
 
 	return config.Mount{
+		Kind:     config.MountKindBind,
 		Source:   source,
 		Target:   target,
 		ReadOnly: readOnly,
 	}, nil
 }
+
+// looksLikePath returns true for strings a user would expect to be
+// interpreted as filesystem paths: absolute paths, explicit ./ or ../
+// roots, or anything containing a path separator. Bare identifiers
+// ("data", "cache") are treated as named-volume references.
+func looksLikePath(s string) bool {
+	if s == "" {
+		return false
+	}
+	if filepath.IsAbs(s) {
+		return true
+	}
+	if strings.HasPrefix(s, "./") || strings.HasPrefix(s, "../") {
+		return true
+	}
+	return strings.ContainsRune(s, os.PathSeparator)
+}
+
+// parseVolumeSize accepts a human-friendly size string (case-insensitive):
+// plain bytes ("1048576"), or a decimal with a unit suffix: K/M/G/T (binary
+// multipliers, matching qemu-img convention). Empty returns the default.
+func parseVolumeSize(raw string) (int64, error) {
+	if raw == "" {
+		return defaultVolumeSizeBytes, nil
+	}
+
+	s := strings.TrimSpace(strings.ToUpper(raw))
+	if s == "" {
+		return defaultVolumeSizeBytes, nil
+	}
+
+	multiplier := int64(1)
+	last := s[len(s)-1]
+	switch last {
+	case 'K':
+		multiplier = 1 << 10
+	case 'M':
+		multiplier = 1 << 20
+	case 'G':
+		multiplier = 1 << 30
+	case 'T':
+		multiplier = 1 << 40
+	}
+	if multiplier != 1 {
+		s = s[:len(s)-1]
+	}
+
+	value, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid size %q (expected e.g. \"10G\"): %w", raw, err)
+	}
+	bytes := int64(value * float64(multiplier))
+	if bytes < minVolumeSizeBytes {
+		return 0, fmt.Errorf("volume size %q is below minimum %d bytes", raw, minVolumeSizeBytes)
+	}
+	return bytes, nil
+}
+
+const (
+	// defaultVolumeSizeBytes is the virtual size used when a named
+	// volume omits an explicit `size:` field. Matches docker's "what
+	// you'd get if you didn't think about it" convention.
+	defaultVolumeSizeBytes = 10 * (1 << 30) // 10 GiB
+
+	// minVolumeSizeBytes is a sanity floor; below this qemu-img
+	// rounding produces surprising results and most filesystems can't
+	// even hold their own superblock.
+	minVolumeSizeBytes = 1 * (1 << 20) // 1 MiB
+)
 
 func resolveImage(ref string, explicitFormat string, baseDir string, cacheDir string) (path string, format string, err error) {
 	path, format, err = images.Pull(ref, cacheDir)

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/zeroecco/holos/internal/config"
 )
 
 const testCompose = `
@@ -175,9 +177,12 @@ func TestParseVolume(t *testing.T) {
 
 	dir := t.TempDir()
 
-	mount, err := parseVolume("./data:/var/lib/db:ro", dir)
+	mount, err := parseVolume("./data:/var/lib/db:ro", dir, nil)
 	if err != nil {
 		t.Fatalf("parseVolume: %v", err)
+	}
+	if mount.Kind != config.MountKindBind {
+		t.Fatalf("expected bind kind, got %q", mount.Kind)
 	}
 	if !filepath.IsAbs(mount.Source) {
 		t.Fatalf("expected absolute source, got %s", mount.Source)
@@ -187,6 +192,159 @@ func TestParseVolume(t *testing.T) {
 	}
 	if !mount.ReadOnly {
 		t.Fatal("expected read-only mount")
+	}
+}
+
+func TestParseVolume_Named(t *testing.T) {
+	t.Parallel()
+
+	declared := map[string]Volume{
+		"data": {Size: "5G"},
+	}
+
+	mount, err := parseVolume("data:/var/lib/db", t.TempDir(), declared)
+	if err != nil {
+		t.Fatalf("parseVolume: %v", err)
+	}
+	if mount.Kind != config.MountKindVolume {
+		t.Fatalf("expected volume kind, got %q", mount.Kind)
+	}
+	if mount.VolumeName != "data" {
+		t.Fatalf("expected volume_name data, got %q", mount.VolumeName)
+	}
+	if got := int64(5) * (1 << 30); mount.SizeBytes != got {
+		t.Fatalf("expected size %d bytes, got %d", got, mount.SizeBytes)
+	}
+	if mount.Source != "" {
+		t.Fatalf("named volume should have no host source, got %q", mount.Source)
+	}
+}
+
+// TestResolveHealthcheck_ListForm confirms the YAML `test:` list form
+// flows through to the resolved config unchanged.
+func TestResolveHealthcheck_ListForm(t *testing.T) {
+	t.Parallel()
+
+	yamlDoc := `
+name: hc
+services:
+  api:
+    image: ./img.qcow2
+    healthcheck:
+      test: ["curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      retries: 4
+      start_period: 10s
+      timeout: 2s
+`
+	file := mustLoad(t, yamlDoc)
+	proj, err := file.Resolve(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	hc := proj.Services["api"].Healthcheck
+	if hc == nil {
+		t.Fatal("missing healthcheck")
+	}
+	if got, want := hc.Test, []string{"curl", "-f", "http://localhost:8080/health"}; !stringSliceEqual(got, want) {
+		t.Fatalf("test = %v, want %v", got, want)
+	}
+	if hc.IntervalSec != 5 || hc.Retries != 4 || hc.StartPeriodSec != 10 || hc.TimeoutSec != 2 {
+		t.Fatalf("unexpected healthcheck: %+v", hc)
+	}
+}
+
+// TestResolveHealthcheck_StringForm verifies the shorthand string form
+// is wrapped in `sh -c` so shell features (pipes, env expansion) work.
+func TestResolveHealthcheck_StringForm(t *testing.T) {
+	t.Parallel()
+
+	yamlDoc := `
+name: hc2
+services:
+  api:
+    image: ./img.qcow2
+    healthcheck:
+      test: "pg_isready | grep -q accepting"
+`
+	file := mustLoad(t, yamlDoc)
+	proj, err := file.Resolve(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	hc := proj.Services["api"].Healthcheck
+	if hc == nil {
+		t.Fatal("missing healthcheck")
+	}
+	if got, want := hc.Test, []string{"sh", "-c", "pg_isready | grep -q accepting"}; !stringSliceEqual(got, want) {
+		t.Fatalf("test = %v, want %v", got, want)
+	}
+	// Defaults apply when the compose omits the fields.
+	if hc.IntervalSec != config.DefaultHealthIntervalSec {
+		t.Fatalf("interval = %d, want default %d", hc.IntervalSec, config.DefaultHealthIntervalSec)
+	}
+	if hc.Retries != config.DefaultHealthRetries {
+		t.Fatalf("retries = %d, want default %d", hc.Retries, config.DefaultHealthRetries)
+	}
+	if hc.TimeoutSec != config.DefaultHealthTimeoutSec {
+		t.Fatalf("timeout = %d, want default %d", hc.TimeoutSec, config.DefaultHealthTimeoutSec)
+	}
+}
+
+func mustLoad(t *testing.T, yamlDoc string) *File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "holos.yaml")
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	return file
+}
+
+func stringSliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestParseVolumeSize(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in   string
+		want int64
+	}{
+		{"", defaultVolumeSizeBytes},
+		{"10G", 10 * (1 << 30)},
+		{"500M", 500 * (1 << 20)},
+		{"1T", 1 << 40},
+		{"2048K", 2048 << 10},
+		{"1048576", 1 << 20},
+	}
+	for _, tc := range cases {
+		got, err := parseVolumeSize(tc.in)
+		if err != nil {
+			t.Fatalf("parseVolumeSize(%q): %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("parseVolumeSize(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+
+	if _, err := parseVolumeSize("bogus"); err == nil {
+		t.Fatal("expected error on bogus size")
+	}
+	if _, err := parseVolumeSize("100"); err == nil {
+		t.Fatal("expected error on size below minimum")
 	}
 }
 

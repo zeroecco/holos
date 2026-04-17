@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,8 +63,12 @@ type InstanceRecord struct {
 	QMPPath            string             `json:"qmp_path"`
 	Ports              []qemu.PortMapping `json:"ports"`
 	StopGracePeriodSec int                `json:"stop_grace_period_sec,omitempty"`
-	LastStarted        time.Time          `json:"last_started"`
-	LastExitTime       time.Time          `json:"last_exit_time,omitempty"`
+	// SSHPort is the host-side forward to the guest's sshd, used by
+	// `holos exec`. Zero means no ssh forward was provisioned (e.g.
+	// instance records from a pre-exec version of holos).
+	SSHPort      int       `json:"ssh_port,omitempty"`
+	LastStarted  time.Time `json:"last_started"`
+	LastExitTime time.Time `json:"last_exit_time,omitempty"`
 }
 
 // NewManager creates a Manager that stores state under the given directory.
@@ -112,6 +117,31 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 		record = &ProjectRecord{Name: project.Name}
 	}
 
+	// Pre-provision named volumes before any service starts so that
+	// every instance finds its backing file ready. Volumes persist
+	// across `down` by design; re-running `up` with an existing
+	// state_dir/volumes/<project>/ is a cheap no-op (existing files
+	// are left alone, including their contents).
+	if err := m.ensureProjectVolumes(project); err != nil {
+		return nil, fmt.Errorf("provision volumes: %w", err)
+	}
+
+	// Generate (or reuse) the project's `holos exec` keypair and
+	// append the public half to every service's authorized_keys. We
+	// copy the manifest before mutating so callers who reuse the
+	// Project struct (e.g. tests) see no side effects.
+	_, pubKey, err := ensureProjectSSHKey(m.stateDir, project.Name)
+	if err != nil {
+		return nil, fmt.Errorf("ensure exec ssh key: %w", err)
+	}
+	for name, manifest := range project.Services {
+		manifest.CloudInit.SSHAuthorizedKeys = append(
+			append([]string(nil), manifest.CloudInit.SSHAuthorizedKeys...),
+			pubKey,
+		)
+		project.Services[name] = manifest
+	}
+
 	record.SpecHash = project.SpecHash
 	record.Network = NetworkState{
 		MulticastGroup: project.Network.MulticastGroup,
@@ -125,6 +155,20 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 		existingByService[record.Services[i].Name] = &record.Services[i]
 	}
 
+	// hasDependents is the set of services whose health we must
+	// confirm before starting their consumers. Services without
+	// dependents still have their healthcheck declared for `ps`
+	// visibility, but we don't block on them — matching docker's
+	// convention that healthchecks are only a gating tool.
+	hasDependents := make(map[string]bool)
+	for _, svc := range project.ServiceOrder {
+		for _, dep := range project.Services[svc].DependsOn {
+			hasDependents[dep] = true
+		}
+	}
+
+	privKeyPath := privateKeyPath(m.stateDir, project.Name)
+
 	var services []ServiceRecord
 	for _, svcName := range project.ServiceOrder {
 		manifest := project.Services[svcName]
@@ -135,6 +179,12 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 			return nil, fmt.Errorf("service %q: %w", svcName, err)
 		}
 		services = append(services, *svcRecord)
+
+		if manifest.Healthcheck != nil && hasDependents[svcName] {
+			if err := m.waitForServiceHealthy(svcRecord, manifest, privKeyPath); err != nil {
+				return nil, fmt.Errorf("service %q unhealthy: %w", svcName, err)
+			}
+		}
 	}
 
 	for name, existing := range existingByService {
@@ -234,6 +284,68 @@ func (m *Manager) ProjectStatus(projectName string) (*ProjectRecord, error) {
 	return record, nil
 }
 
+// waitForServiceHealthy blocks until every replica of a service passes
+// its healthcheck. Called only when a downstream service depends on
+// this one — we don't want to stall `holos up` on informational
+// probes that nothing is waiting for.
+func (m *Manager) waitForServiceHealthy(svc *ServiceRecord, manifest config.Manifest, keyPath string) error {
+	hc := manifest.Healthcheck
+	if hc == nil {
+		return nil
+	}
+	user := manifest.CloudInit.User
+	if user == "" {
+		user = config.DefaultUser
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	for _, inst := range svc.Instances {
+		if inst.SSHPort == 0 {
+			return fmt.Errorf("instance %q has no ssh port; cannot run healthcheck", inst.Name)
+		}
+		addr := fmt.Sprintf("127.0.0.1:%d", inst.SSHPort)
+		if err := waitForHealthy(ctx, addr, user, keyPath,
+			hc.Test, hc.IntervalSec, hc.Retries, hc.StartPeriodSec, hc.TimeoutSec); err != nil {
+			return fmt.Errorf("instance %q: %w", inst.Name, err)
+		}
+	}
+	return nil
+}
+
+// FindInstance locates an instance within a project by its short name
+// (e.g. "web-0"). Returns the instance along with the service it
+// belongs to so callers can surface useful errors. The returned record
+// reflects the on-disk state of the instance after a PID liveness
+// refresh.
+func (m *Manager) FindInstance(projectName, instanceName string) (InstanceRecord, string, error) {
+	record, err := m.ProjectStatus(projectName)
+	if err != nil {
+		return InstanceRecord{}, "", err
+	}
+	for _, svc := range record.Services {
+		for _, inst := range svc.Instances {
+			if inst.Name == instanceName {
+				return inst, svc.Name, nil
+			}
+		}
+	}
+	return InstanceRecord{}, "", fmt.Errorf("instance %q not found in project %q",
+		instanceName, projectName)
+}
+
+// ProjectSSHKeyPath returns the path to a project's `holos exec`
+// private key, creating the keypair if it doesn't already exist. This
+// is the entry point used by the exec command — it must not depend on
+// any prior Up having run (e.g. for `holos exec` from a fresh shell).
+func (m *Manager) ProjectSSHKeyPath(projectName string) (string, error) {
+	if err := m.ensureLayout(); err != nil {
+		return "", err
+	}
+	privPath, _, err := ensureProjectSSHKey(m.stateDir, projectName)
+	return privPath, err
+}
+
 // ListProjects returns all known projects.
 func (m *Manager) ListProjects() ([]*ProjectRecord, error) {
 	if err := m.ensureLayout(); err != nil {
@@ -319,7 +431,7 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		}
 
 		if prev, ok := existingInstances[index]; ok && prev.WorkDir != "" && dirExists(prev.WorkDir) {
-			inst, err := m.restartInstance(manifest, *prev)
+			inst, err := m.restartInstance(project, manifest, *prev)
 			if err != nil {
 				return nil, err
 			}

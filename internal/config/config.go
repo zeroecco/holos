@@ -23,6 +23,15 @@ const (
 	DefaultUser               = "ubuntu"
 	DefaultProtocol           = "tcp"
 	DefaultStopGracePeriodSec = 30
+
+	DefaultHealthIntervalSec = 30
+	DefaultHealthRetries     = 3
+	DefaultHealthTimeoutSec  = 5
+
+	// minVolumeSizeBytes is enforced in Validate so a corrupted or
+	// hand-written manifest can't request a 0-byte volume that would
+	// confuse qemu-img.
+	minVolumeSizeBytes = 1 << 20 // 1 MiB
 )
 
 // Manifest is the fully resolved description of a single service, consumed
@@ -44,6 +53,29 @@ type Manifest struct {
 	InternalNetwork    *InternalNetworkConfig `json:"internal_network,omitempty"`
 	ExtraHosts         map[string]string      `json:"extra_hosts,omitempty"`
 	StopGracePeriodSec int                    `json:"stop_grace_period_sec,omitempty"`
+	Healthcheck        *HealthcheckConfig     `json:"healthcheck,omitempty"`
+	// DependsOn is the resolved list of services this one must come
+	// up after. Purely informational for the runtime — topological
+	// ordering is already baked into Project.ServiceOrder — but the
+	// reverse edge is what we use to decide which services need a
+	// wait-for-healthy gate.
+	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+// HealthcheckConfig is the runtime-ready form of a compose healthcheck.
+// All durations are expressed as whole seconds so the on-disk record is
+// trivially inspectable with `jq`. Zero values mean "no healthcheck" —
+// callers that hold a nil *HealthcheckConfig skip probing entirely.
+type HealthcheckConfig struct {
+	// Test is the argv passed to `sh -c` (or a direct exec) inside
+	// the VM. Never empty when the pointer is non-nil; Validate()
+	// enforces this.
+	Test []string `json:"test"`
+
+	IntervalSec    int `json:"interval_sec"`
+	Retries        int `json:"retries"`
+	StartPeriodSec int `json:"start_period_sec,omitempty"`
+	TimeoutSec     int `json:"timeout_sec,omitempty"`
 }
 
 // VMConfig specifies virtual hardware: CPU count, memory, machine type,
@@ -118,12 +150,31 @@ type PortForward struct {
 	Protocol  string `json:"protocol"`
 }
 
-// Mount describes a host directory shared into the VM via 9p/virtfs.
+// Mount attaches storage into a guest VM. Two flavours are supported:
+//
+//   - Kind "bind" (default): a host directory shared read/write or
+//     read-only via 9p/virtfs. Source is an absolute host path.
+//   - Kind "volume": a named qcow2 volume owned by holos. VolumeName
+//     selects the backing file under state_dir/volumes/<project>/;
+//     SizeBytes records the virtual size declared in compose so the
+//     runtime can qemu-img create on first use.
+//
+// Target is always an in-guest absolute path.
 type Mount struct {
-	Source   string `json:"source"`
-	Target   string `json:"target"`
-	ReadOnly bool   `json:"read_only"`
+	Kind       string `json:"kind,omitempty"`
+	Source     string `json:"source,omitempty"`
+	VolumeName string `json:"volume_name,omitempty"`
+	SizeBytes  int64  `json:"size_bytes,omitempty"`
+	Target     string `json:"target"`
+	ReadOnly   bool   `json:"read_only"`
 }
+
+// Mount kind discriminators. Left as strings (not iota) so the on-disk
+// JSON is self-documenting and forward-compatible with future kinds.
+const (
+	MountKindBind   = "bind"
+	MountKindVolume = "volume"
+)
 
 // CloudInit holds the cloud-init parameters written into the NoCloud seed.
 type CloudInit struct {
@@ -204,6 +255,17 @@ func (m *Manifest) applyDefaults() {
 	if m.StopGracePeriodSec == 0 {
 		m.StopGracePeriodSec = DefaultStopGracePeriodSec
 	}
+	if m.Healthcheck != nil {
+		if m.Healthcheck.IntervalSec == 0 {
+			m.Healthcheck.IntervalSec = DefaultHealthIntervalSec
+		}
+		if m.Healthcheck.Retries == 0 {
+			m.Healthcheck.Retries = DefaultHealthRetries
+		}
+		if m.Healthcheck.TimeoutSec == 0 {
+			m.Healthcheck.TimeoutSec = DefaultHealthTimeoutSec
+		}
+	}
 	for i := range m.Ports {
 		if m.Ports[i].Protocol == "" {
 			m.Ports[i].Protocol = DefaultProtocol
@@ -215,6 +277,11 @@ func (m *Manifest) applyDefaults() {
 		}
 		if m.CloudInit.WriteFiles[i].Owner == "" {
 			m.CloudInit.WriteFiles[i].Owner = "root:root"
+		}
+	}
+	for i := range m.Mounts {
+		if m.Mounts[i].Kind == "" {
+			m.Mounts[i].Kind = MountKindBind
 		}
 	}
 }
@@ -231,6 +298,14 @@ func (m *Manifest) resolvePaths(baseDir string) error {
 	m.Image = image
 
 	for i := range m.Mounts {
+		// Only bind mounts resolve host paths; named volumes are
+		// materialised by the runtime under state_dir/volumes/.
+		if m.Mounts[i].Kind == MountKindVolume {
+			continue
+		}
+		if m.Mounts[i].Source == "" {
+			continue
+		}
 		source, err := resolvePath(baseDir, m.Mounts[i].Source)
 		if err != nil {
 			return fmt.Errorf("resolve mount %q: %w", m.Mounts[i].Source, err)
@@ -267,6 +342,23 @@ func (m Manifest) Validate() error {
 	if m.StopGracePeriodSec < 0 {
 		return fmt.Errorf("stop_grace_period_sec must be >= 0")
 	}
+	if m.Healthcheck != nil {
+		if len(m.Healthcheck.Test) == 0 {
+			return fmt.Errorf("healthcheck.test is required")
+		}
+		if m.Healthcheck.IntervalSec < 1 {
+			return fmt.Errorf("healthcheck.interval_sec must be >= 1")
+		}
+		if m.Healthcheck.Retries < 1 {
+			return fmt.Errorf("healthcheck.retries must be >= 1")
+		}
+		if m.Healthcheck.TimeoutSec < 1 {
+			return fmt.Errorf("healthcheck.timeout_sec must be >= 1")
+		}
+		if m.Healthcheck.StartPeriodSec < 0 {
+			return fmt.Errorf("healthcheck.start_period_sec must be >= 0")
+		}
+	}
 	for _, port := range m.Ports {
 		if port.GuestPort < 1 || port.GuestPort > 65535 {
 			return fmt.Errorf("guest port %d is out of range", port.GuestPort)
@@ -279,8 +371,24 @@ func (m Manifest) Validate() error {
 		}
 	}
 	for _, mount := range m.Mounts {
-		if mount.Source == "" || mount.Target == "" {
-			return fmt.Errorf("mounts require source and target")
+		if mount.Target == "" {
+			return fmt.Errorf("mounts require target")
+		}
+		switch mount.Kind {
+		case "", MountKindBind:
+			if mount.Source == "" {
+				return fmt.Errorf("bind mount %q requires source", mount.Target)
+			}
+		case MountKindVolume:
+			if mount.VolumeName == "" {
+				return fmt.Errorf("volume mount %q requires volume_name", mount.Target)
+			}
+			if mount.SizeBytes < minVolumeSizeBytes {
+				return fmt.Errorf("volume %q size_bytes %d is below minimum %d",
+					mount.VolumeName, mount.SizeBytes, minVolumeSizeBytes)
+			}
+		default:
+			return fmt.Errorf("mount %q: unknown kind %q", mount.Target, mount.Kind)
 		}
 	}
 	for _, file := range m.CloudInit.WriteFiles {

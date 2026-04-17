@@ -112,6 +112,7 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 	cc.BootCmd = manifest.CloudInit.BootCmd
 
 	cc.RunCmd = append(manifest.CloudInit.RunCmd, serialConsoleRunCmd(family)...)
+	cc.RunCmd = append(cc.RunCmd, volumeMountRunCmd(manifest)...)
 
 	data, _ := yaml.Marshal(cc)
 	ud := "#cloud-config\n" + string(data)
@@ -221,6 +222,49 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 
 	data, _ := yaml.Marshal(nc)
 	return string(data)
+}
+
+// volumeMountRunCmd produces a runcmd snippet per named volume that
+// runs on every boot but is idempotent: mkfs only when the block device
+// has no detectable filesystem, fstab edit only on first hit, and
+// `mount -a` at the end so an empty fstab doesn't fail a reconcile.
+//
+// We use /dev/disk/by-id/virtio-<serial> because the PCI device number
+// (and thus /dev/vdX naming) changes with any hardware layout tweak;
+// the by-id path is stable across reboots and virtual-hardware edits.
+func volumeMountRunCmd(manifest config.Manifest) []string {
+	var cmds []string
+	for _, m := range manifest.Mounts {
+		if m.Kind != config.MountKindVolume {
+			continue
+		}
+		dev := "/dev/disk/by-id/virtio-vol-" + m.VolumeName
+		target := m.Target
+		label := "vol-" + m.VolumeName
+		// Quote embedded targets defensively; most will be plain paths
+		// but users can put spaces anywhere.
+		script := strings.Join([]string{
+			fmt.Sprintf("udevadm settle --exit-if-exists=%s || true", shquote(dev)),
+			fmt.Sprintf("if [ -b %s ] && ! blkid %s >/dev/null 2>&1; then mkfs.ext4 -F -L %s %s; fi",
+				shquote(dev), shquote(dev), shquote(label), shquote(dev)),
+			fmt.Sprintf("mkdir -p %s", shquote(target)),
+			fmt.Sprintf("grep -qE %s /etc/fstab || echo %s >> /etc/fstab",
+				shquote(" "+target+" "),
+				shquote(dev+" "+target+" ext4 defaults,nofail 0 2"),
+			),
+			fmt.Sprintf("mountpoint -q %s || mount %s || true", shquote(target), shquote(target)),
+		}, " && ")
+		cmds = append(cmds, script)
+	}
+	return cmds
+}
+
+// shquote wraps s in single quotes and escapes any embedded single
+// quotes by ending the quoted region, inserting an escaped single
+// quote, and reopening — the only reliable way to embed a quote in
+// a single-quoted POSIX shell string.
+func shquote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func hostname(manifest config.Manifest, instanceName string) string {

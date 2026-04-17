@@ -31,6 +31,28 @@ type LaunchSpec struct {
 	Ports       []PortMapping
 	OVMFCode    string // path to OVMF_CODE.fd (read-only, shared)
 	OVMFVars    string // path to per-instance OVMF_VARS.fd copy (writable)
+	// SSHPort is the host-side TCP port that should forward to the
+	// guest's sshd (22/tcp). The runtime allocates it on first boot to
+	// back `holos exec`. Zero means no ssh forward was requested — the
+	// user-mode netdev is built without the sshd hostfwd so we don't
+	// occupy ports unnecessarily when the feature is disabled.
+	SSHPort int
+	// Volumes are resolved named-volume attachments for this instance.
+	// Each entry becomes a virtio-blk block device exposed to the guest
+	// with a stable serial so udev creates /dev/disk/by-id/virtio-<serial>.
+	Volumes []VolumeAttachment
+}
+
+// VolumeAttachment is a single qcow2-backed block device attached to an
+// instance, produced by the runtime when materialising named volumes.
+type VolumeAttachment struct {
+	// Name is the logical volume name from the compose file (e.g. "data").
+	Name string
+	// DiskPath is the host-visible path the guest should open. The
+	// runtime points this at a workdir symlink that targets the
+	// project-level qcow2 file, so tearing the workdir down never
+	// removes the volume data.
+	DiskPath string
 }
 
 // BuildArgs produces the full qemu-system-x86_64 argument list for launching
@@ -72,7 +94,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	)
 
 	// User-mode NIC for host connectivity and port forwarding.
-	netdev, err := buildNetdev(spec.Ports)
+	netdev, err := buildNetdev(spec.Ports, spec.SSHPort)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +122,13 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	}
 
 	for i, mount := range manifest.Mounts {
+		if mount.Kind == config.MountKindVolume {
+			// Named volumes are attached below as virtio-blk devices,
+			// not 9p shares — a mkfs'ed block device behaves much more
+			// like a normal disk (filesystem features, xattrs, fsync
+			// semantics) than virtfs does.
+			continue
+		}
 		options := []string{
 			"local",
 			fmt.Sprintf("path=%s", mount.Source),
@@ -110,6 +139,19 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 			options = append(options, "readonly=on")
 		}
 		args = append(args, "-virtfs", strings.Join(options, ","))
+	}
+
+	for _, vol := range spec.Volumes {
+		// Split form (-drive if=none + -device virtio-blk-pci) is
+		// required so we can set serial=, which surfaces as
+		// /dev/disk/by-id/virtio-<serial> via udev inside the guest.
+		// The `if=virtio` shorthand doesn't accept serial.
+		driveID := volumeDriveID(vol.Name)
+		args = append(args,
+			"-drive", fmt.Sprintf("id=%s,if=none,format=qcow2,file=%s,cache=writeback,discard=unmap",
+				driveID, vol.DiskPath),
+			"-device", fmt.Sprintf("virtio-blk-pci,drive=%s,serial=%s", driveID, volumeSerial(vol.Name)),
+		)
 	}
 
 	// VFIO PCI device passthrough (GPUs, NICs, etc.).
@@ -129,7 +171,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	return args, nil
 }
 
-func buildNetdev(ports []PortMapping) (string, error) {
+func buildNetdev(ports []PortMapping, sshPort int) (string, error) {
 	options := []string{"user,id=net0"}
 	for _, port := range ports {
 		if port.Protocol != "tcp" {
@@ -137,7 +179,23 @@ func buildNetdev(ports []PortMapping) (string, error) {
 		}
 		options = append(options, fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:%d", port.HostPort, port.GuestPort))
 	}
+	if sshPort > 0 {
+		options = append(options, fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:22", sshPort))
+	}
 	return strings.Join(options, ","), nil
+}
+
+// volumeDriveID is the QEMU internal identifier used to link the -drive
+// blob to the -device that exposes it; must be unique per-instance.
+func volumeDriveID(name string) string {
+	return "vol-" + name
+}
+
+// volumeSerial is written into the virtio-blk device's serial and becomes
+// the stable in-guest /dev/disk/by-id/virtio-<serial> path. Prefix keeps
+// it from colliding with whatever the guest image hands out by default.
+func volumeSerial(name string) string {
+	return "vol-" + name
 }
 
 func mountTag(index int, target string) string {

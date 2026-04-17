@@ -64,11 +64,17 @@ holos ps                             list running projects
 holos start [-f holos.yaml] [svc]    start a stopped service or all services
 holos stop [-f holos.yaml] [svc]     stop a service or all services
 holos console [-f holos.yaml] <inst> attach serial console to an instance
+holos exec [-f holos.yaml] <inst> [cmd...]
+                                     ssh into an instance (project's generated key)
 holos logs [-f holos.yaml] <svc>     show service logs
 holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
 holos images                         list available images
 holos devices [--gpu]                list PCI devices and IOMMU groups
+holos install [-f holos.yaml] [--system] [--enable]
+                                     emit a systemd unit so the project survives reboot
+holos uninstall [-f holos.yaml] [--system]
+                                     remove the systemd unit written by `holos install`
 ```
 
 ## Compose File
@@ -78,10 +84,12 @@ The `holos.yaml` format is deliberately similar to docker-compose:
 - **services** - each service is a VM with its own image, resources, and cloud-init config
 - **depends_on** - services start in dependency order
 - **ports** - `"host:guest"` syntax, auto-incremented across replicas
-- **volumes** - `"./source:/target:ro"` syntax, mounted via virtfs
+- **volumes** - `"./source:/target:ro"` for bind mounts, `"name:/target"` for top-level named volumes
 - **replicas** - run N instances of a service
 - **cloud_init** - packages, write_files, runcmd -- standard cloud-init
 - **stop_grace_period** - how long to wait for ACPI shutdown before SIGTERM/SIGKILL (e.g. `"30s"`, `"2m"`); defaults to 30s
+- **healthcheck** - `test`, `interval`, `retries`, `start_period`, `timeout` to gate dependents
+- top-level **volumes** block - declare named data volumes that persist across `holos down`
 
 ### Graceful shutdown
 
@@ -97,6 +105,84 @@ services:
     image: ubuntu:noble
     stop_grace_period: 60s    # flush DB buffers before hard stop
 ```
+
+### Data volumes
+
+Top-level `volumes:` declares named data stores that live under
+`state_dir/volumes/<project>/<name>.qcow2` and are symlinked into each
+instance's work directory. They survive `holos down` — tearing down a
+project only removes the symlink, never the backing file.
+
+```yaml
+name: demo
+services:
+  db:
+    image: ubuntu:noble
+    volumes:
+      - pgdata:/var/lib/postgresql
+
+volumes:
+  pgdata:
+    size: 20G
+```
+
+Volumes attach as virtio-blk devices with a stable `serial=vol-<name>`,
+so inside the guest they appear as `/dev/disk/by-id/virtio-vol-pgdata`.
+Cloud-init runs an idempotent `mkfs.ext4` + `/etc/fstab` snippet on
+first boot so there's nothing to configure by hand.
+
+### Healthchecks and `depends_on`
+
+A service with a healthcheck blocks its dependents from starting until
+the check passes. The probe runs via SSH (same key `holos exec` uses):
+
+```yaml
+services:
+  db:
+    image: postgres-cloud.qcow2
+    healthcheck:
+      test: ["pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+      start_period: 10s
+      timeout: 3s
+  api:
+    image: api.qcow2
+    depends_on: [db]     # waits for db to be healthy
+```
+
+`test:` accepts either a list (exec form) or a string (wrapped in
+`sh -c`). Set `HOLOS_HEALTH_BYPASS=1` to skip the actual probe — handy
+for CI environments without in-guest SSHD.
+
+### holos exec
+
+Every `holos up` auto-generates a per-project SSH keypair under
+`state_dir/ssh/<project>/` and injects the public key via cloud-init.
+A host port is allocated for each instance and forwarded to guest port
+22, so you can:
+
+```bash
+holos exec web-0                 # interactive shell
+holos exec db-0 -- pg_isready    # one-off command
+```
+
+`-u <user>` overrides the login user (defaults to the service's
+`cloud_init.user`, or `ubuntu`).
+
+### Reboot survival
+
+Emit a systemd unit so a project comes back up after the host reboots:
+
+```bash
+holos install --enable           # per-user, no sudo needed
+holos install --system --enable  # host-wide, before any login
+holos install --dry-run          # print the unit and exit
+```
+
+User units land under `~/.config/systemd/user/holos-<project>.service`;
+system units under `/etc/systemd/system/`. `holos uninstall` reverses
+it (and is idempotent — safe to call twice).
 
 ### Networking
 

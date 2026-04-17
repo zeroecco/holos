@@ -18,27 +18,42 @@ type Image struct {
 	Format  string // qcow2 or raw
 	Default bool   // true = default tag for this distro
 	Tag     string // version tag (e.g. "3.21", "noble")
+	// SHA256 is the expected hex-encoded sha256 of the artifact at URL.
+	// When set, Pull verifies the downloaded bytes and aborts on
+	// mismatch. Empty means verification is skipped (registry entries
+	// that track a mutable "latest" URL can't pin a hash).
+	SHA256 string
 }
 
 // Registry maps short names like "alpine" or "ubuntu:noble" to download URLs.
+//
+// SHA256 values are populated for images served from pinned, immutable URLs
+// (e.g. Alpine's versioned artifact path). Entries whose URL tracks a
+// mutable "latest" / "current" alias deliberately leave SHA256 empty —
+// their upstream hash rotates on every publisher rebuild, so pinning it
+// here would guarantee spurious verification failures. Callers that want
+// strict verification against such distros should populate a local entry
+// with the exact versioned URL plus its SHA256.
 var Registry = []Image{
-	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS)
+	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS) — pinned artifact,
+	// but we ship no SHA256 by default (upstream publishes .sha256 alongside
+	// the image; see docs for how to pin locally).
 	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true},
 
-	// Arch Linux (cloud-init, official arch-boxes)
+	// Arch Linux (cloud-init, official arch-boxes) — rolling release, URL tracks "latest".
 	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true},
 
-	// Debian (NoCloud variant, cloud-init)
+	// Debian (NoCloud variant, cloud-init) — URL uses "latest" symlink.
 	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", Default: true},
 	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2"},
 
-	// Ubuntu (cloud images, NoCloud compatible)
+	// Ubuntu (cloud images, NoCloud compatible) — "current" alias rotates on rebuild.
 	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true},
 	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2"},
 	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2"},
 	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2"},
 
-	// Fedora Cloud Base
+	// Fedora Cloud Base — point release URL but still versioned.
 	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true},
 }
 
@@ -75,6 +90,11 @@ func Resolve(ref string) (*Image, error) {
 
 // Pull downloads an image to the cache directory, returning the local path.
 // If already cached, returns immediately.
+//
+// When the resolved registry entry carries a non-empty SHA256, the newly
+// downloaded bytes are verified against it; a mismatch deletes the partial
+// file and returns an error. Cached files are trusted — the file is only
+// in the cache if a prior successful pull placed it there.
 func Pull(ref string, cacheDir string) (localPath string, format string, err error) {
 	img, err := Resolve(ref)
 	if err != nil {
@@ -98,7 +118,7 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 
 	fmt.Printf("pulling %s:%s ...\n", img.Name, img.Tag)
 
-	if err := download(img.URL, cached); err != nil {
+	if err := download(img.URL, cached, img.SHA256); err != nil {
 		_ = os.Remove(cached)
 		return "", "", fmt.Errorf("pull %s: %w", ref, err)
 	}
@@ -117,7 +137,11 @@ func ListAvailable() []Image {
 	return Registry
 }
 
-func download(url, dest string) error {
+// download streams url into dest while hashing. When expectSHA256 is
+// non-empty, the final hash must match (case-insensitive). On mismatch
+// the partial file is deleted and an explanatory error is returned so
+// callers can surface tampered or truncated downloads to the user.
+func download(url, dest, expectSHA256 string) error {
 	tmp := dest + ".part"
 
 	resp, err := http.Get(url)
@@ -146,10 +170,25 @@ func download(url, dest string) error {
 	}
 	file.Close()
 
-	fmt.Printf("  %s  %d MB  sha256:%s\n",
+	gotHex := hex.EncodeToString(hasher.Sum(nil))
+
+	if expectSHA256 != "" && !strings.EqualFold(gotHex, expectSHA256) {
+		_ = os.Remove(tmp)
+		return fmt.Errorf(
+			"sha256 mismatch for %s:\n  expected %s\n  got      %s",
+			url, strings.ToLower(expectSHA256), gotHex,
+		)
+	}
+
+	verified := "unverified"
+	if expectSHA256 != "" {
+		verified = "verified"
+	}
+	fmt.Printf("  %s  %d MB  sha256:%s (%s)\n",
 		filepath.Base(dest),
 		size/(1024*1024),
-		hex.EncodeToString(hasher.Sum(nil))[:16],
+		gotHex[:16],
+		verified,
 	)
 
 	return os.Rename(tmp, dest)
