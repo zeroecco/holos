@@ -109,8 +109,15 @@ holos down <name>
 
 `holos run` exits as soon as the VM is started — VMs are always
 detached, just like `holos up`. There is no foreground/`-it` mode;
-attach to the serial console with `holos console` or shell in via
-`holos exec`.
+shell in via `holos exec` (the recommended path), or attach to the
+serial console with `holos console` for boot/kernel logs.
+
+The login user is inferred from the image (`debian:*` → `debian`,
+`alpine` → `alpine`, etc.) so `holos exec` works out of the box.
+Cloud-init takes ~30s on first boot to actually create the account,
+so `holos console` may briefly show "Login incorrect" before the
+autologin kicks in. Override with `--user <name>` if you want a
+different account.
 
 Flags:
 
@@ -218,8 +225,10 @@ holos exec web-0                 # interactive shell
 holos exec db-0 -- pg_isready    # one-off command
 ```
 
-`-u <user>` overrides the login user (defaults to the service's
-`cloud_init.user`, or `ubuntu`).
+`-u <user>` overrides the login user. The default is the service's
+explicit `cloud_init.user`, falling back to the image's conventional
+cloud user (`debian` for `debian:*`, `alpine` for `alpine:*`,
+`fedora`, `arch`, `ubuntu`), and finally `ubuntu` for local images.
 
 ### Reboot survival
 

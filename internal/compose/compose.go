@@ -392,7 +392,19 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		cpuModel = config.DefaultCPUModel
 	}
 
+	// User selection is a fallback chain:
+	//   1. explicit cloud_init.user from the compose file
+	//   2. the image's conventional cloud user (debian → "debian",
+	//      alpine → "alpine", etc.) so cloud-init creates an account
+	//      that matches what the rest of the ecosystem expects
+	//   3. the global default ("ubuntu")
+	// Using the image default in the middle slot is what keeps
+	// `holos run debian` from producing a VM whose console autologin
+	// fails because no `ubuntu` user materialised.
 	user := svc.CloudInit.User
+	if user == "" {
+		user = images.DefaultUser(svc.Image)
+	}
 	if user == "" {
 		user = config.DefaultUser
 	}

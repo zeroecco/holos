@@ -784,6 +784,19 @@ func runRun(args []string) error {
 	// predictable: <project>'s lone instance is always "vm-0".
 	const serviceName = "vm"
 
+	// Resolve the cloud-init user up front so the synthesised yaml
+	// is self-documenting — the file shows exactly which account
+	// cloud-init will create rather than relying on a downstream
+	// default. Compose's resolve layer would do the same fallback
+	// lookup if we left this empty, but writing it through here
+	// means an operator who later runs `cat <runs>/holos.yaml`
+	// sees the actual configuration without having to know the
+	// internal defaulting rules.
+	resolvedUser := *user
+	if resolvedUser == "" {
+		resolvedUser = images.DefaultUser(image)
+	}
+
 	svc := compose.Service{
 		Image:      image,
 		Dockerfile: *dockerfile,
@@ -796,7 +809,7 @@ func runRun(args []string) error {
 		Volumes: volumes,
 		Devices: devList,
 		CloudInit: compose.CloudInit{
-			User:     *user,
+			User:     resolvedUser,
 			Packages: packages,
 			RunCmd:   runcmd,
 		},
@@ -839,11 +852,20 @@ func runRun(args []string) error {
 	}
 
 	printProjectStatus(record)
+
+	// Surface the cloud-init user explicitly: cloud-init takes 30-60s
+	// to actually create it on first boot, which is why the console
+	// might briefly show a "Login incorrect" before autologin starts
+	// working. Knowing the username up front makes that loop less
+	// confusing.
+	loginUser := project.Services[serviceName].CloudInit.User
+
 	fmt.Printf("compose file: %s\n", composePath)
+	fmt.Printf("login user:   %s (cloud-init may take ~30s on first boot)\n", loginUser)
 	fmt.Println()
 	fmt.Println("next steps:")
-	fmt.Printf("  holos exec -f %s vm-0\n", composePath)
-	fmt.Printf("  holos console -f %s vm-0\n", composePath)
+	fmt.Printf("  holos exec    -f %s vm-0     # interactive shell over ssh (recommended)\n", composePath)
+	fmt.Printf("  holos console -f %s vm-0     # serial console for boot/kernel logs\n", composePath)
 	fmt.Printf("  holos down %s\n", projectName)
 	return nil
 }

@@ -23,6 +23,14 @@ type Image struct {
 	// mismatch. Empty means verification is skipped (registry entries
 	// that track a mutable "latest" URL can't pin a hash).
 	SHA256 string
+	// User is the conventional cloud-init user for this distro
+	// (alpine, debian, fedora, …). cloud-init will *create* whatever
+	// user we ask for, but matching the convention means tools that
+	// expect "$distro@vm" find the account, console autologin works
+	// without surprises, and operators don't get a Password: prompt
+	// because a user named "ubuntu" failed to materialise on Debian.
+	// Empty falls back to compose's global default.
+	User string
 }
 
 // Registry maps short names like "alpine" or "ubuntu:noble" to download URLs.
@@ -38,23 +46,23 @@ var Registry = []Image{
 	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS) — pinned artifact,
 	// but we ship no SHA256 by default (upstream publishes .sha256 alongside
 	// the image; see docs for how to pin locally).
-	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true},
+	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true, User: "alpine"},
 
 	// Arch Linux (cloud-init, official arch-boxes) — rolling release, URL tracks "latest".
-	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true},
+	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch"},
 
 	// Debian (NoCloud variant, cloud-init) — URL uses "latest" symlink.
-	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", Default: true},
-	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2"},
+	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", Default: true, User: "debian"},
+	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", User: "debian"},
 
 	// Ubuntu (cloud images, NoCloud compatible) — "current" alias rotates on rebuild.
-	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true},
-	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2"},
-	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2"},
-	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2"},
+	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu"},
+	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
+	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
+	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
 
 	// Fedora Cloud Base — point release URL but still versioned.
-	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true},
+	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora"},
 }
 
 // Resolve looks up an image reference. Accepts:
@@ -130,6 +138,20 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 // DefaultCacheDir returns the image cache directory.
 func DefaultCacheDir(stateDir string) string {
 	return filepath.Join(stateDir, "images")
+}
+
+// DefaultUser returns the conventional cloud-init user for an image
+// reference, or "" when the ref points at a local file or an unknown
+// distro. This lets compose pick the right account for cloud-init to
+// create *before* falling back to the global default — the difference
+// between `holos exec` working and a console autologin attempt that
+// can't find a user named "ubuntu" on a Debian image.
+func DefaultUser(ref string) string {
+	img, err := Resolve(ref)
+	if err != nil || img == nil {
+		return ""
+	}
+	return img.User
 }
 
 // ListAvailable returns all registered images.

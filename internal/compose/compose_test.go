@@ -1,11 +1,15 @@
 package compose
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/config"
+	"github.com/zeroecco/holos/internal/images"
 )
 
 const testCompose = `
@@ -115,6 +119,79 @@ func TestLoadAndResolve(t *testing.T) {
 	if _, ok := project.Network.Hosts["web"]; !ok {
 		t.Fatal("expected web in hosts")
 	}
+}
+
+func TestUserResolutionChain(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+
+	// Pre-warm the image cache so resolve doesn't hit the network for
+	// known distro refs. We only need each cached file to exist; its
+	// contents don't matter for the user-resolution logic under test.
+	cacheDir := filepath.Join(stateDir, "images")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "base.qcow2"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"debian:bookworm", "alpine", "fedora"} {
+		img, err := images.Resolve(ref)
+		if err != nil || img == nil {
+			t.Fatalf("pre-warm resolve(%q): img=%v err=%v", ref, img, err)
+		}
+		stub := filepath.Join(cacheDir, fmt.Sprintf("%s-%s-%s.qcow2",
+			img.Name, img.Tag, sha256Prefix(img.URL)))
+		if err := os.WriteFile(stub, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cases := []struct {
+		name        string
+		image       string
+		explicit    string
+		wantUser    string
+		description string
+	}{
+		{"explicit-wins", "debian:bookworm", "operator", "operator", "explicit cloud_init.user beats image default"},
+		{"image-default-debian", "debian:bookworm", "", "debian", "debian image yields debian user"},
+		{"image-default-alpine", "alpine", "", "alpine", "alpine image yields alpine user"},
+		{"image-default-fedora", "fedora", "", "fedora", "fedora image yields fedora user"},
+		{"local-falls-back", "./base.qcow2", "", "ubuntu", "local image falls back to ubuntu default"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			file := &File{
+				Name: "usertest",
+				Services: map[string]Service{
+					"vm": {
+						Image:     c.image,
+						CloudInit: CloudInit{User: c.explicit},
+					},
+				},
+			}
+			project, err := file.Resolve(dir, stateDir)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			got := project.Services["vm"].CloudInit.User
+			if got != c.wantUser {
+				t.Errorf("%s: user = %q, want %q", c.description, got, c.wantUser)
+			}
+		})
+	}
+}
+
+// sha256Prefix mirrors images.cacheFilename's URL-hash suffix without
+// exporting it; tests only need the first 4 bytes (8 hex chars) of the
+// URL's SHA-256 digest.
+func sha256Prefix(url string) string {
+	h := sha256.Sum256([]byte(url))
+	return hex.EncodeToString(h[:4])
 }
 
 func TestTopoSortDetectsCycle(t *testing.T) {

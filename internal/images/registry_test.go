@@ -11,6 +11,29 @@ import (
 	"testing"
 )
 
+func TestDefaultUser(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"alpine":          "alpine",
+		"alpine:3.21":     "alpine",
+		"ubuntu":          "ubuntu",
+		"ubuntu:noble":    "ubuntu",
+		"ubuntu:jammy":    "ubuntu",
+		"debian":          "debian",
+		"debian:bookworm": "debian",
+		"arch":            "arch",
+		"fedora":          "fedora",
+		"./local.qcow2":   "", // local file → no inferred user
+		"/abs/path.raw":   "",
+	}
+	for ref, want := range cases {
+		if got := DefaultUser(ref); got != want {
+			t.Errorf("DefaultUser(%q) = %q, want %q", ref, got, want)
+		}
+	}
+}
+
 func TestResolveKnownImages(t *testing.T) {
 	t.Parallel()
 
