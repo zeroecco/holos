@@ -18,6 +18,8 @@ import (
 	"github.com/zeroecco/holos/internal/runtime"
 	"github.com/zeroecco/holos/internal/systemd"
 	"github.com/zeroecco/holos/internal/vfio"
+	"github.com/zeroecco/holos/internal/virtimport"
+	"gopkg.in/yaml.v3"
 )
 
 func main() {
@@ -62,6 +64,8 @@ func run(args []string) error {
 		return runInstall(args[1:])
 	case "uninstall":
 		return runUninstall(args[1:])
+	case "import":
+		return runImport(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -662,6 +666,122 @@ func runUninstall(args []string) error {
 	return nil
 }
 
+// runImport translates one or more libvirt-defined VMs into a holos
+// compose file. The mapping is intentionally lossy — fields holos has
+// no concept of (bridged networks, secondary disks, USB passthrough)
+// surface as warnings on stderr so the operator knows what to revisit
+// before `holos up`. Output goes to stdout by default so it composes
+// with shell redirection; -o writes to a path instead.
+//
+// Sources:
+//
+//	holos import vm1 vm2 ...        fetch via `virsh dumpxml`
+//	holos import --all              every domain `virsh list --all` knows
+//	holos import --xml domain.xml   read XML directly (no virsh needed)
+func runImport(args []string) error {
+	flags := flag.NewFlagSet("import", flag.ContinueOnError)
+	output := flags.String("o", "", "output file (default stdout; '-' is stdout)")
+	projectName := flags.String("project", "", "project name (defaults to first imported domain)")
+	fromXML := flags.String("xml", "", "read libvirt XML from a file instead of invoking virsh")
+	connectURI := flags.String("connect", "", "libvirt connection URI passed as `virsh -c <uri>`")
+	all := flags.Bool("all", false, "import every domain returned by `virsh list --all`")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	file := compose.File{Services: map[string]compose.Service{}}
+	var allWarnings []string
+	var order []string
+
+	addDomain := func(label string, data []byte) error {
+		name, svc, warns, err := virtimport.Convert(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		if _, exists := file.Services[name]; exists {
+			return fmt.Errorf("%s: service name %q already imported (rename the source domain)", label, name)
+		}
+		file.Services[name] = svc
+		order = append(order, name)
+		for _, w := range warns {
+			allWarnings = append(allWarnings, fmt.Sprintf("%s: %s", name, w))
+		}
+		return nil
+	}
+
+	switch {
+	case *fromXML != "":
+		if flags.NArg() > 0 || *all {
+			return errors.New("--xml cannot be combined with domain names or --all")
+		}
+		data, err := os.ReadFile(*fromXML)
+		if err != nil {
+			return fmt.Errorf("read xml: %w", err)
+		}
+		if err := addDomain(filepath.Base(*fromXML), data); err != nil {
+			return err
+		}
+	default:
+		v := virtimport.Virsh{URI: *connectURI}
+		var domains []string
+		switch {
+		case *all && flags.NArg() > 0:
+			return errors.New("--all cannot be combined with explicit domain names")
+		case *all:
+			list, err := v.ListDomains()
+			if err != nil {
+				return err
+			}
+			if len(list) == 0 {
+				return errors.New("virsh list --all returned no domains")
+			}
+			domains = list
+		case flags.NArg() > 0:
+			domains = flags.Args()
+		default:
+			return errors.New("import requires a domain name, --all, or --xml <file>")
+		}
+		for _, dom := range domains {
+			data, err := v.DumpXML(dom)
+			if err != nil {
+				return err
+			}
+			if err := addDomain(dom, data); err != nil {
+				return err
+			}
+		}
+	}
+
+	switch {
+	case *projectName != "":
+		file.Name = *projectName
+	case len(order) > 0:
+		file.Name = order[0]
+	default:
+		file.Name = "imported"
+	}
+
+	data, err := yaml.Marshal(file)
+	if err != nil {
+		return fmt.Errorf("marshal compose: %w", err)
+	}
+
+	for _, w := range allWarnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+
+	if *output == "" || *output == "-" {
+		_, err := os.Stdout.Write(data)
+		return err
+	}
+	if err := os.WriteFile(*output, data, 0o644); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "wrote %s (%d service(s))\n", *output, len(file.Services))
+	return nil
+}
+
 // loadProjectWithPath is loadProject plus the absolute path of the
 // compose file it found — installers need the path to embed in the
 // unit's ExecStart=.
@@ -793,5 +913,7 @@ Usage:
                                        emit a systemd unit so the project comes back up on reboot
   holos uninstall [-f holos.yaml] [--system]
                                        remove the systemd unit written by 'holos install'
+  holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
+                                       convert virsh-defined VMs into a holos.yaml
 `)
 }

@@ -75,6 +75,8 @@ holos install [-f holos.yaml] [--system] [--enable]
                                      emit a systemd unit so the project survives reboot
 holos uninstall [-f holos.yaml] [--system]
                                      remove the systemd unit written by `holos install`
+holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
+                                     convert virsh-defined VMs into a holos.yaml
 ```
 
 ## Compose File
@@ -299,6 +301,37 @@ Arguments are appended after all holos-managed flags. No validation -- you own i
 | cloud_init.user | ubuntu |
 | image_format | inferred from extension |
 
+### Import from virsh
+
+Already running VMs under libvirt? `holos import` reads libvirt domain
+XML and emits an equivalent `holos.yaml` so you can move existing
+workloads onto holos without retyping every field.
+
+```bash
+holos import web-prod db-prod                # via `virsh dumpxml`
+holos import --all -o holos.yaml             # every defined domain
+holos import --xml ./web.xml                 # offline, no virsh needed
+holos import --connect qemu:///system api    # non-default libvirt URI
+```
+
+The mapping covers the fields holos has a direct equivalent for:
+
+| libvirt                            | holos                        |
+|------------------------------------|------------------------------|
+| `<vcpu>`                           | `vm.vcpu`                    |
+| `<memory>` / `<currentMemory>`     | `vm.memory_mb`               |
+| `<os><type machine="pc-q35-…">`    | `vm.machine` (collapsed)     |
+| `<cpu mode="host-passthrough">`    | `vm.cpu_model: host`         |
+| `<os><loader>`                     | `vm.uefi: true`              |
+| first `<disk type="file">`         | `image:` + `image_format:`   |
+| `<hostdev type="pci">`             | `devices: [{pci: …}]`        |
+
+Anything holos can't translate cleanly — extra disks, bridged NICs,
+USB passthrough, custom emulators — is reported as a warning on stderr
+so you know what to revisit before `holos up`. Output goes to stdout
+unless you pass `-o`, so it composes with shell redirection
+(`holos import vm > holos.yaml`).
+
 ## Build
 
 ```bash
@@ -330,3 +363,8 @@ This is not Kubernetes. It does not try to solve:
 - Scheduler, CRDs, or control plane quorum
 
 The goal is to make KVM workable for single-host stacks without importing the operational shape of Kubernetes.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](./LICENSE). See
+[`NOTICE`](./NOTICE) for attribution.
