@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,8 +10,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -50,6 +54,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "up":
 		return runUp(args[1:])
+	case "run":
+		return runRun(args[1:])
 	case "down":
 		return runDown(args[1:])
 	case "ps":
@@ -680,6 +686,283 @@ func runUninstall(args []string) error {
 	return nil
 }
 
+// runRun launches a one-off VM from an image without requiring the
+// caller to write a compose file. It is the holos analogue of
+// `docker run`: the user names an image, optionally hangs flags off
+// it for ports/volumes/resources/etc, and gets a running VM.
+//
+// Implementation: we synthesise a single-service compose.File, persist
+// it to state_dir/runs/<auto-name>/holos.yaml, then load it through
+// the same loadProject + manager.Up path everything else uses. Going
+// through the on-disk file (rather than constructing a Project in
+// memory directly) keeps follow-up commands like `holos exec`,
+// `holos console`, and `holos down` working — they all expect a
+// compose file path, and now there is one.
+//
+// VMs are inherently detached; a "foreground" mode would just be
+// `holos run ... && holos console <name>-0`, which is what the
+// printed hint suggests.
+func runRun(args []string) error {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	name := flags.String("name", "", "project name (default: derived from image with random suffix)")
+	vcpu := flags.Int("vcpu", 0, "vCPU count (default 1)")
+	memory := flags.String("memory", "", "memory size, e.g. \"512M\", \"2G\" (default 512M)")
+	user := flags.String("user", "", "cloud-init user (default: ubuntu)")
+	dockerfile := flags.String("dockerfile", "", "use a Dockerfile to provision the VM (image arg becomes optional)")
+	uefi := flags.Bool("uefi", false, "boot via OVMF (auto-enabled when --device is set)")
+	detach := flags.Bool("detach", true, "start in background (kept for symmetry; foreground is not supported)")
+	var ports, volumes, devices, packages, runcmd stringList
+	flags.Var(&ports, "p", "publish a port HOST:GUEST (repeatable)")
+	flags.Var(&ports, "port", "publish a port HOST:GUEST (repeatable)")
+	flags.Var(&volumes, "v", "bind mount HOSTPATH:GUESTPATH[:ro] (repeatable)")
+	flags.Var(&volumes, "volume", "bind mount HOSTPATH:GUESTPATH[:ro] (repeatable)")
+	flags.Var(&devices, "device", "PCI address to pass through, e.g. 0000:01:00.0 (repeatable)")
+	flags.Var(&packages, "pkg", "cloud-init package to install (repeatable)")
+	flags.Var(&runcmd, "runcmd", "shell command to run on first boot (repeatable)")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	_ = detach // detached is the only mode; flag exists for surface-level docker parity
+
+	// Trailing args after a `--` separator become extra runcmd entries
+	// (`holos run alpine -- echo hello, world`). The stdlib flag parser
+	// stops at the first non-flag positional, which means `--` is
+	// preserved verbatim somewhere inside flags.Args() — we strip it
+	// explicitly so it doesn't show up as a literal `--` in the
+	// generated runcmd.
+	positional := flags.Args()
+	for i, a := range positional {
+		if a == "--" {
+			positional = append(positional[:i], positional[i+1:]...)
+			break
+		}
+	}
+	var image string
+	var trailing []string
+	if *dockerfile != "" {
+		// Image is optional with --dockerfile; FROM line provides it.
+		if len(positional) > 0 {
+			image = positional[0]
+			trailing = positional[1:]
+		}
+	} else {
+		if len(positional) == 0 {
+			return errors.New("run requires an image (e.g. `holos run ubuntu:noble`)")
+		}
+		image = positional[0]
+		trailing = positional[1:]
+	}
+	if len(trailing) > 0 {
+		runcmd = append(runcmd, strings.Join(trailing, " "))
+	}
+
+	memMB := 0
+	if *memory != "" {
+		mb, err := parseMemoryMB(*memory)
+		if err != nil {
+			return err
+		}
+		memMB = mb
+	}
+
+	devList := make([]compose.ComposeDevice, len(devices))
+	for i, d := range devices {
+		devList[i] = compose.ComposeDevice{PCI: d}
+	}
+
+	projectName := *name
+	if projectName == "" {
+		projectName = generateRunName(image, *dockerfile)
+	}
+	if !runNamePattern.MatchString(projectName) {
+		return fmt.Errorf("project name %q must be a DNS label (lowercase letters, digits, hyphens)", projectName)
+	}
+
+	// We always emit one service called "vm" so instance names are
+	// predictable: <project>'s lone instance is always "vm-0".
+	const serviceName = "vm"
+
+	svc := compose.Service{
+		Image:      image,
+		Dockerfile: *dockerfile,
+		VM: compose.VM{
+			VCPU:     *vcpu,
+			MemoryMB: memMB,
+			UEFI:     *uefi,
+		},
+		Ports:   ports,
+		Volumes: volumes,
+		Devices: devList,
+		CloudInit: compose.CloudInit{
+			User:     *user,
+			Packages: packages,
+			RunCmd:   runcmd,
+		},
+	}
+
+	file := compose.File{
+		Name:     projectName,
+		Services: map[string]compose.Service{serviceName: svc},
+	}
+
+	// Persist the synthesised compose file so subsequent commands can
+	// pick it up via -f. runs/ is sibling to projects/ and instances/
+	// inside the state dir; nothing else writes there so collision
+	// with other holos features is impossible.
+	runDir := filepath.Join(*stateDir, "runs", projectName)
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return fmt.Errorf("create run dir: %w", err)
+	}
+	composePath := filepath.Join(runDir, "holos.yaml")
+	yamlBytes, err := yaml.Marshal(file)
+	if err != nil {
+		return fmt.Errorf("marshal compose: %w", err)
+	}
+	if err := os.WriteFile(composePath, yamlBytes, 0o644); err != nil {
+		return fmt.Errorf("write compose: %w", err)
+	}
+
+	project, err := loadProject(composePath, *stateDir)
+	if err != nil {
+		// Surface the synthesised yaml in the error so the user can
+		// see exactly what we tried to launch when validation fails
+		// (bad memory unit, malformed port spec, etc).
+		return fmt.Errorf("synthesise project (see %s):\n%w", composePath, err)
+	}
+
+	manager := runtime.NewManager(*stateDir)
+	record, err := manager.Up(project)
+	if err != nil {
+		return err
+	}
+
+	printProjectStatus(record)
+	fmt.Printf("compose file: %s\n", composePath)
+	fmt.Println()
+	fmt.Println("next steps:")
+	fmt.Printf("  holos exec -f %s vm-0\n", composePath)
+	fmt.Printf("  holos console -f %s vm-0\n", composePath)
+	fmt.Printf("  holos down %s\n", projectName)
+	return nil
+}
+
+// stringList is a flag.Value that accepts a flag multiple times,
+// accumulating each occurrence into a slice. Used for -p/-v/--device/
+// --pkg/--runcmd in `holos run`.
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+func (s *stringList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// runNamePattern matches the same DNS-label rule compose uses for
+// project and service names. We pre-validate here so the error is
+// pinned to --name rather than appearing as a generic compose error.
+var runNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+var runNameSanitiser = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// generateRunName derives a deterministic-prefix + random-suffix name
+// from an image reference, mirroring how docker auto-names containers
+// when --name is omitted. The suffix means repeated `holos run alpine`
+// invocations don't collide.
+//
+//	ubuntu:noble       -> ubuntu-noble-3f2a1c
+//	./my-image.qcow2   -> my-image-qcow2-9d40a2
+//	(--dockerfile)     -> dockerfile-7e1b04
+func generateRunName(image, dockerfilePath string) string {
+	base := image
+	if base == "" {
+		base = "dockerfile"
+	}
+	// Strip directory prefix from local paths so we get "my-image"
+	// rather than "var-lib-libvirt-images-my-image".
+	base = filepath.Base(base)
+	// Drop a trailing ".qcow2"/".raw"/".img" extension if present.
+	if dot := strings.LastIndexByte(base, '.'); dot > 0 {
+		base = base[:dot]
+	}
+	base = strings.ToLower(base)
+	base = runNameSanitiser.ReplaceAllString(base, "-")
+	base = strings.Trim(base, "-")
+	if base == "" {
+		base = "vm"
+	}
+	// Reserve room for "-XXXXXX" suffix within the 63-char limit.
+	const suffixLen = 7 // hyphen + 6 hex chars
+	if len(base) > 63-suffixLen {
+		base = base[:63-suffixLen]
+		base = strings.TrimRight(base, "-")
+	}
+	suffix := randHex(3)
+	_ = dockerfilePath // intentionally unused; suffix is the uniqueness guarantee
+	return base + "-" + suffix
+}
+
+// randHex returns 2*n lowercase hex chars from crypto/rand. Falls back
+// to a stringified nanosecond stamp on the (essentially impossible)
+// case of crypto/rand failing, so we never panic out of name
+// generation in user-facing flow.
+func randHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return strconv.FormatInt(int64(os.Getpid()), 16)
+	}
+	return hex.EncodeToString(buf)
+}
+
+// parseMemoryMB accepts docker-style memory sizes ("512M", "2G", "1024")
+// and returns a value in MiB suitable for compose.VM.MemoryMB. Bare
+// integers are treated as megabytes, matching qemu's `-m` convention.
+func parseMemoryMB(raw string) (int, error) {
+	s := strings.TrimSpace(strings.ToUpper(raw))
+	if s == "" {
+		return 0, fmt.Errorf("empty memory value")
+	}
+
+	multiplierMB := 1.0
+	last := s[len(s)-1]
+	switch last {
+	case 'B':
+		// allow "512MB", "2GB" — strip the B, look at the actual unit
+		if len(s) < 2 {
+			return 0, fmt.Errorf("invalid memory %q", raw)
+		}
+		s = s[:len(s)-1]
+		last = s[len(s)-1]
+		fallthrough
+	case 'K', 'M', 'G', 'T':
+		switch last {
+		case 'K':
+			multiplierMB = 1.0 / 1024.0
+		case 'M':
+			multiplierMB = 1
+		case 'G':
+			multiplierMB = 1024
+		case 'T':
+			multiplierMB = 1024 * 1024
+		}
+		s = s[:len(s)-1]
+	}
+
+	value, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid memory %q: %w", raw, err)
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("memory %q must be positive", raw)
+	}
+	mb := int(value * multiplierMB)
+	if mb < 1 {
+		return 0, fmt.Errorf("memory %q rounds to less than 1 MB", raw)
+	}
+	return mb, nil
+}
+
 // runVersion prints the build metadata. When the binary was produced
 // by goreleaser the values come from -ldflags injection; for a plain
 // `go build` we recover commit + dirty flag from the runtime build
@@ -956,6 +1239,8 @@ func usage() {
 
 Usage:
   holos up [-f holos.yaml]             start all services
+  holos run [flags] <image> [-- cmd...]
+                                       launch a one-off VM from an image (no compose file)
   holos down [-f holos.yaml]           stop and remove all services
   holos ps                             list running projects
   holos start [-f holos.yaml] [svc]    start a stopped service or all services

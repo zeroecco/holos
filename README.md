@@ -59,6 +59,8 @@ That's it. Two nginx VMs and a postgres VM, all on the same host, all talking to
 
 ```
 holos up [-f holos.yaml]             start all services
+holos run [flags] <image> [-- cmd...]
+                                     launch a one-off VM from an image (no compose file)
 holos down [-f holos.yaml]           stop and remove all services
 holos ps                             list running projects
 holos start [-f holos.yaml] [svc]    start a stopped service or all services
@@ -78,6 +80,53 @@ holos uninstall [-f holos.yaml] [--system]
 holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
                                      convert virsh-defined VMs into a holos.yaml
 ```
+
+## Adhoc VMs
+
+For one-off VMs you don't want to write a compose file for, `holos run`
+is the analogue of `docker run`:
+
+```bash
+holos run ubuntu:noble                          # bare VM, default 1 vCPU / 512 MB
+holos run --vcpu 4 --memory 4G ubuntu:noble     # bigger box
+holos run -p 8080:80 --pkg nginx \
+  --runcmd 'systemctl enable --now nginx' alpine
+holos run -v ./code:/srv ubuntu:noble           # bind mount
+holos run --device 0000:01:00.0 ubuntu:noble    # PCI passthrough
+holos run alpine -- echo hello world            # trailing args become a runcmd
+```
+
+The synthesised compose file is persisted under
+`state_dir/runs/<name>/holos.yaml`, and the project name is auto-derived
+from the image (override with `--name`). All other CLI verbs work
+against it the same way they do for hand-written projects:
+
+```bash
+holos exec -f ~/.local/state/holos/runs/<name>/holos.yaml vm-0
+holos console -f ~/.local/state/holos/runs/<name>/holos.yaml vm-0
+holos down <name>
+```
+
+`holos run` exits as soon as the VM is started — VMs are always
+detached, just like `holos up`. There is no foreground/`-it` mode;
+attach to the serial console with `holos console` or shell in via
+`holos exec`.
+
+Flags:
+
+| Flag | Description |
+|---|---|
+| `--name NAME` | project name (default: derived from image + random suffix) |
+| `--vcpu N` | vCPU count (default 1) |
+| `--memory SIZE` | memory, e.g. `512M`, `2G` (default 512M) |
+| `-p HOST:GUEST`, `--port` | publish a port (repeatable) |
+| `-v SRC:TGT[:ro]`, `--volume` | bind mount (repeatable) |
+| `--device PCI` | PCI passthrough (repeatable, auto-enables UEFI) |
+| `--pkg PKG` | cloud-init package (repeatable) |
+| `--runcmd CMD` | first-boot shell command (repeatable) |
+| `--user USER` | cloud-init user (default ubuntu) |
+| `--dockerfile PATH` | use a Dockerfile instead of (or with) an image |
+| `--uefi` | force OVMF boot |
 
 ## Compose File
 
