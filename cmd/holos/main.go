@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -20,6 +22,16 @@ import (
 	"github.com/zeroecco/holos/internal/vfio"
 	"github.com/zeroecco/holos/internal/virtimport"
 	"gopkg.in/yaml.v3"
+)
+
+// Build metadata is overwritten at link time by goreleaser via -ldflags
+// "-X main.version=...". The defaults below are what `go build` and
+// `go install` produce: a "dev" tag plus whatever VCS info Go's runtime
+// debug.ReadBuildInfo can recover (commit hash + dirty flag).
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -66,6 +78,8 @@ func run(args []string) error {
 		return runUninstall(args[1:])
 	case "import":
 		return runImport(args[1:])
+	case "version", "--version", "-v":
+		return runVersion(args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -666,6 +680,50 @@ func runUninstall(args []string) error {
 	return nil
 }
 
+// runVersion prints the build metadata. When the binary was produced
+// by goreleaser the values come from -ldflags injection; for a plain
+// `go build` we recover commit + dirty flag from the runtime build
+// info so users still see something useful.
+func runVersion(args []string) error {
+	flags := flag.NewFlagSet("version", flag.ContinueOnError)
+	short := flags.Bool("short", false, "print only the version string")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+
+	v, c, d := version, commit, date
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				if c == "none" && s.Value != "" {
+					c = s.Value
+				}
+			case "vcs.time":
+				if d == "unknown" && s.Value != "" {
+					d = s.Value
+				}
+			case "vcs.modified":
+				if s.Value == "true" && c != "none" && !strings.HasSuffix(c, "-dirty") {
+					c += "-dirty"
+				}
+			}
+		}
+	}
+
+	if *short {
+		fmt.Println(v)
+		return nil
+	}
+	fmt.Printf("holos %s\n", v)
+	fmt.Printf("  commit: %s\n", c)
+	fmt.Printf("  built:  %s\n", d)
+	fmt.Printf("  go:     %s\n", goruntime.Version())
+	fmt.Printf("  os/arch: %s/%s\n", goruntime.GOOS, goruntime.GOARCH)
+	return nil
+}
+
 // runImport translates one or more libvirt-defined VMs into a holos
 // compose file. The mapping is intentionally lossy — fields holos has
 // no concept of (bridged networks, secondary disks, USB passthrough)
@@ -915,5 +973,6 @@ Usage:
                                        remove the systemd unit written by 'holos install'
   holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
                                        convert virsh-defined VMs into a holos.yaml
+  holos version [--short]              print build version, commit, and platform
 `)
 }

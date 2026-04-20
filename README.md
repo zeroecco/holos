@@ -332,10 +332,50 @@ so you know what to revisit before `holos up`. Output goes to stdout
 unless you pass `-o`, so it composes with shell redirection
 (`holos import vm > holos.yaml`).
 
+## Install
+
+Pre-built binaries (Linux + macOS, amd64 + arm64) are attached to every
+[GitHub release](https://github.com/zeroecco/holos/releases):
+
+```bash
+TAG=v0.1.0
+curl -L https://github.com/zeroecco/holos/releases/download/$TAG/holos_${TAG#v}_Linux_x86_64.tar.gz \
+  | sudo tar -xz -C /usr/local/bin holos
+holos version
+```
+
+Or build from source (see below).
+
+> Linux is the only runtime target — `holos up` needs `/dev/kvm` and
+> `qemu-system-x86_64`. macOS builds exist so the offline subcommands
+> (`validate`, `import`, `images`) work for compose-file authoring on
+> a laptop.
+
 ## Build
 
 ```bash
 go build -o bin/holos ./cmd/holos
+```
+
+### Cutting a release
+
+Releases are produced by [GoReleaser](https://goreleaser.com) on every
+`v*` git tag (see `.github/workflows/release.yml`):
+
+```bash
+git tag -a v0.1.0 -m "v0.1.0"
+git push origin v0.1.0
+```
+
+The workflow cross-compiles four targets, packages them with the
+`LICENSE`/`NOTICE`/`README.md`, computes SHA-256 checksums, drafts
+release notes from the commit log, and publishes a GitHub release.
+
+To rehearse locally without publishing:
+
+```bash
+goreleaser release --snapshot --clean --skip=publish
+ls dist/
 ```
 
 Build a guest image (requires mkosi):
