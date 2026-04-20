@@ -1,0 +1,118 @@
+# GoReleaser config for holos. Tag-driven, run from CI on push of a
+# v* tag (see .github/workflows/release.yml).
+#
+# Local snapshot build (no publish, no clean tag required):
+#
+#   goreleaser release --snapshot --clean --skip=publish
+#
+# Build matrix:
+#   - linux/amd64, linux/arm64   primary runtime targets (need /dev/kvm)
+#   - darwin/amd64, darwin/arm64 useful for the offline subcommands
+#                                (validate, import, images, exec) on Macs
+#
+# Anything that needs `/dev/kvm` won't work on darwin; we ship the
+# binary anyway because compose-file authoring on a laptop is a real
+# workflow and `holos validate` / `holos import --xml` don't touch the
+# host hypervisor.
+
+version: 2
+
+project_name: holos
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: holos
+    main: ./cmd/holos
+    binary: holos
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X main.date={{ .Date }}
+
+archives:
+  - id: holos
+    # holos_0.1.0_Linux_x86_64.tar.gz — the casing/aliases follow the
+    # convention almost every Go release uses, so install scripts that
+    # already grok one project will grok holos.
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?(feat|feature)(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - 'merge conflict'
+      - '^Merge pull request'
+      - '^Merge branch'
+
+release:
+  github:
+    owner: zeroecco
+    name: holos
+  draft: false
+  prerelease: auto
+  header: |
+    ## holos {{ .Tag }}
+
+    Single-host KVM stacks via a docker-compose-style YAML.
+
+    ### Install
+
+    Pick the archive for your platform from the **Assets** below, untar,
+    and put `holos` on your `PATH`:
+
+    ```bash
+    curl -L https://github.com/zeroecco/holos/releases/download/{{ .Tag }}/holos_{{ trimprefix .Tag "v" }}_Linux_x86_64.tar.gz \
+      | sudo tar -xz -C /usr/local/bin holos
+    holos version
+    ```
+
+    Linux requires `/dev/kvm` and `qemu-system-x86_64` at runtime.
+    macOS builds are intended for the offline subcommands
+    (`validate`, `import`, `images`).
+  footer: |
+    **Full Changelog**: https://github.com/zeroecco/holos/compare/{{ .PreviousTag }}...{{ .Tag }}

@@ -1,0 +1,74 @@
+# Release pipeline.
+#
+# Tag a release:
+#
+#   git tag -a v0.1.0 -m "v0.1.0"
+#   git push origin v0.1.0
+#
+# GoReleaser handles cross-compilation, archive packaging, checksum
+# generation, and release-note assembly. fetch-depth: 0 is required so
+# changelog diffs against the previous tag work.
+#
+# On pull requests we run a snapshot build that exercises the same
+# config without publishing — this catches syntax drift in
+# .goreleaser.yaml long before tag day.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.goreleaser.yaml'
+      - '.github/workflows/release.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: goreleaser (publish)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+      - run: go test ./...
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  snapshot:
+    if: github.event_name == 'pull_request'
+    name: goreleaser (snapshot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+      - name: Show built artifacts
+        run: ls -lah dist/

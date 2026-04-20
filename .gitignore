@@ -1,0 +1,15 @@
+# Goreleaser output
+/dist/
+
+# Built binaries from `go build` at the repo root
+/holos
+/qemu-system
+
+# Coverage profiles
+*.out
+coverage.txt
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
