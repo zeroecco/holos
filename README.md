@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/holos-lockup-dark.svg">
+  <img alt="holos" src="./docs/holos-lockup-light.svg" width="340">
+</picture>
+
 # holos
 
 Docker compose for KVM. Define multi-VM stacks in a single YAML file. No libvirt, no XML, no distributed control plane.
@@ -44,7 +49,7 @@ holos down
 ```
 
 That's a working VM with a real package install, a config file, and a
-host port forward. For multi-service stacks (depends_on, named volumes,
+host port forward. For multi-service stacks (depends\_on, named volumes,
 healthchecks, replicas), see [`examples/`](./examples) and the
 [Compose File](#compose-file) reference below.
 
@@ -134,15 +139,15 @@ Flags:
 
 The `holos.yaml` format is deliberately similar to docker-compose:
 
-- **services** - each service is a VM with its own image, resources, and cloud-init config
-- **depends_on** - services start in dependency order
-- **ports** - `"host:guest"` syntax, auto-incremented across replicas
-- **volumes** - `"./source:/target:ro"` for bind mounts, `"name:/target"` for top-level named volumes
-- **replicas** - run N instances of a service
-- **cloud_init** - packages, write_files, runcmd -- standard cloud-init
-- **stop_grace_period** - how long to wait for ACPI shutdown before SIGTERM/SIGKILL (e.g. `"30s"`, `"2m"`); defaults to 30s
-- **healthcheck** - `test`, `interval`, `retries`, `start_period`, `timeout` to gate dependents
-- top-level **volumes** block - declare named data volumes that persist across `holos down`
+* **services** - each service is a VM with its own image, resources, and cloud-init config
+* **depends\_on** - services start in dependency order
+* **ports** - `"host:guest"` syntax, auto-incremented across replicas
+* **volumes** - `"./source:/target:ro"` for bind mounts, `"name:/target"` for top-level named volumes
+* **replicas** - run N instances of a service
+* **cloud\_init** - packages, write\_files, runcmd -- standard cloud-init
+* **stop\_grace\_period** - how long to wait for ACPI shutdown before SIGTERM/SIGKILL (e.g. `"30s"`, `"2m"`); defaults to 30s
+* **healthcheck** - `test`, `interval`, `retries`, `start_period`, `timeout` to gate dependents
+* top-level **volumes** block - declare named data volumes that persist across `holos down`
 
 ### Graceful shutdown
 
@@ -248,10 +253,10 @@ it, and is idempotent (safe to call twice).
 
 Every service can reach every other service by name. Under the hood:
 
-- Each VM gets two NICs: user-mode (for host port forwarding) and socket multicast (for inter-VM L2)
-- Static IPs are assigned automatically on the internal `10.10.0.0/24` segment
-- `/etc/hosts` is populated via cloud-init so `db`, `web-0`, `web-1` all resolve
-- No libvirt. No bridge configuration. No root required for inter-VM networking.
+* Each VM gets two NICs: user-mode (for host port forwarding) and socket multicast (for inter-VM L2)
+* Static IPs are assigned automatically on the internal `10.10.0.0/24` segment
+* `/etc/hosts` is populated via cloud-init so `db`, `web-0`, `web-1` all resolve
+* No libvirt. No bridge configuration. No root required for inter-VM networking.
 
 ### GPU Passthrough
 
@@ -273,16 +278,16 @@ services:
 
 What holos handles:
 
-- UEFI boot is enabled automatically when devices are present (OVMF firmware)
-- `kernel-irqchip=on` is set on the machine for NVIDIA compatibility
-- Per-instance OVMF_VARS copy so each VM has its own EFI variable store
-- Optional `rom_file` for custom VBIOS ROMs
+* UEFI boot is enabled automatically when devices are present (OVMF firmware)
+* `kernel-irqchip=on` is set on the machine for NVIDIA compatibility
+* Per-instance OVMF\_VARS copy so each VM has its own EFI variable store
+* Optional `rom_file` for custom VBIOS ROMs
 
 What you handle (host setup):
 
-- Enable IOMMU in BIOS and kernel (`intel_iommu=on` or `amd_iommu=on`)
-- Bind the GPU to `vfio-pci` driver
-- Run `holos devices --gpu` to find PCI addresses and IOMMU groups
+* Enable IOMMU in BIOS and kernel (`intel_iommu=on` or `amd_iommu=on`)
+* Bind the GPU to `vfio-pci` driver
+* Run `holos devices --gpu` to find PCI addresses and IOMMU groups
 
 ### Images
 
@@ -353,11 +358,11 @@ Arguments are appended after all holos-managed flags. No validation -- you own i
 |-------|---------|
 | replicas | 1 |
 | vm.vcpu | 1 |
-| vm.memory_mb | 512 |
+| vm.memory\_mb | 512 |
 | vm.machine | q35 |
-| vm.cpu_model | host |
-| cloud_init.user | ubuntu |
-| image_format | inferred from extension |
+| vm.cpu\_model | host |
+| cloud\_init.user | ubuntu |
+| image\_format | inferred from extension |
 
 ### Import from virsh
 
@@ -444,11 +449,11 @@ Build a guest image (requires mkosi):
 
 ## Host Requirements
 
-- `/dev/kvm`
-- `qemu-system-x86_64`
-- `qemu-img`
-- One of `cloud-localds`, `genisoimage`, `mkisofs`, or `xorriso`
-- `mkosi` (only for building the base image)
+* `/dev/kvm`
+* `qemu-system-x86_64`
+* `qemu-img`
+* One of `cloud-localds`, `genisoimage`, `mkisofs`, or `xorriso`
+* `mkosi` (only for building the base image)
 
 ## Troubleshooting
 
@@ -496,11 +501,11 @@ dev container for actual workload execution.
 
 This is not Kubernetes. It does not try to solve:
 
-- Multi-host clustering
-- Live migration
-- Service meshes
-- Overlay networks
-- Scheduler, CRDs, or control plane quorum
+* Multi-host clustering
+* Live migration
+* Service meshes
+* Overlay networks
+* Scheduler, CRDs, or control plane quorum
 
 The goal is to make KVM workable for single-host stacks without importing the operational shape of Kubernetes.
 
