@@ -3,8 +3,6 @@
   <img alt="holos" src="./docs/holos-lockup-light.svg" width="340">
 </picture>
 
-# holos
-
 Docker compose for KVM. Define multi-VM stacks in a single YAML file. No libvirt, no XML, no distributed control plane.
 
 The primitive is a VM, not a container. Every workload instance gets its own kernel boundary, its own qcow2 overlay, and its own cloud-init seed.
