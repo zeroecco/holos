@@ -283,6 +283,18 @@ func runStop(args []string) error {
 	return nil
 }
 
+// runLogs accepts three call shapes, in order of resolution priority:
+//
+//  1. logs <project>                  - all instances in that project
+//  2. logs <project> <svc-or-inst>    - filtered to the named service or instance
+//  3. logs <svc-or-inst>              - compose-based; project comes from -f or cwd holos.yaml
+//
+// (1) and (2) are tried first when -f is unset: if the first
+// positional matches an on-disk project record, we resolve from
+// there. This is what makes `holos ps` output composable directly
+// with `holos logs <name>` (the same project name `ps` prints).
+// (3) preserves the original docker-compose-flavoured ergonomics
+// for users who run logs from inside a project directory.
 func runLogs(args []string) error {
 	flags := flag.NewFlagSet("logs", flag.ContinueOnError)
 	filePath := flags.String("f", "", "path to holos.yaml")
@@ -292,33 +304,121 @@ func runLogs(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 {
-		return errors.New("logs requires a service or instance name (e.g. \"vm\" or \"vm-0\")")
-	}
-
-	target := flags.Arg(0)
-
-	project, err := loadProject(*filePath, *stateDir)
-	if err != nil {
-		return err
+	if flags.NArg() < 1 {
+		return errors.New("logs requires a project name (e.g. \"my-stack\") or a service/instance (e.g. \"vm\", \"vm-0\")")
 	}
 
 	manager := runtime.NewManager(*stateDir)
-	record, err := manager.ProjectStatus(project.Name)
-	if err != nil {
-		return err
+
+	var (
+		record *runtime.ProjectRecord
+		filter string
+	)
+
+	if *filePath == "" {
+		if r, ok := lookupProjectRecord(manager, flags.Arg(0)); ok {
+			record = r
+			if flags.NArg() >= 2 {
+				filter = flags.Arg(1)
+			}
+		}
 	}
 
-	matches := resolveLogTargets(record, target)
-	if len(matches) == 0 {
-		return fmt.Errorf("no service or instance named %q in project %q", target, project.Name)
+	if record == nil {
+		if flags.NArg() != 1 {
+			return errors.New("logs <project> [<service|instance>]  OR  logs [-f file] <service|instance>")
+		}
+		project, err := loadProject(*filePath, *stateDir)
+		if err != nil {
+			return err
+		}
+		record, err = manager.ProjectStatus(project.Name)
+		if err != nil {
+			return err
+		}
+		filter = flags.Arg(0)
 	}
+
+	var matches []runtime.InstanceRecord
+	if filter == "" {
+		for _, svc := range record.Services {
+			matches = append(matches, svc.Instances...)
+		}
+	} else {
+		matches = resolveLogTargets(record, filter)
+		if len(matches) == 0 {
+			return fmt.Errorf("no service or instance named %q in project %q", filter, record.Name)
+		}
+	}
+
 	for _, inst := range matches {
 		fmt.Printf("==> %s <==\n", inst.Name)
 		printLogTail(inst.LogPath, *lines)
 		fmt.Println()
 	}
 	return nil
+}
+
+// lookupProjectRecord checks whether name corresponds to an on-disk
+// project record. This is what makes `holos ps` output composable
+// with `holos logs|console|exec <project>`: the project name is the
+// natural handle the user already sees, no `-f /path/to/holos.yaml`
+// detour required.
+//
+// Returns (nil, false) on any read or decode error. Callers fall
+// through to compose-based resolution when this returns false, so
+// existing usage (`holos logs <svc>` from inside a project dir) is
+// unaffected.
+func lookupProjectRecord(manager *runtime.Manager, name string) (*runtime.ProjectRecord, bool) {
+	if name == "" {
+		return nil, false
+	}
+	record, err := manager.ProjectStatus(name)
+	if err != nil {
+		return nil, false
+	}
+	return record, true
+}
+
+// findInstanceInRecord locates an instance by name in a project
+// record. Used by the project-name resolution paths in console/exec
+// where we don't have a compose.Project to consult.
+func findInstanceInRecord(record *runtime.ProjectRecord, instanceName string) (runtime.InstanceRecord, bool) {
+	for _, svc := range record.Services {
+		for _, inst := range svc.Instances {
+			if inst.Name == instanceName {
+				return inst, true
+			}
+		}
+	}
+	return runtime.InstanceRecord{}, false
+}
+
+// soleInstance returns the only instance in a project record when
+// there is exactly one across all services. This lets callers omit
+// the instance name entirely for the common `holos run` case (one
+// service, one replica, one instance).
+func soleInstance(record *runtime.ProjectRecord) (runtime.InstanceRecord, bool) {
+	var hits []runtime.InstanceRecord
+	for _, svc := range record.Services {
+		hits = append(hits, svc.Instances...)
+	}
+	if len(hits) == 1 {
+		return hits[0], true
+	}
+	return runtime.InstanceRecord{}, false
+}
+
+// instanceList renders "<svc/inst>, <svc/inst>, ..." for error
+// messages so the user can see what they should have typed.
+func instanceList(record *runtime.ProjectRecord) string {
+	var names []string
+	for _, svc := range record.Services {
+		for _, inst := range svc.Instances {
+			names = append(names, inst.Name)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // resolveLogTargets accepts either a service name (returns all of its
@@ -345,11 +445,13 @@ func resolveLogTargets(record *runtime.ProjectRecord, name string) []runtime.Ins
 
 // runExec opens an ssh session to a running instance.
 //
-// Layout: holos exec [-f holos.yaml] [-u user] [-w timeout] <instance> [-- cmd ...]
+// Call shapes (in resolution priority order):
 //
-//   - The project is resolved from -f (or auto-discovered in cwd) so
-//     we know which project owns the instance's keypair and cloud-init
-//     user.
+//  1. exec <project> [<inst>] [-- cmd ...]   - project-name based; <inst>
+//     can be omitted when the project has a single instance
+//  2. exec [-f file] <inst> [-- cmd ...]     - compose-based, original
+//
+// Notes:
 //   - When no command is given we allocate a TTY and drop the operator
 //     into a login shell; with a command we pass it verbatim to ssh and
 //     inherit stdin so pipes work ("holos exec db-0 psql < dump.sql").
@@ -360,6 +462,12 @@ func resolveLogTargets(record *runtime.ProjectRecord, name string) []runtime.Ins
 //     first-boot users don't get a confusing "kex_exchange:
 //     Connection reset by peer" while cloud-init is still
 //     regenerating host keys and bouncing sshd. -w 0 disables.
+//   - In project-name mode we don't have the live compose to read
+//     cloud_init.user from, so we fall back to whatever compose was
+//     persisted under state_dir/runs/<project>/holos.yaml (which is
+//     where `holos run` stashes its synthesised file). If neither
+//     `-u` nor that file gives us a user, we default to "ubuntu" -
+//     the same docker-image convention compose uses.
 func runExec(args []string) error {
 	flags := flag.NewFlagSet("exec", flag.ContinueOnError)
 	filePath := flags.String("f", "", "path to holos.yaml")
@@ -371,37 +479,32 @@ func runExec(args []string) error {
 		return err
 	}
 	if flags.NArg() < 1 {
-		return errors.New("exec requires an instance name (e.g. web-0)")
-	}
-
-	instanceName := flags.Arg(0)
-	cmd := flags.Args()[1:]
-
-	project, err := loadProject(*filePath, *stateDir)
-	if err != nil {
-		return err
+		return errors.New("exec requires a project name or an instance name (e.g. \"my-stack\" or \"web-0\")")
 	}
 
 	manager := runtime.NewManager(*stateDir)
-	inst, svcName, err := manager.FindInstance(project.Name, instanceName)
+	tgt, err := resolveInstanceTarget(manager, *filePath, *stateDir, flags.Args())
 	if err != nil {
 		return err
 	}
-	if inst.Status != "running" {
-		return fmt.Errorf("instance %q is %s", instanceName, inst.Status)
+
+	if tgt.Inst.Status != "running" {
+		return fmt.Errorf("instance %q is %s", tgt.Inst.Name, tgt.Inst.Status)
 	}
-	if inst.SSHPort == 0 {
-		return fmt.Errorf("instance %q has no ssh port (created before exec support; recreate the stack)", instanceName)
+	if tgt.Inst.SSHPort == 0 {
+		return fmt.Errorf("instance %q has no ssh port (created before exec support; recreate the stack)", tgt.Inst.Name)
 	}
 
 	loginUser := *user
 	if loginUser == "" {
-		if svc, ok := project.Services[svcName]; ok && svc.CloudInit.User != "" {
-			loginUser = svc.CloudInit.User
-		} else {
-			loginUser = "ubuntu"
-		}
+		loginUser = tgt.LoginUser
 	}
+	if loginUser == "" {
+		loginUser = "ubuntu"
+	}
+
+	inst := tgt.Inst
+	cmd := tgt.CmdArgs
 
 	if *wait > 0 {
 		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(inst.SSHPort))
@@ -416,7 +519,7 @@ func runExec(args []string) error {
 		}
 	}
 
-	keyPath, err := manager.ProjectSSHKeyPath(project.Name)
+	keyPath, err := manager.ProjectSSHKeyPath(tgt.ProjectName)
 	if err != nil {
 		return err
 	}
@@ -489,6 +592,15 @@ func waitForSSHReady(addr string, total time.Duration) error {
 	return fmt.Errorf("sshd on %s did not become ready within %s", addr, total)
 }
 
+// runConsole accepts:
+//
+//  1. console <project>               - sole instance in project (errors if >1)
+//  2. console <project> <inst>        - explicit instance via project name
+//  3. console [-f file] <inst>        - compose-based, original behaviour
+//
+// Same resolution rule as runLogs: when -f is unset and the first
+// positional matches an on-disk project record, treat it as a project
+// name. Otherwise fall through to compose-based instance lookup.
 func runConsole(args []string) error {
 	flags := flag.NewFlagSet("console", flag.ContinueOnError)
 	filePath := flags.String("f", "", "path to holos.yaml")
@@ -497,38 +609,127 @@ func runConsole(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() != 1 {
-		return errors.New("console requires an instance name (e.g. web-0)")
-	}
-
-	instanceName := flags.Arg(0)
-
-	project, err := loadProject(*filePath, *stateDir)
-	if err != nil {
-		return err
+	if flags.NArg() < 1 {
+		return errors.New("console requires a project name or an instance name (e.g. \"my-stack\" or \"web-0\")")
 	}
 
 	manager := runtime.NewManager(*stateDir)
-	record, err := manager.ProjectStatus(project.Name)
+	tgt, err := resolveInstanceTarget(manager, *filePath, *stateDir, flags.Args())
 	if err != nil {
 		return err
 	}
 
-	for _, svc := range record.Services {
-		for _, inst := range svc.Instances {
-			if inst.Name == instanceName {
-				if inst.Status != "running" {
-					return fmt.Errorf("instance %q is %s", instanceName, inst.Status)
-				}
-				if inst.SerialPath == "" {
-					return fmt.Errorf("instance %q has no serial console (created before console support)", instanceName)
-				}
-				return console.Attach(inst.SerialPath)
+	if tgt.Inst.Status != "running" {
+		return fmt.Errorf("instance %q is %s", tgt.Inst.Name, tgt.Inst.Status)
+	}
+	if tgt.Inst.SerialPath == "" {
+		return fmt.Errorf("instance %q has no serial console (created before console support)", tgt.Inst.Name)
+	}
+	return console.Attach(tgt.Inst.SerialPath)
+}
+
+// instanceTarget is the resolved output of either project-name-mode
+// or compose-mode lookup, packaged so callers don't care which path
+// was taken. CmdArgs is the remaining positional tail (for exec's
+// remote command); LoginUser is "" when we couldn't infer one and the
+// caller should apply its own default ("ubuntu" / -u override).
+type instanceTarget struct {
+	Inst        runtime.InstanceRecord
+	ProjectName string
+	LoginUser   string
+	CmdArgs     []string
+}
+
+// resolveInstanceTarget implements the project-name-or-compose
+// disambiguation that console and exec share. The first positional
+// is tried as a project name first when -f is unset; failing that we
+// fall back to compose-based instance lookup.
+//
+// Project-name shapes:
+//
+//	<project>             - sole instance in project (errors if >1)
+//	<project> <inst> ...  - explicit instance, rest of args are cmd
+//
+// Compose shapes:
+//
+//	<inst> ...            - cwd holos.yaml or -f file resolves the project
+func resolveInstanceTarget(manager *runtime.Manager, filePath, stateDir string, positional []string) (instanceTarget, error) {
+	if len(positional) == 0 {
+		return instanceTarget{}, errors.New("missing project or instance name")
+	}
+
+	if filePath == "" {
+		if record, ok := lookupProjectRecord(manager, positional[0]); ok {
+			tgt := instanceTarget{
+				ProjectName: record.Name,
+				LoginUser:   lookupLoginUser(stateDir, record.Name),
 			}
+			if len(positional) >= 2 {
+				inst, ok := findInstanceInRecord(record, positional[1])
+				if !ok {
+					return instanceTarget{}, fmt.Errorf(
+						"no instance %q in project %q (available: %s)",
+						positional[1], record.Name, instanceList(record))
+				}
+				tgt.Inst = inst
+				tgt.CmdArgs = positional[2:]
+				return tgt, nil
+			}
+			inst, ok := soleInstance(record)
+			if !ok {
+				return instanceTarget{}, fmt.Errorf(
+					"project %q has multiple instances; specify one (available: %s)",
+					record.Name, instanceList(record))
+			}
+			tgt.Inst = inst
+			return tgt, nil
 		}
 	}
 
-	return fmt.Errorf("instance %q not found in project %q", instanceName, project.Name)
+	project, err := loadProject(filePath, stateDir)
+	if err != nil {
+		return instanceTarget{}, err
+	}
+	inst, svcName, err := manager.FindInstance(project.Name, positional[0])
+	if err != nil {
+		return instanceTarget{}, err
+	}
+	tgt := instanceTarget{
+		Inst:        inst,
+		ProjectName: project.Name,
+		CmdArgs:     positional[1:],
+	}
+	if svc, ok := project.Services[svcName]; ok && svc.CloudInit.User != "" {
+		tgt.LoginUser = svc.CloudInit.User
+	}
+	return tgt, nil
+}
+
+// lookupLoginUser tries to recover the cloud-init user for a project
+// without requiring the operator's original holos.yaml to be on
+// disk. `holos run` persists its synthesised compose under
+// state_dir/runs/<project>/holos.yaml, so for ad-hoc VMs we get the
+// right answer (debian / alpine / fedora / etc.) even when the user
+// runs `holos exec <project>` from an unrelated directory.
+//
+// Returns "" when nothing is recoverable; callers fall back to "ubuntu"
+// or whatever the user passed via -u.
+func lookupLoginUser(stateDir, projectName string) string {
+	composePath := filepath.Join(stateDir, "runs", projectName, "holos.yaml")
+	file, err := compose.Load(composePath)
+	if err != nil {
+		return ""
+	}
+	project, err := file.Resolve(filepath.Dir(composePath), stateDir)
+	if err != nil {
+		return ""
+	}
+	for _, svc := range project.Services {
+		if svc.CloudInit.User != "" {
+			return svc.CloudInit.User
+		}
+	}
+	return ""
 }
 
 func runValidate(args []string) error {
@@ -978,9 +1179,10 @@ func runRun(args []string) error {
 	fmt.Printf("login user:   %s (cloud-init may take ~30s on first boot)\n", loginUser)
 	fmt.Println()
 	fmt.Println("next steps:")
-	fmt.Printf("  holos exec    -f %s vm-0     # interactive shell over ssh (recommended)\n", composePath)
-	fmt.Printf("  holos console -f %s vm-0     # serial console for boot/kernel logs\n", composePath)
-	fmt.Printf("  holos down %s\n", projectName)
+	fmt.Printf("  holos exec    %s     # interactive shell over ssh (recommended)\n", projectName)
+	fmt.Printf("  holos console %s     # serial console for boot/kernel logs\n", projectName)
+	fmt.Printf("  holos logs    %s     # console.log tail\n", projectName)
+	fmt.Printf("  holos down    %s\n", projectName)
 	return nil
 }
 

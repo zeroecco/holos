@@ -2,7 +2,10 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -389,4 +392,198 @@ func TestStringListAppends(t *testing.T) {
 	if got := list.String(); got != "8080:80,9090:90,5432:5432" {
 		t.Errorf("String() = %q", got)
 	}
+}
+
+// TestLookupProjectRecord_HitAndMiss exercises the on-disk lookup
+// that lets `holos logs|console|exec <project>` work without an
+// `-f` detour. We seed a state directory with a single project
+// record, then confirm the helper recovers it by name and returns
+// (nil, false) for an unknown name.
+//
+// This is the primary regression guard for the bug report:
+//
+//	"holos logs ubuntu-noble-34cf77" failing with
+//	"open .../projects/my-stack.json: no such file or directory"
+//
+// because logs was loading a stale cwd holos.yaml instead of
+// resolving the positional as a project name.
+func TestLookupProjectRecord_HitAndMiss(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := runtime.NewManager(stateDir)
+
+	if err := writeFakeProjectRecord(stateDir, "ubuntu-noble-34cf77"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if rec, ok := lookupProjectRecord(manager, "ubuntu-noble-34cf77"); !ok || rec.Name != "ubuntu-noble-34cf77" {
+		t.Errorf("lookupProjectRecord(known) = (%v, %v), want hit", rec, ok)
+	}
+	if rec, ok := lookupProjectRecord(manager, "no-such-project"); ok || rec != nil {
+		t.Errorf("lookupProjectRecord(unknown) = (%v, %v), want miss", rec, ok)
+	}
+	if rec, ok := lookupProjectRecord(manager, ""); ok || rec != nil {
+		t.Errorf("lookupProjectRecord(\"\") = (%v, %v), want miss", rec, ok)
+	}
+}
+
+// TestSoleInstanceAndFindInstanceInRecord covers the two helpers
+// that drive `holos exec/console <project>` with and without an
+// explicit instance argument.
+func TestSoleInstanceAndFindInstanceInRecord(t *testing.T) {
+	t.Parallel()
+
+	single := &runtime.ProjectRecord{
+		Name: "demo",
+		Services: []runtime.ServiceRecord{
+			{Name: "vm", Instances: []runtime.InstanceRecord{{Name: "vm-0"}}},
+		},
+	}
+	if inst, ok := soleInstance(single); !ok || inst.Name != "vm-0" {
+		t.Errorf("soleInstance(single) = (%v, %v), want vm-0", inst, ok)
+	}
+
+	multi := &runtime.ProjectRecord{
+		Services: []runtime.ServiceRecord{
+			{Name: "web", Instances: []runtime.InstanceRecord{{Name: "web-0"}, {Name: "web-1"}}},
+		},
+	}
+	if _, ok := soleInstance(multi); ok {
+		t.Errorf("soleInstance(multi) returned true; want false (cannot disambiguate)")
+	}
+
+	if inst, ok := findInstanceInRecord(multi, "web-1"); !ok || inst.Name != "web-1" {
+		t.Errorf("findInstanceInRecord(web-1) = (%v, %v)", inst, ok)
+	}
+	if _, ok := findInstanceInRecord(multi, "nope-0"); ok {
+		t.Errorf("findInstanceInRecord(unknown) returned true; want false")
+	}
+}
+
+// TestResolveInstanceTarget_ProjectMode walks the project-name
+// branch of the unified lookup used by exec and console:
+//
+//	[<project>]              -> sole instance
+//	[<project> <inst>]       -> explicit instance
+//	[<project> <inst> args]  -> explicit instance + cmd tail
+//	[<project> <bad-inst>]   -> error mentions known instances
+//
+// The compose-file branch is exercised by integration tests; this
+// covers everything that doesn't need a real holos.yaml on disk.
+func TestResolveInstanceTarget_ProjectMode(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := runtime.NewManager(stateDir)
+	if err := writeProjectRecord(stateDir, &runtime.ProjectRecord{
+		Name: "demo",
+		Services: []runtime.ServiceRecord{
+			{
+				Name:            "vm",
+				DesiredReplicas: 2,
+				Instances: []runtime.InstanceRecord{
+					{Name: "vm-0", Status: "running", SSHPort: 2222, SerialPath: "/tmp/s0"},
+					{Name: "vm-1", Status: "running", SSHPort: 2223, SerialPath: "/tmp/s1"},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	t.Run("project-only-with-multi-instance-errors", func(t *testing.T) {
+		_, err := resolveInstanceTarget(manager, "", stateDir, []string{"demo"})
+		if err == nil {
+			t.Fatal("expected error for ambiguous project lookup, got nil")
+		}
+		if !strings.Contains(err.Error(), "vm-0") || !strings.Contains(err.Error(), "vm-1") {
+			t.Errorf("error %q should list available instances", err)
+		}
+	})
+
+	t.Run("project-and-instance", func(t *testing.T) {
+		tgt, err := resolveInstanceTarget(manager, "", stateDir, []string{"demo", "vm-1"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tgt.Inst.Name != "vm-1" || tgt.ProjectName != "demo" {
+			t.Errorf("got inst=%q project=%q", tgt.Inst.Name, tgt.ProjectName)
+		}
+		if len(tgt.CmdArgs) != 0 {
+			t.Errorf("got CmdArgs=%v, want empty", tgt.CmdArgs)
+		}
+	})
+
+	t.Run("project-instance-and-cmd-tail", func(t *testing.T) {
+		tgt, err := resolveInstanceTarget(manager, "", stateDir, []string{"demo", "vm-0", "echo", "hello"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if tgt.Inst.Name != "vm-0" {
+			t.Errorf("got inst=%q, want vm-0", tgt.Inst.Name)
+		}
+		want := []string{"echo", "hello"}
+		if len(tgt.CmdArgs) != len(want) || tgt.CmdArgs[0] != want[0] || tgt.CmdArgs[1] != want[1] {
+			t.Errorf("CmdArgs = %v, want %v", tgt.CmdArgs, want)
+		}
+	})
+
+	t.Run("project-and-unknown-instance", func(t *testing.T) {
+		_, err := resolveInstanceTarget(manager, "", stateDir, []string{"demo", "vm-99"})
+		if err == nil {
+			t.Fatal("expected error for unknown instance, got nil")
+		}
+		if !strings.Contains(err.Error(), "vm-99") || !strings.Contains(err.Error(), "vm-0") {
+			t.Errorf("error %q should mention bad name and available list", err)
+		}
+	})
+}
+
+// TestResolveInstanceTarget_SingleInstanceProject covers the
+// happy path: `holos run` always produces one service with one
+// replica, so `holos exec <project>` should work with no further
+// arguments.
+func TestResolveInstanceTarget_SingleInstanceProject(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := runtime.NewManager(stateDir)
+	if err := writeProjectRecord(stateDir, &runtime.ProjectRecord{
+		Name: "ubuntu-noble-34cf77",
+		Services: []runtime.ServiceRecord{
+			{Name: "vm", Instances: []runtime.InstanceRecord{
+				{Name: "vm-0", Status: "running", SSHPort: 2222, SerialPath: "/tmp/s0"},
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	tgt, err := resolveInstanceTarget(manager, "", stateDir, []string{"ubuntu-noble-34cf77"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tgt.Inst.Name != "vm-0" {
+		t.Errorf("got %q, want vm-0", tgt.Inst.Name)
+	}
+}
+
+// writeFakeProjectRecord is the minimum payload that ProjectStatus
+// will accept. We avoid using runtime internals (saveProject etc.)
+// so the test stays decoupled from runtime implementation details.
+func writeFakeProjectRecord(stateDir, name string) error {
+	return writeProjectRecord(stateDir, &runtime.ProjectRecord{Name: name})
+}
+
+func writeProjectRecord(stateDir string, record *runtime.ProjectRecord) error {
+	dir := filepath.Join(stateDir, "projects")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, record.Name+".json"), payload, 0o644)
 }

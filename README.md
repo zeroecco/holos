@@ -54,15 +54,16 @@ healthchecks, replicas), see [`examples/`](./examples) and the
 holos up [-f holos.yaml]             start all services
 holos run [flags] <image> [-- cmd...]
                                      launch a one-off VM from an image (no compose file)
-holos down [-f holos.yaml]           stop and remove all services
+holos down <project>                 stop and remove a project (or [-f holos.yaml])
 holos ps [-f holos.yaml]             list running projects (-f narrows to one)
 holos start [-f holos.yaml] [svc]    start a stopped service or all services
 holos stop [-f holos.yaml] [svc]     stop a service or all services
-holos console [-f holos.yaml] <inst> attach serial console to an instance
-holos exec [-f holos.yaml] <inst> [cmd...]
+holos console <project> [<inst>]     attach serial console (or [-f file] <inst>)
+holos exec <project> [<inst>] [-- cmd...]
                                      ssh into an instance (waits for sshd; project's generated key)
-holos logs [-f holos.yaml] <svc|inst>
-                                     show logs for a service (all replicas) or one instance
+                                     also accepts [-f file] <inst> form
+holos logs <project> [<svc|inst>]    show logs for a project, service, or one instance
+                                     also accepts [-f file] <svc|inst> form
 holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
 holos images                         list available images
