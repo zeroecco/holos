@@ -51,9 +51,21 @@ var Registry = []Image{
 	// Arch Linux (cloud-init, official arch-boxes) — rolling release, URL tracks "latest".
 	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch"},
 
-	// Debian (NoCloud variant, cloud-init) — URL uses "latest" symlink.
-	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", Default: true, User: "debian"},
-	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-nocloud-amd64.qcow2", Format: "qcow2", User: "debian"},
+	// Debian (generic variant, cloud-init) — URL uses "latest" symlink.
+	//
+	// Why "generic" and not "nocloud":
+	// Debian publishes two flavours of the bookworm cloud image. The
+	// "nocloud" variant is intentionally minimal — it strips out
+	// openssh-server because it's meant as a base for custom images,
+	// not for direct use. holos assumes sshd exists in the guest for
+	// `holos exec` and healthchecks, so we'd silently produce VMs
+	// where exec fails with "Connection reset by peer" forever
+	// (sshd never bound port 22 because the package isn't installed).
+	// The "generic" variant ships sshd enabled, still supports the
+	// NoCloud datasource we feed via the cloud-localds ISO, and is
+	// only ~25 MB larger.
+	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian"},
+	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian"},
 
 	// Ubuntu (cloud images, NoCloud compatible) — "current" alias rotates on rebuild.
 	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu"},

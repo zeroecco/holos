@@ -34,6 +34,31 @@ func TestDefaultUser(t *testing.T) {
 	}
 }
 
+// TestDebianUsesGenericVariant pins the Debian image URL to the
+// "generic" flavour. The "nocloud" variant published alongside it
+// is intentionally minimal — Debian strips out openssh-server from
+// it because nocloud is meant as a base for further customisation.
+// holos requires sshd in the guest for `holos exec` and ssh-based
+// healthchecks, so silently regressing to nocloud would produce
+// VMs where exec fails forever with "Connection reset by peer".
+func TestDebianUsesGenericVariant(t *testing.T) {
+	t.Parallel()
+
+	for _, img := range Registry {
+		if img.Name != "debian" {
+			continue
+		}
+		if !strings.Contains(img.URL, "-generic-") {
+			t.Errorf("debian:%s URL = %q, must use the 'generic' variant (ships openssh-server) and not 'nocloud' (does not)",
+				img.Tag, img.URL)
+		}
+		if strings.Contains(img.URL, "-nocloud-") {
+			t.Errorf("debian:%s URL = %q, the 'nocloud' variant lacks openssh-server; use 'generic' instead",
+				img.Tag, img.URL)
+		}
+	}
+}
+
 func TestResolveKnownImages(t *testing.T) {
 	t.Parallel()
 
