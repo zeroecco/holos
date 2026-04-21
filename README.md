@@ -6,54 +6,48 @@ The primitive is a VM, not a container. Every workload instance gets its own ker
 
 ## Quick Start
 
-Write a `holos.yaml`:
+> Requires Linux + `/dev/kvm`. macOS builds run the offline subcommands
+> (`validate`, `import`, `images`) so you can author compose files on a
+> laptop, but `up`/`run` need a real KVM host.
+
+The shortest path — one disposable VM, no compose file:
+
+```bash
+holos run alpine
+# prints the exact `holos exec` and `holos down` commands for the new VM
+```
+
+The next-shortest path — a single-service stack you can `curl`. Save as
+`holos.yaml`:
 
 ```yaml
-name: my-stack
+name: hello
 
 services:
-  db:
-    image: ubuntu:noble
-    vm:
-      vcpu: 2
-      memory_mb: 1024
-    cloud_init:
-      packages:
-        - postgresql
-      runcmd:
-        - systemctl enable postgresql
-        - systemctl start postgresql
-
   web:
     image: ubuntu:noble
-    replicas: 2
-    depends_on:
-      - db
     ports:
       - "8080:80"
-    volumes:
-      - ./www:/srv/www:ro
     cloud_init:
       packages:
         - nginx
       write_files:
-        - path: /etc/nginx/sites-enabled/default
-          content: |
-            server {
-                listen 80;
-                location / { proxy_pass http://db:5432; }
-            }
+        - path: /var/www/html/index.html
+          content: "hello from holos\n"
       runcmd:
         - systemctl restart nginx
 ```
 
-Bring it up:
-
 ```bash
 holos up
+curl localhost:8080                 # → hello from holos
+holos down
 ```
 
-That's it. Two nginx VMs and a postgres VM, all on the same host, all talking to each other by name.
+That's it — a working VM with a real package install, a config file,
+and a host port forward. For multi-service stacks (depends_on, named
+volumes, healthchecks, replicas), see [`examples/`](./examples) and the
+[Compose File](#compose-file) reference below.
 
 ## CLI
 
@@ -455,6 +449,48 @@ Build a guest image (requires mkosi):
 - `qemu-img`
 - One of `cloud-localds`, `genisoimage`, `mkisofs`, or `xorriso`
 - `mkosi` (only for building the base image)
+
+## Troubleshooting
+
+### `kex_exchange_identification: read: Connection reset by peer`
+
+sshd accepted the TCP connection but closed it before the SSH
+handshake completed. On a fresh VM this almost always means
+cloud-init is still regenerating host keys and bouncing sshd —
+the listener is briefly flapping, not broken.
+
+`holos exec` waits up to 60s for sshd to be ready by default; if
+you hit this immediately after `holos run` or `holos up`, give it
+another 30s and retry. Use `-w 5m` to wait longer for slow first
+boots, or `-w 0` to disable the wait entirely.
+
+If the error persists past two minutes, attach the serial console
+(`holos console <inst>`) and look for cloud-init failures.
+
+### Console shows `Login incorrect` and `Password:` repeatedly
+
+Same window as above. The serial-getty autologin retries the
+configured user (e.g. `debian`) before cloud-init has actually
+created the account, so the first few attempts fail. Watch the
+console log for `cloud-init … finished` — after that line the
+autologin succeeds and you land in a shell.
+
+For interactive shell access the supported path is `holos exec`,
+which uses the project's auto-generated SSH key over a forwarded
+port. The serial console is meant for boot/kernel diagnostics, not
+day-to-day operation — cloud images don't ship with a console
+password and we don't add one.
+
+### `holos up` fails on macOS
+
+holos needs `/dev/kvm` and `qemu-system-x86_64` to actually launch
+VMs, and KVM is a Linux kernel feature. macOS builds exist so the
+offline subcommands (`validate`, `import`, `images`, `pull`) work
+for compose-file authoring on a laptop, but `up` and `run` only
+work on Linux hosts.
+
+Run holos against a remote KVM host via SSH, or use a Linux VM /
+dev container for actual workload execution.
 
 ## Non-Goals
 
