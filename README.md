@@ -62,13 +62,14 @@ holos up [-f holos.yaml]             start all services
 holos run [flags] <image> [-- cmd...]
                                      launch a one-off VM from an image (no compose file)
 holos down [-f holos.yaml]           stop and remove all services
-holos ps                             list running projects
+holos ps [-f holos.yaml]             list running projects (-f narrows to one)
 holos start [-f holos.yaml] [svc]    start a stopped service or all services
 holos stop [-f holos.yaml] [svc]     stop a service or all services
 holos console [-f holos.yaml] <inst> attach serial console to an instance
 holos exec [-f holos.yaml] <inst> [cmd...]
-                                     ssh into an instance (project's generated key)
-holos logs [-f holos.yaml] <svc>     show service logs
+                                     ssh into an instance (waits for sshd; project's generated key)
+holos logs [-f holos.yaml] <svc|inst>
+                                     show logs for a service (all replicas) or one instance
 holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
 holos images                         list available images
@@ -229,6 +230,11 @@ holos exec db-0 -- pg_isready    # one-off command
 explicit `cloud_init.user`, falling back to the image's conventional
 cloud user (`debian` for `debian:*`, `alpine` for `alpine:*`,
 `fedora`, `arch`, `ubuntu`), and finally `ubuntu` for local images.
+
+On a fresh VM `holos exec` waits up to 60s for sshd to be ready
+before attempting the handshake, masking the brief window where
+cloud-init regenerates host keys and bounces sshd. Use `-w 0` to
+opt out, or `-w 5m` to wait longer for slow first boots.
 
 ### Reboot survival
 

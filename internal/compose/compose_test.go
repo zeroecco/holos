@@ -121,6 +121,52 @@ func TestLoadAndResolve(t *testing.T) {
 	}
 }
 
+func TestUEFIAutoEnabledWithDevices(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.WriteFile(filepath.Join(dir, "base.qcow2"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name     string
+		uefi     bool
+		devices  []ComposeDevice
+		wantUEFI bool
+		why      string
+	}{
+		{"no-devices-no-uefi", false, nil, false, "no PCI devices, no explicit flag → SeaBIOS"},
+		{"explicit-uefi", true, nil, true, "operator asked for UEFI, no devices"},
+		{"devices-force-uefi", false, []ComposeDevice{{PCI: "0000:01:00.0"}}, true, "PCI passthrough requires OVMF"},
+		{"devices-and-explicit", true, []ComposeDevice{{PCI: "0000:01:00.0"}}, true, "both set, idempotent"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			file := &File{
+				Name: "uefitest",
+				Services: map[string]Service{
+					"vm": {
+						Image:   "./base.qcow2",
+						VM:      VM{UEFI: c.uefi},
+						Devices: c.devices,
+					},
+				},
+			}
+			project, err := file.Resolve(dir, stateDir)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			got := project.Services["vm"].VM.UEFI
+			if got != c.wantUEFI {
+				t.Errorf("%s: UEFI = %v, want %v", c.why, got, c.wantUEFI)
+			}
+		})
+	}
+}
+
 func TestUserResolutionChain(t *testing.T) {
 	t.Parallel()
 

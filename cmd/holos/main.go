@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/console"
@@ -152,6 +155,7 @@ func runDown(args []string) error {
 
 func runPS(args []string) error {
 	flags := flag.NewFlagSet("ps", flag.ContinueOnError)
+	filePath := flags.String("f", "", "path to holos.yaml (limits output to that one project)")
 	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
 	jsonOut := flags.Bool("json", false, "emit JSON")
 	flags.SetOutput(os.Stderr)
@@ -160,9 +164,29 @@ func runPS(args []string) error {
 	}
 
 	manager := runtime.NewManager(*stateDir)
-	projects, err := manager.ListProjects()
-	if err != nil {
-		return err
+
+	// `-f` narrows the listing to one project — the same scoping
+	// semantics every other compose-aware verb uses. Without it we
+	// list everything in the state dir, matching `docker ps`.
+	var (
+		projects []*runtime.ProjectRecord
+		err      error
+	)
+	if *filePath != "" {
+		project, perr := loadProject(*filePath, *stateDir)
+		if perr != nil {
+			return perr
+		}
+		record, perr := manager.ProjectStatus(project.Name)
+		if perr != nil {
+			return perr
+		}
+		projects = []*runtime.ProjectRecord{record}
+	} else {
+		projects, err = manager.ListProjects()
+		if err != nil {
+			return err
+		}
 	}
 
 	if *jsonOut {
@@ -269,10 +293,10 @@ func runLogs(args []string) error {
 		return err
 	}
 	if flags.NArg() != 1 {
-		return errors.New("logs requires a service name")
+		return errors.New("logs requires a service or instance name (e.g. \"vm\" or \"vm-0\")")
 	}
 
-	serviceName := flags.Arg(0)
+	target := flags.Arg(0)
 
 	project, err := loadProject(*filePath, *stateDir)
 	if err != nil {
@@ -285,24 +309,43 @@ func runLogs(args []string) error {
 		return err
 	}
 
-	for _, svc := range record.Services {
-		if svc.Name != serviceName {
-			continue
-		}
-		for _, inst := range svc.Instances {
-			fmt.Printf("==> %s <==\n", inst.Name)
-			printLogTail(inst.LogPath, *lines)
-			fmt.Println()
-		}
-		return nil
+	matches := resolveLogTargets(record, target)
+	if len(matches) == 0 {
+		return fmt.Errorf("no service or instance named %q in project %q", target, project.Name)
 	}
+	for _, inst := range matches {
+		fmt.Printf("==> %s <==\n", inst.Name)
+		printLogTail(inst.LogPath, *lines)
+		fmt.Println()
+	}
+	return nil
+}
 
-	return fmt.Errorf("service %q not found in project %q", serviceName, project.Name)
+// resolveLogTargets accepts either a service name (returns all of its
+// instances) or an instance name (returns just that one). This makes
+// `holos logs vm-0` work alongside `holos logs vm`, matching the
+// behavior `ps` already implies by displaying both columns. Service
+// match wins on collision — if someone names a service "vm-0" the
+// service-level interpretation is the intuitive one.
+func resolveLogTargets(record *runtime.ProjectRecord, name string) []runtime.InstanceRecord {
+	for _, svc := range record.Services {
+		if svc.Name == name {
+			return svc.Instances
+		}
+	}
+	for _, svc := range record.Services {
+		for _, inst := range svc.Instances {
+			if inst.Name == name {
+				return []runtime.InstanceRecord{inst}
+			}
+		}
+	}
+	return nil
 }
 
 // runExec opens an ssh session to a running instance.
 //
-// Layout: holos exec [-f holos.yaml] [-u user] <instance> [-- cmd ...]
+// Layout: holos exec [-f holos.yaml] [-u user] [-w timeout] <instance> [-- cmd ...]
 //
 //   - The project is resolved from -f (or auto-discovered in cwd) so
 //     we know which project owns the instance's keypair and cloud-init
@@ -313,11 +356,16 @@ func runLogs(args []string) error {
 //   - Host-key checks are disabled because guests are ephemeral and
 //     their fingerprints rotate on every `down`/`up`. Keys live on
 //     /dev/null so we never pollute the operator's known_hosts.
+//   - Before exec'ing ssh we briefly probe the forwarded port so
+//     first-boot users don't get a confusing "kex_exchange:
+//     Connection reset by peer" while cloud-init is still
+//     regenerating host keys and bouncing sshd. -w 0 disables.
 func runExec(args []string) error {
 	flags := flag.NewFlagSet("exec", flag.ContinueOnError)
 	filePath := flags.String("f", "", "path to holos.yaml")
 	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
 	user := flags.String("u", "", "override login user (default: service's cloud-init user)")
+	wait := flags.Duration("w", 60*time.Second, "wait up to this long for sshd to be ready (0 disables)")
 	flags.SetOutput(os.Stderr)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -355,6 +403,19 @@ func runExec(args []string) error {
 		}
 	}
 
+	if *wait > 0 {
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(inst.SSHPort))
+		if !sshdReady(addr) {
+			fmt.Fprintf(os.Stderr, "waiting up to %s for sshd on %s (cloud-init may still be regenerating host keys) ...\n", *wait, addr)
+			if err := waitForSSHReady(addr, *wait); err != nil {
+				// Fall through anyway — ssh's own error message
+				// is more actionable than ours when the wait
+				// times out (auth failure, network gone, etc).
+				fmt.Fprintf(os.Stderr, "warning: %v; attempting ssh anyway\n", err)
+			}
+		}
+	}
+
 	keyPath, err := manager.ProjectSSHKeyPath(project.Name)
 	if err != nil {
 		return err
@@ -384,6 +445,48 @@ func runExec(args []string) error {
 	// Ctrl-C and exit codes behave exactly like a direct ssh call.
 	argv := append([]string{sshBin}, sshArgs...)
 	return syscall.Exec(sshBin, argv, os.Environ())
+}
+
+// sshdReady returns true iff a TCP dial to addr succeeds AND the
+// peer responds with the SSH protocol banner ("SSH-") within a short
+// timeout. Used to distinguish "qemu's hostfwd accepted but guest
+// sshd is still flapping during host-key regen" (RST mid-handshake)
+// from a genuinely usable sshd.
+func sshdReady(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 4)
+	n, err := conn.Read(buf)
+	if err != nil || n < 4 {
+		return false
+	}
+	return string(buf) == "SSH-"
+}
+
+// waitForSSHReady polls sshdReady with exponential backoff until
+// the total budget is exhausted. Returns nil as soon as a probe
+// succeeds, or an error if we never saw a healthy banner.
+//
+// The polling cadence (200ms→2s, doubling) is small enough that
+// most "sshd just bounced" recoveries are masked entirely, but
+// large enough that a permanently-broken VM doesn't pin a CPU.
+func waitForSSHReady(addr string, total time.Duration) error {
+	deadline := time.Now().Add(total)
+	delay := 200 * time.Millisecond
+	for time.Now().Before(deadline) {
+		if sshdReady(addr) {
+			return nil
+		}
+		time.Sleep(delay)
+		if delay < 2*time.Second {
+			delay *= 2
+		}
+	}
+	return fmt.Errorf("sshd on %s did not become ready within %s", addr, total)
 }
 
 func runConsole(args []string) error {
@@ -797,13 +900,24 @@ func runRun(args []string) error {
 		resolvedUser = images.DefaultUser(image)
 	}
 
+	// Same self-documentation principle for UEFI: PCI passthrough
+	// requires OVMF in practice (SeaBIOS doesn't expose vfio's
+	// reset semantics or the larger MMIO space many devices need),
+	// so compose.resolveService silently flips UEFI on whenever
+	// devices are present. Mirror that here so the synthesised
+	// yaml matches what actually runs — otherwise an operator
+	// inspecting the file sees `uefi: false` for a VM that's
+	// definitely booting via OVMF, and our `--uefi` flag's
+	// "auto-enabled when --device is set" promise reads as a lie.
+	resolvedUEFI := *uefi || len(devList) > 0
+
 	svc := compose.Service{
 		Image:      image,
 		Dockerfile: *dockerfile,
 		VM: compose.VM{
 			VCPU:     *vcpu,
 			MemoryMB: memMB,
-			UEFI:     *uefi,
+			UEFI:     resolvedUEFI,
 		},
 		Ports:   ports,
 		Volumes: volumes,
@@ -925,16 +1039,39 @@ func generateRunName(image, dockerfilePath string) string {
 	return base + "-" + suffix
 }
 
-// randHex returns 2*n lowercase hex chars from crypto/rand. Falls back
-// to a stringified nanosecond stamp on the (essentially impossible)
-// case of crypto/rand failing, so we never panic out of name
-// generation in user-facing flow.
+// randHex returns exactly 2*n lowercase hex chars from crypto/rand,
+// falling back to randHexFallback on the (essentially impossible)
+// failure of crypto/rand. The 2*n length contract is load-bearing:
+// generateRunName reserves exactly 6 suffix chars to stay within
+// DNS's 63-char label limit.
 func randHex(n int) string {
 	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return strconv.FormatInt(int64(os.Getpid()), 16)
+	if _, err := rand.Read(buf); err == nil {
+		return hex.EncodeToString(buf)
 	}
-	return hex.EncodeToString(buf)
+	return randHexFallback(n)
+}
+
+// randHexFallback derives 2*n hex chars from sha256(nanos ^ pid). It
+// exists so we never panic on crypto/rand failure in user-facing
+// name generation.
+//
+// An earlier implementation returned strconv.FormatInt(pid, 16),
+// which is variable-length (1-7+ chars depending on the PID) and
+// silently violated randHex's 2*n contract. With a 200-char image
+// reference and a 7-hex-digit pid that pushed generateRunName to
+// 56 + 1 + 7 = 64 chars, busting compose's DNS-label validation.
+// TestRandHexFallbackLengthContract pins this against regression.
+//
+// n is capped at sha256.Size (32) — all the hash gives us. Callers
+// here use n=3, well within bounds.
+func randHexFallback(n int) string {
+	if n > sha256.Size {
+		n = sha256.Size
+	}
+	seed := time.Now().UnixNano() ^ int64(os.Getpid())
+	h := sha256.Sum256(fmt.Appendf(nil, "%d", seed))
+	return hex.EncodeToString(h[:n])
 }
 
 // parseMemoryMB accepts docker-style memory sizes ("512M", "2G", "1024")
@@ -1264,12 +1401,12 @@ Usage:
   holos run [flags] <image> [-- cmd...]
                                        launch a one-off VM from an image (no compose file)
   holos down [-f holos.yaml]           stop and remove all services
-  holos ps                             list running projects
+  holos ps [-f holos.yaml]             list running projects (-f narrows to one)
   holos start [-f holos.yaml] [svc]    start a stopped service or all services
   holos stop [-f holos.yaml] [svc]     stop a service or all services
   holos console [-f holos.yaml] <inst> attach serial console to an instance
   holos exec [-f holos.yaml] <inst> [cmd...]  ssh into an instance (project's generated key)
-  holos logs [-f holos.yaml] <svc>     show service logs
+  holos logs [-f holos.yaml] <svc|inst>  show logs for a service (all replicas) or one instance
   holos validate [-f holos.yaml]       validate compose file
   holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
   holos images                         list available images
