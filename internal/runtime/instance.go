@@ -266,7 +266,7 @@ func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) er
 // stopInstance requests a graceful shutdown, escalating as needed:
 //
 //  1. Send QMP system_powerdown and wait up to StopGracePeriodSec for the
-//     guest to halt (ACPI shutdown — lets the guest flush disks, unmount,
+//     guest to halt (ACPI shutdown, which lets the guest flush disks, unmount,
 //     run shutdown units).
 //  2. If the guest is still running after the grace period (or QMP was
 //     unreachable), send SIGTERM to the qemu process and wait briefly.
@@ -366,7 +366,7 @@ func (m *Manager) removeInstanceDirs(instances []InstanceRecord) {
 // started. The signal-0 probe alone is insufficient because Linux PIDs are
 // recycled; after a long-running state file or a host reboot, `pid` may
 // point at an unrelated process. We defend against that by also checking
-// that /proc/<pid>/comm starts with "qemu-" — cheap on Linux (holos is
+// that /proc/<pid>/comm starts with "qemu-". Cheap on Linux (holos is
 // Linux-only) and enough to avoid ever SIGTERM'ing a stranger.
 func processAlive(pid int) bool {
 	if pid <= 0 {

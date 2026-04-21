@@ -44,7 +44,7 @@ services:
 		t.Fatalf("expected volume backing at %s: %v", backing, err)
 	}
 
-	// The instance workdir contains a symlink — not a real file — that
+	// The instance workdir contains a symlink (not a real file) that
 	// points at the backing qcow2. This is what lets `holos down` remove
 	// the workdir without clobbering volume data.
 	linkPath := filepath.Join(h.stateDir, "instances", "volproj", "db-0", "vol-data.qcow2")
@@ -154,7 +154,7 @@ services:
 	}
 
 	// `data:/mnt` without a top-level `data:` entry and without a `./`
-	// prefix is ambiguous — it reads as a named-volume reference but
+	// prefix is ambiguous: it reads as a named-volume reference but
 	// nothing declared one. The resolver must reject it loudly so a
 	// typo (`dta` vs `data`) doesn't silently demote to a bind mount.
 	_, stderr, err := h.run("validate", "-f", dir+"/holos.yaml")

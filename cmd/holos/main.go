@@ -165,7 +165,7 @@ func runPS(args []string) error {
 
 	manager := runtime.NewManager(*stateDir)
 
-	// `-f` narrows the listing to one project — the same scoping
+	// `-f` narrows the listing to one project, the same scoping
 	// semantics every other compose-aware verb uses. Without it we
 	// list everything in the state dir, matching `docker ps`.
 	var (
@@ -325,7 +325,7 @@ func runLogs(args []string) error {
 // instances) or an instance name (returns just that one). This makes
 // `holos logs vm-0` work alongside `holos logs vm`, matching the
 // behavior `ps` already implies by displaying both columns. Service
-// match wins on collision — if someone names a service "vm-0" the
+// match wins on collision: if someone names a service "vm-0" the
 // service-level interpretation is the intuitive one.
 func resolveLogTargets(record *runtime.ProjectRecord, name string) []runtime.InstanceRecord {
 	for _, svc := range record.Services {
@@ -408,7 +408,7 @@ func runExec(args []string) error {
 		if !sshdReady(addr) {
 			fmt.Fprintf(os.Stderr, "waiting up to %s for sshd on %s (cloud-init may still be regenerating host keys) ...\n", *wait, addr)
 			if err := waitForSSHReady(addr, *wait); err != nil {
-				// Fall through anyway — ssh's own error message
+				// Fall through anyway. ssh's own error message
 				// is more actionable than ours when the wait
 				// times out (auth failure, network gone, etc).
 				fmt.Fprintf(os.Stderr, "warning: %v; attempting ssh anyway\n", err)
@@ -751,7 +751,7 @@ func runInstall(args []string) error {
 }
 
 // runUninstall removes the systemd unit written by `holos install`.
-// It does not stop the project — operators that want a clean teardown
+// It does not stop the project; operators that want a clean teardown
 // should `holos down` separately.
 func runUninstall(args []string) error {
 	flags := flag.NewFlagSet("uninstall", flag.ContinueOnError)
@@ -799,7 +799,7 @@ func runUninstall(args []string) error {
 // the same loadProject + manager.Up path everything else uses. Going
 // through the on-disk file (rather than constructing a Project in
 // memory directly) keeps follow-up commands like `holos exec`,
-// `holos console`, and `holos down` working — they all expect a
+// `holos console`, and `holos down` working: they all expect a
 // compose file path, and now there is one.
 //
 // VMs are inherently detached; a "foreground" mode would just be
@@ -832,7 +832,7 @@ func runRun(args []string) error {
 	// Trailing args after a `--` separator become extra runcmd entries
 	// (`holos run alpine -- echo hello, world`). The stdlib flag parser
 	// stops at the first non-flag positional, which means `--` is
-	// preserved verbatim somewhere inside flags.Args() — we strip it
+	// preserved verbatim somewhere inside flags.Args(), so we strip it
 	// explicitly so it doesn't show up as a literal `--` in the
 	// generated runcmd.
 	positional := flags.Args()
@@ -888,7 +888,7 @@ func runRun(args []string) error {
 	const serviceName = "vm"
 
 	// Resolve the cloud-init user up front so the synthesised yaml
-	// is self-documenting — the file shows exactly which account
+	// is self-documenting: the file shows exactly which account
 	// cloud-init will create rather than relying on a downstream
 	// default. Compose's resolve layer would do the same fallback
 	// lookup if we left this empty, but writing it through here
@@ -905,7 +905,7 @@ func runRun(args []string) error {
 	// reset semantics or the larger MMIO space many devices need),
 	// so compose.resolveService silently flips UEFI on whenever
 	// devices are present. Mirror that here so the synthesised
-	// yaml matches what actually runs — otherwise an operator
+	// yaml matches what actually runs. Otherwise an operator
 	// inspecting the file sees `uefi: false` for a VM that's
 	// definitely booting via OVMF, and our `--uefi` flag's
 	// "auto-enabled when --device is set" promise reads as a lie.
@@ -1063,7 +1063,7 @@ func randHex(n int) string {
 // 56 + 1 + 7 = 64 chars, busting compose's DNS-label validation.
 // TestRandHexFallbackLengthContract pins this against regression.
 //
-// n is capped at sha256.Size (32) — all the hash gives us. Callers
+// n is capped at sha256.Size (32), all the hash gives us. Callers
 // here use n=3, well within bounds.
 func randHexFallback(n int) string {
 	if n > sha256.Size {
@@ -1087,7 +1087,7 @@ func parseMemoryMB(raw string) (int, error) {
 	last := s[len(s)-1]
 	switch last {
 	case 'B':
-		// allow "512MB", "2GB" — strip the B, look at the actual unit
+		// allow "512MB", "2GB" by stripping the B and reading the actual unit
 		if len(s) < 2 {
 			return 0, fmt.Errorf("invalid memory %q", raw)
 		}
@@ -1167,7 +1167,7 @@ func runVersion(args []string) error {
 }
 
 // runImport translates one or more libvirt-defined VMs into a holos
-// compose file. The mapping is intentionally lossy — fields holos has
+// compose file. The mapping is intentionally lossy: fields holos has
 // no concept of (bridged networks, secondary disks, USB passthrough)
 // surface as warnings on stderr so the operator knows what to revisit
 // before `holos up`. Output goes to stdout by default so it composes
@@ -1283,7 +1283,7 @@ func runImport(args []string) error {
 }
 
 // loadProjectWithPath is loadProject plus the absolute path of the
-// compose file it found — installers need the path to embed in the
+// compose file it found. Installers need the path to embed in the
 // unit's ExecStart=.
 func loadProjectWithPath(filePath, stateDir string) (*compose.Project, string, error) {
 	if filePath == "" {

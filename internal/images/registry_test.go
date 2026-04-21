@@ -36,7 +36,7 @@ func TestDefaultUser(t *testing.T) {
 
 // TestDebianUsesGenericVariant pins the Debian image URL to the
 // "generic" flavour. The "nocloud" variant published alongside it
-// is intentionally minimal — Debian strips out openssh-server from
+// is intentionally minimal: Debian strips out openssh-server from
 // it because nocloud is meant as a base for further customisation.
 // holos requires sshd in the guest for `holos exec` and ssh-based
 // healthchecks, so silently regressing to nocloud would produce

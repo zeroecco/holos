@@ -11,7 +11,7 @@ import (
 )
 
 // TestInstall_DryRunEmitsUnit renders the unit to stdout without
-// touching the filesystem — the fast feedback loop operators use to
+// touching the filesystem. The fast feedback loop operators use to
 // review what they're about to commit.
 func TestInstall_DryRunEmitsUnit(t *testing.T) {
 	h := newHarness(t)
@@ -89,7 +89,7 @@ services:
 	body := string(content)
 
 	// Absolute compose path, absolute state-dir, and the binary path
-	// that was actually used — operators should never see a relative
+	// that was actually used. Operators should never see a relative
 	// path in a unit because at boot $PWD is /.
 	if !strings.Contains(body, filepath.Join(dir, "holos.yaml")) {
 		t.Fatalf("unit missing abs compose path:\n%s", body)
@@ -134,7 +134,7 @@ services:
 		t.Fatalf("unit still present after uninstall: %v", err)
 	}
 
-	// Second uninstall on a removed unit must also succeed — this
+	// Second uninstall on a removed unit must also succeed. This
 	// keeps `holos uninstall` safe to script.
 	h.mustRun("uninstall", "-f", filepath.Join(dir, "holos.yaml"))
 

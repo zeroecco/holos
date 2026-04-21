@@ -55,8 +55,8 @@ type Manifest struct {
 	StopGracePeriodSec int                    `json:"stop_grace_period_sec,omitempty"`
 	Healthcheck        *HealthcheckConfig     `json:"healthcheck,omitempty"`
 	// DependsOn is the resolved list of services this one must come
-	// up after. Purely informational for the runtime — topological
-	// ordering is already baked into Project.ServiceOrder — but the
+	// up after. Purely informational for the runtime (topological
+	// ordering is already baked into Project.ServiceOrder), but the
 	// reverse edge is what we use to decide which services need a
 	// wait-for-healthy gate.
 	DependsOn []string `json:"depends_on,omitempty"`
@@ -64,7 +64,7 @@ type Manifest struct {
 
 // HealthcheckConfig is the runtime-ready form of a compose healthcheck.
 // All durations are expressed as whole seconds so the on-disk record is
-// trivially inspectable with `jq`. Zero values mean "no healthcheck" —
+// trivially inspectable with `jq`. Zero values mean "no healthcheck";
 // callers that hold a nil *HealthcheckConfig skip probing entirely.
 type HealthcheckConfig struct {
 	// Test is the argv passed to `sh -c` (or a direct exec) inside

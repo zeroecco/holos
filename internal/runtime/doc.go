@@ -19,15 +19,15 @@
 // State is stored under a configurable directory (default ~/.local/state/holos
 // for non-root, /var/lib/holos for root, or HOLOS_STATE_DIR):
 //
-//	<state>/projects/<name>.json   — per-project JSON record
+//	<state>/projects/<name>.json   per-project JSON record
 //	<state>/instances/<project>/<service>-<index>/
-//	    root.qcow2       — copy-on-write overlay
-//	    seed.img|seed.iso — cloud-init NoCloud media
-//	    console.log       — serial console log
-//	    serial.sock       — serial console Unix socket
-//	    qmp.sock          — QMP control socket
-//	    qemu.log          — QEMU stderr/stdout
-//	    OVMF_VARS.fd      — per-instance EFI variable store (UEFI only)
+//	    root.qcow2        copy-on-write overlay
+//	    seed.img|seed.iso cloud-init NoCloud media
+//	    console.log       serial console log
+//	    serial.sock       serial console Unix socket
+//	    qmp.sock          QMP control socket
+//	    qemu.log          QEMU stderr/stdout
+//	    OVMF_VARS.fd      per-instance EFI variable store (UEFI only)
 //
 // # Instance lifecycle
 //

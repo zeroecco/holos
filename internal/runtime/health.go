@@ -140,7 +140,7 @@ func loadSSHKey(path string) (ssh.Signer, error) {
 }
 
 // shellJoin renders argv as a single string suitable for
-// session.Run — which hands the whole string to the remote shell —
+// session.Run (which hands the whole string to the remote shell),
 // quoting each element defensively so arguments containing spaces or
 // shell metacharacters survive the round trip.
 func shellJoin(argv []string) string {

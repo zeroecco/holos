@@ -261,7 +261,7 @@ func volumeMountRunCmd(manifest config.Manifest) []string {
 
 // shquote wraps s in single quotes and escapes any embedded single
 // quotes by ending the quoted region, inserting an escaped single
-// quote, and reopening — the only reliable way to embed a quote in
+// quote, and reopening. The only reliable way to embed a quote in
 // a single-quoted POSIX shell string.
 func shquote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

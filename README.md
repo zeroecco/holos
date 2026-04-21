@@ -10,15 +10,14 @@ The primitive is a VM, not a container. Every workload instance gets its own ker
 > (`validate`, `import`, `images`) so you can author compose files on a
 > laptop, but `up`/`run` need a real KVM host.
 
-The shortest path — one disposable VM, no compose file:
+The shortest path. One disposable VM, no compose file:
 
 ```bash
 holos run alpine
 # prints the exact `holos exec` and `holos down` commands for the new VM
 ```
 
-The next-shortest path — a single-service stack you can `curl`. Save as
-`holos.yaml`:
+A single-service stack you can `curl`. Save as `holos.yaml`:
 
 ```yaml
 name: hello
@@ -44,9 +43,9 @@ curl localhost:8080                 # → hello from holos
 holos down
 ```
 
-That's it — a working VM with a real package install, a config file,
-and a host port forward. For multi-service stacks (depends_on, named
-volumes, healthchecks, replicas), see [`examples/`](./examples) and the
+That's a working VM with a real package install, a config file, and a
+host port forward. For multi-service stacks (depends_on, named volumes,
+healthchecks, replicas), see [`examples/`](./examples) and the
 [Compose File](#compose-file) reference below.
 
 ## CLI
@@ -102,9 +101,9 @@ holos console -f ~/.local/state/holos/runs/<name>/holos.yaml vm-0
 holos down <name>
 ```
 
-`holos run` exits as soon as the VM is started — VMs are always
-detached, just like `holos up`. There is no foreground/`-it` mode;
-shell in via `holos exec` (the recommended path), or attach to the
+`holos run` exits as soon as the VM is started. VMs are always
+detached, just like `holos up`. There is no foreground or `-it` mode.
+Shell in via `holos exec` (the recommended path), or attach to the
 serial console with `holos console` for boot/kernel logs.
 
 The login user is inferred from the image (`debian:*` → `debian`,
@@ -149,7 +148,7 @@ The `holos.yaml` format is deliberately similar to docker-compose:
 `holos stop` and `holos down` send QMP `system_powerdown` to the guest
 (equivalent to pressing the power button), then wait up to
 `stop_grace_period` for QEMU to exit on its own. If the guest doesn't
-halt in time — or QMP is unreachable — the runtime falls back to SIGTERM,
+halt in time, or QMP is unreachable, the runtime falls back to SIGTERM
 then SIGKILL, matching docker-compose semantics.
 
 ```yaml
@@ -163,7 +162,7 @@ services:
 
 Top-level `volumes:` declares named data stores that live under
 `state_dir/volumes/<project>/<name>.qcow2` and are symlinked into each
-instance's work directory. They survive `holos down` — tearing down a
+instance's work directory. They survive `holos down`: tearing down a
 project only removes the symlink, never the backing file.
 
 ```yaml
@@ -205,7 +204,7 @@ services:
 ```
 
 `test:` accepts either a list (exec form) or a string (wrapped in
-`sh -c`). Set `HOLOS_HEALTH_BYPASS=1` to skip the actual probe — handy
+`sh -c`). Set `HOLOS_HEALTH_BYPASS=1` to skip the actual probe; handy
 for CI environments without in-guest SSHD.
 
 ### holos exec
@@ -242,7 +241,7 @@ holos install --dry-run          # print the unit and exit
 
 User units land under `~/.config/systemd/user/holos-<project>.service`;
 system units under `/etc/systemd/system/`. `holos uninstall` reverses
-it (and is idempotent — safe to call twice).
+it, and is idempotent (safe to call twice).
 
 ### Networking
 
@@ -325,7 +324,7 @@ RUN npm init -y && npm install express
 
 When `image` is omitted, the base image is taken from the Dockerfile's `FROM` line. The Dockerfile's instructions run before any `cloud_init.runcmd` entries.
 
-Supported: `FROM`, `RUN`, `COPY`, `ENV`, `WORKDIR`. Unsupported instructions (`CMD`, `ENTRYPOINT`, `EXPOSE`, etc.) are silently skipped. `COPY` sources are resolved relative to the Dockerfile's directory and must be files, not directories — use `volumes` for directory mounts.
+Supported: `FROM`, `RUN`, `COPY`, `ENV`, `WORKDIR`. Unsupported instructions (`CMD`, `ENTRYPOINT`, `EXPOSE`, etc.) are silently skipped. `COPY` sources are resolved relative to the Dockerfile's directory and must be files, not directories; use `volumes` for directory mounts.
 
 ### Extra QEMU Arguments
 
@@ -384,8 +383,8 @@ The mapping covers the fields holos has a direct equivalent for:
 | first `<disk type="file">`         | `image:` + `image_format:`   |
 | `<hostdev type="pci">`             | `devices: [{pci: …}]`        |
 
-Anything holos can't translate cleanly — extra disks, bridged NICs,
-USB passthrough, custom emulators — is reported as a warning on stderr
+Anything holos can't translate cleanly (extra disks, bridged NICs,
+USB passthrough, custom emulators) is reported as a warning on stderr
 so you know what to revisit before `holos up`. Output goes to stdout
 unless you pass `-o`, so it composes with shell redirection
 (`holos import vm > holos.yaml`).
@@ -404,7 +403,7 @@ holos version
 
 Or build from source (see below).
 
-> Linux is the only runtime target — `holos up` needs `/dev/kvm` and
+> Linux is the only runtime target. `holos up` needs `/dev/kvm` and
 > `qemu-system-x86_64`. macOS builds exist so the offline subcommands
 > (`validate`, `import`, `images`) work for compose-file authoring on
 > a laptop.
@@ -456,8 +455,8 @@ Build a guest image (requires mkosi):
 
 sshd accepted the TCP connection but closed it before the SSH
 handshake completed. On a fresh VM this almost always means
-cloud-init is still regenerating host keys and bouncing sshd —
-the listener is briefly flapping, not broken.
+cloud-init is still regenerating host keys and bouncing sshd. The
+listener is briefly flapping, not broken.
 
 `holos exec` waits up to 60s for sshd to be ready by default; if
 you hit this immediately after `holos run` or `holos up`, give it
@@ -472,13 +471,13 @@ If the error persists past two minutes, attach the serial console
 Same window as above. The serial-getty autologin retries the
 configured user (e.g. `debian`) before cloud-init has actually
 created the account, so the first few attempts fail. Watch the
-console log for `cloud-init … finished` — after that line the
+console log for `cloud-init ... finished`. After that line the
 autologin succeeds and you land in a shell.
 
 For interactive shell access the supported path is `holos exec`,
 which uses the project's auto-generated SSH key over a forwarded
 port. The serial console is meant for boot/kernel diagnostics, not
-day-to-day operation — cloud images don't ship with a console
+day-to-day operation. Cloud images don't ship with a console
 password and we don't add one.
 
 ### `holos up` fails on macOS

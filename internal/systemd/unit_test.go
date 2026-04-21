@@ -33,7 +33,7 @@ func TestRender_UserScope(t *testing.T) {
 		"Type=oneshot",
 		"RemainAfterExit=yes",
 	)
-	// User scope must not emit a User= directive — systemd --user
+	// User scope must not emit a User= directive: systemd --user
 	// doesn't honor it and would reject the unit.
 	if strings.Contains(content, "\nUser=") {
 		t.Fatalf("user scope unit contains User=:\n%s", content)

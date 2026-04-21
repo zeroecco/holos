@@ -158,7 +158,7 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 	// hasDependents is the set of services whose health we must
 	// confirm before starting their consumers. Services without
 	// dependents still have their healthcheck declared for `ps`
-	// visibility, but we don't block on them — matching docker's
+	// visibility, but we don't block on them, matching docker's
 	// convention that healthchecks are only a gating tool.
 	hasDependents := make(map[string]bool)
 	for _, svc := range project.ServiceOrder {
@@ -286,7 +286,7 @@ func (m *Manager) ProjectStatus(projectName string) (*ProjectRecord, error) {
 
 // waitForServiceHealthy blocks until every replica of a service passes
 // its healthcheck. Called only when a downstream service depends on
-// this one — we don't want to stall `holos up` on informational
+// this one. We don't want to stall `holos up` on informational
 // probes that nothing is waiting for.
 func (m *Manager) waitForServiceHealthy(svc *ServiceRecord, manifest config.Manifest, keyPath string) error {
 	hc := manifest.Healthcheck
@@ -336,7 +336,7 @@ func (m *Manager) FindInstance(projectName, instanceName string) (InstanceRecord
 
 // ProjectSSHKeyPath returns the path to a project's `holos exec`
 // private key, creating the keypair if it doesn't already exist. This
-// is the entry point used by the exec command — it must not depend on
+// is the entry point used by the exec command, and must not depend on
 // any prior Up having run (e.g. for `holos exec` from a fresh shell).
 func (m *Manager) ProjectSSHKeyPath(projectName string) (string, error) {
 	if err := m.ensureLayout(); err != nil {

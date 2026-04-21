@@ -37,25 +37,25 @@ type Image struct {
 //
 // SHA256 values are populated for images served from pinned, immutable URLs
 // (e.g. Alpine's versioned artifact path). Entries whose URL tracks a
-// mutable "latest" / "current" alias deliberately leave SHA256 empty —
+// mutable "latest" / "current" alias deliberately leave SHA256 empty;
 // their upstream hash rotates on every publisher rebuild, so pinning it
 // here would guarantee spurious verification failures. Callers that want
 // strict verification against such distros should populate a local entry
 // with the exact versioned URL plus its SHA256.
 var Registry = []Image{
-	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS) — pinned artifact,
+	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS). Pinned artifact,
 	// but we ship no SHA256 by default (upstream publishes .sha256 alongside
 	// the image; see docs for how to pin locally).
 	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true, User: "alpine"},
 
-	// Arch Linux (cloud-init, official arch-boxes) — rolling release, URL tracks "latest".
+	// Arch Linux (cloud-init, official arch-boxes). Rolling release, URL tracks "latest".
 	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch"},
 
-	// Debian (generic variant, cloud-init) — URL uses "latest" symlink.
+	// Debian (generic variant, cloud-init). URL uses "latest" symlink.
 	//
 	// Why "generic" and not "nocloud":
 	// Debian publishes two flavours of the bookworm cloud image. The
-	// "nocloud" variant is intentionally minimal — it strips out
+	// "nocloud" variant is intentionally minimal: it strips out
 	// openssh-server because it's meant as a base for custom images,
 	// not for direct use. holos assumes sshd exists in the guest for
 	// `holos exec` and healthchecks, so we'd silently produce VMs
@@ -67,13 +67,13 @@ var Registry = []Image{
 	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian"},
 	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian"},
 
-	// Ubuntu (cloud images, NoCloud compatible) — "current" alias rotates on rebuild.
+	// Ubuntu (cloud images, NoCloud compatible). The "current" alias rotates on rebuild.
 	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu"},
 	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
 	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
 	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
 
-	// Fedora Cloud Base — point release URL but still versioned.
+	// Fedora Cloud Base. Point release URL but still versioned.
 	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora"},
 }
 
@@ -113,7 +113,7 @@ func Resolve(ref string) (*Image, error) {
 //
 // When the resolved registry entry carries a non-empty SHA256, the newly
 // downloaded bytes are verified against it; a mismatch deletes the partial
-// file and returns an error. Cached files are trusted — the file is only
+// file and returns an error. Cached files are trusted: the file is only
 // in the cache if a prior successful pull placed it there.
 func Pull(ref string, cacheDir string) (localPath string, format string, err error) {
 	img, err := Resolve(ref)
@@ -155,7 +155,7 @@ func DefaultCacheDir(stateDir string) string {
 // DefaultUser returns the conventional cloud-init user for an image
 // reference, or "" when the ref points at a local file or an unknown
 // distro. This lets compose pick the right account for cloud-init to
-// create *before* falling back to the global default — the difference
+// create *before* falling back to the global default. The difference
 // between `holos exec` working and a console autologin attempt that
 // can't find a user named "ubuntu" on a Debian image.
 func DefaultUser(ref string) string {

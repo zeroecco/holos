@@ -33,7 +33,7 @@ type LaunchSpec struct {
 	OVMFVars    string // path to per-instance OVMF_VARS.fd copy (writable)
 	// SSHPort is the host-side TCP port that should forward to the
 	// guest's sshd (22/tcp). The runtime allocates it on first boot to
-	// back `holos exec`. Zero means no ssh forward was requested — the
+	// back `holos exec`. Zero means no ssh forward was requested; the
 	// user-mode netdev is built without the sshd hostfwd so we don't
 	// occupy ports unnecessarily when the feature is disabled.
 	SSHPort int
@@ -124,7 +124,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	for i, mount := range manifest.Mounts {
 		if mount.Kind == config.MountKindVolume {
 			// Named volumes are attached below as virtio-blk devices,
-			// not 9p shares — a mkfs'ed block device behaves much more
+			// not 9p shares. A mkfs'ed block device behaves much more
 			// like a normal disk (filesystem features, xattrs, fsync
 			// semantics) than virtfs does.
 			continue

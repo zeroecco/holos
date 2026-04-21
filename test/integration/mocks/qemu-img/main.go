@@ -7,7 +7,7 @@
 //
 // In both cases the mock creates a tiny sentinel file at the output path.
 // We pick the output path as the last positional argument that contains a
-// '/' — size arguments are bare integers, so this reliably distinguishes
+// '/'. Size arguments are bare integers, so this reliably distinguishes
 // them without tracking every qemu-img flag.
 package main
 

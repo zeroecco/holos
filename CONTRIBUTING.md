@@ -1,7 +1,7 @@
 # Contributing to holos
 
 Thanks for taking a look. holos is a small Go codebase with no
-runtime control plane and a hard policy against scope creep — see
+runtime control plane and a hard policy against scope creep. See
 [Non-Goals](./README.md#non-goals) before proposing large features.
 
 ## Development setup
@@ -27,14 +27,14 @@ go test ./... -timeout 60s
 ```
 
 The `cmd/holos` and `internal/{compose,images,virtimport}` packages
-all carry hermetic unit tests — no `/dev/kvm` required. End-to-end
+all carry hermetic unit tests; no `/dev/kvm` required. End-to-end
 integration mocks live under `test/integration/mocks/`.
 
 ## Code style
 
 - `gofmt` is law. CI rejects unformatted code.
 - Avoid narrating comments (`// open the file`, `// return the result`).
-  Comments should explain *why* — non-obvious intent, trade-offs, or
+  Comments should explain *why*: non-obvious intent, trade-offs, or
   constraints the code can't convey on its own. Existing files use
   this style; please match.
 - Prefer pure helpers that can be unit-tested over inline logic in

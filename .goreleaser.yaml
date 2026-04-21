@@ -45,7 +45,7 @@ builds:
 
 archives:
   - id: holos
-    # holos_0.1.0_Linux_x86_64.tar.gz — the casing/aliases follow the
+    # holos_0.1.0_Linux_x86_64.tar.gz. The casing/aliases follow the
     # convention almost every Go release uses, so install scripts that
     # already grok one project will grok holos.
     name_template: >-

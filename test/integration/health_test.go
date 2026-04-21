@@ -81,7 +81,7 @@ services:
 	}
 
 	// The on-disk project record only stores runtime state, not the
-	// original manifest — so we assert on observable behavior instead:
+	// original manifest, so we assert on observable behavior instead:
 	// both services reached running after the health gate.
 	raw, err := os.ReadFile(filepath.Join(h.stateDir, "projects", "hcp.json"))
 	if err != nil {
@@ -125,7 +125,7 @@ services:
 	}
 
 	// If the gate blocks forever `mustRun` will hang and the test
-	// times out — the absence of a timeout failure IS the assertion.
+	// times out. The absence of a timeout failure IS the assertion.
 	stdout, _ := h.mustRun("up", "-f", dir+"/holos.yaml")
 	if !strings.Contains(stdout, "api") {
 		t.Fatalf("api did not come up:\n%s", stdout)

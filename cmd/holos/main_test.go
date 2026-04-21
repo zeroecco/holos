@@ -89,7 +89,7 @@ func TestGenerateRunNameUnique(t *testing.T) {
 
 	// Repeated invocations on the same image should produce distinct
 	// names (random suffix). We're not asserting a strong uniqueness
-	// guarantee here — just that the suffix isn't a constant.
+	// guarantee here, just that the suffix isn't a constant.
 	seen := make(map[string]bool)
 	for i := 0; i < 16; i++ {
 		seen[generateRunName("alpine", "")] = true
@@ -136,7 +136,7 @@ func TestRandHexLengthContract(t *testing.T) {
 }
 
 // TestRandHexFallbackLengthContract directly exercises the branch
-// that used to return strconv.FormatInt(pid, 16) — variable-length
+// that used to return strconv.FormatInt(pid, 16): variable-length
 // and silently capable of blowing the 63-char DNS label limit when
 // combined with a long image name in generateRunName. The current
 // implementation must return exactly 2*n chars, all valid hex.
@@ -170,7 +170,7 @@ func TestRandHexFallbackLengthContract(t *testing.T) {
 // pathological 200-char image *and* a fallback suffix, the final
 // name still fits in 63 chars. We can't easily force crypto/rand to
 // fail mid-test, so we substitute a maximum-length suffix (12 hex
-// chars — what a 6-byte randHex would return) and verify the math.
+// chars, what a 6-byte randHex would return) and verify the math.
 func TestGenerateRunNameLongImageFallback(t *testing.T) {
 	t.Parallel()
 
@@ -276,7 +276,7 @@ func TestResolveLogTargetsServiceWinsOnCollision(t *testing.T) {
 // TestSshdReady covers the success path (real listener that speaks
 // the SSH banner) and the failure path (RST mid-handshake by
 // closing without writing). The whole point of the helper is to
-// distinguish those two cases — the original "kex_exchange:
+// distinguish those two cases. The original "kex_exchange:
 // Connection reset by peer" symptom was the second case and we
 // need to retry it, not bail out.
 func TestSshdReady(t *testing.T) {
@@ -313,7 +313,7 @@ func TestSshdReady(t *testing.T) {
 			if err != nil {
 				return
 			}
-			// Close immediately, no banner — mimics sshd
+			// Close immediately, no banner. Mimics sshd
 			// bouncing during host-key regen.
 			_ = c.Close()
 		}()

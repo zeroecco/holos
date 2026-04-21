@@ -10,7 +10,7 @@
 # changelog diffs against the previous tag work.
 #
 # On pull requests we run a snapshot build that exercises the same
-# config without publishing — this catches syntax drift in
+# config without publishing; this catches syntax drift in
 # .goreleaser.yaml long before tag day.
 name: release
 

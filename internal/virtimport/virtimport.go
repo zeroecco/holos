@@ -8,7 +8,7 @@
 // becomes a warning rather than a silent omission, so the operator
 // knows what to review before `holos up`.
 //
-// The resulting compose.Service is meant to be a starting point — the
+// The resulting compose.Service is meant to be a starting point. The
 // caller is expected to round-trip it through yaml.Marshal and let the
 // user review it before committing.
 package virtimport
@@ -26,7 +26,7 @@ import (
 
 // Domain is the subset of the libvirt domain XML schema we map onto
 // holos. Fields outside this struct are silently ignored by encoding/xml,
-// which is fine — Convert produces warnings for anything we drop on the
+// which is fine: Convert produces warnings for anything we drop on the
 // floor that the operator might care about (disks, interfaces, hostdev
 // types we don't recognise).
 type Domain struct {
@@ -124,7 +124,7 @@ type DiskTarget struct {
 }
 
 // Interface is <interface>. holos has its own internal multicast
-// network so we never import these directly — we just describe them
+// network so we never import these directly. We just describe them
 // in a warning so the operator knows where to add `ports:`.
 type Interface struct {
 	Type   string          `xml:"type,attr,omitempty"`
@@ -220,8 +220,8 @@ func Convert(xmlBytes []byte) (name string, svc compose.Service, warnings []stri
 	primaryFound := false
 	for _, disk := range d.Devices.Disks {
 		if disk.Device != "" && disk.Device != "disk" {
-			// CDROMs, floppies — silently ignore, they're rarely
-			// what someone wants to import.
+			// CDROMs, floppies. Silently ignored, they're
+			// rarely what someone wants to import.
 			continue
 		}
 		if disk.Type != "" && disk.Type != "file" {
@@ -243,7 +243,7 @@ func Convert(xmlBytes []byte) (name string, svc compose.Service, warnings []stri
 			continue
 		}
 		warnings = append(warnings, fmt.Sprintf(
-			"extra disk %q skipped — declare it under top-level volumes: and reference it from the service",
+			"extra disk %q skipped; declare it under top-level volumes: and reference it from the service",
 			path))
 	}
 	if !primaryFound {
@@ -266,7 +266,7 @@ func Convert(xmlBytes []byte) (name string, svc compose.Service, warnings []stri
 	for _, iface := range d.Devices.Interfaces {
 		desc := describeInterface(iface)
 		warnings = append(warnings, fmt.Sprintf(
-			"interface %s not imported — holos services share an internal subnet; expose with ports: instead",
+			"interface %s not imported. holos services share an internal subnet; expose with ports: instead",
 			desc))
 	}
 

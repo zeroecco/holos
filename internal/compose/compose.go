@@ -46,7 +46,7 @@ type Service struct {
 
 // Healthcheck declares a liveness probe for a service. When set,
 // `holos up` blocks on every dependent until this service reports
-// healthy — mirroring docker-compose's `depends_on: condition:
+// healthy, mirroring docker-compose's `depends_on: condition:
 // service_healthy` without requiring the verbose map form.
 //
 // The probe is a shell command run inside each replica over the
@@ -151,7 +151,7 @@ type WriteFile struct {
 }
 
 // Volume configures a top-level named volume. Named volumes are
-// qcow2-backed block devices that persist across `holos down` — they
+// qcow2-backed block devices that persist across `holos down`. They
 // live under state_dir/volumes/<project>/<name>.qcow2 and are symlinked
 // into each instance's workdir so teardown only removes the symlink.
 type Volume struct {

@@ -110,7 +110,7 @@ func newHarness(t *testing.T) *harness {
 	workDir := t.TempDir()
 
 	// Unix socket paths (QMP, serial, QMP chardev) must fit in
-	// sockaddr_un.sun_path — 108 bytes on Linux, ~104 on macOS. The
+	// sockaddr_un.sun_path: 108 bytes on Linux, ~104 on macOS. The
 	// per-test t.TempDir() can overflow, especially on macOS where
 	// $TMPDIR resolves to something like
 	// /var/folders/xx/yyyy/T/TestName<big-id>/001/, leaving no room for
@@ -119,7 +119,7 @@ func newHarness(t *testing.T) *harness {
 	// Create the state directory under /tmp directly so the absolute
 	// path stays well within the kernel limit. This matches the real
 	// deployment layout (DefaultStateDir is /var/lib/holos or
-	// ~/.local/state/holos — both short).
+	// ~/.local/state/holos, both short).
 	stateDir, err := os.MkdirTemp("/tmp", "ht-")
 	if err != nil {
 		t.Fatalf("mkdir state: %v", err)

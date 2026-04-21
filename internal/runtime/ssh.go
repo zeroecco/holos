@@ -14,7 +14,7 @@ import (
 
 // sshDir returns the per-project directory that owns the `holos exec`
 // keypair. One key per project is sufficient because all instances in a
-// project share a trust domain — they already sit on the same socket-
+// project share a trust domain: they already sit on the same socket-
 // multicast L2 segment and cannot be isolated from each other.
 func sshDir(stateDir, project string) string {
 	return filepath.Join(stateDir, "ssh", project)
@@ -38,7 +38,7 @@ func publicKeyPath(stateDir, project string) string {
 //
 // Generation is idempotent: if either file already exists, the stored
 // bytes win. This lets operators rotate a key by deleting the files and
-// re-running `holos up` — new instances pick up the new key while
+// re-running `holos up`: new instances pick up the new key while
 // already-booted VMs keep their existing authorized_keys entry.
 func ensureProjectSSHKey(stateDir, project string) (privatePath string, publicKey string, err error) {
 	dir := sshDir(stateDir, project)

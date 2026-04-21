@@ -74,7 +74,7 @@ func Dial(path string, timeout time.Duration) (*Client, error) {
 
 // Powerdown sends system_powerdown and waits up to timeout for the
 // server's acknowledgement. It does NOT wait for the guest to actually
-// halt — the caller reaps the QEMU process via its own exit detection,
+// halt. The caller reaps the QEMU process via its own exit detection,
 // because the time from ACPI request to clean shutdown depends entirely
 // on the guest OS.
 func (c *Client) Powerdown(timeout time.Duration) error {

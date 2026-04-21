@@ -36,7 +36,7 @@ func TestProbeHealthcheck_Success(t *testing.T) {
 }
 
 // TestProbeHealthcheck_NonZeroExit confirms we distinguish non-zero
-// exit status from transport errors — the error message includes the
+// exit status from transport errors. The error message includes the
 // observed exit code so `holos up` can surface actionable details.
 func TestProbeHealthcheck_NonZeroExit(t *testing.T) {
 	t.Parallel()
@@ -204,7 +204,7 @@ func writeClientKey(t *testing.T, priv ed25519.PrivateKey) string {
 }
 
 // writeTempPrivateKey emits a throwaway valid key so probeHealthcheck's
-// key-loading branch executes before the dial even starts — keeps the
+// key-loading branch executes before the dial even starts; keeps the
 // TestProbeHealthcheck_DialFailure case focused on the dial error path.
 func writeTempPrivateKey(t *testing.T) string {
 	t.Helper()
