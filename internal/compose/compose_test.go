@@ -511,3 +511,113 @@ func TestValidateRejectsMissingDependency(t *testing.T) {
 		t.Fatal("expected validation error for missing dependency")
 	}
 }
+
+// TestResolveValidatesManifest pins the contract that compose
+// resolution runs every resolved service through Manifest.Validate
+// before returning. Without this, holos validate would happily accept
+// memory_mb: -1 (later panicking deep in the runtime) and out-of-range
+// host ports (later silently misconfiguring qemu user-net).
+func TestResolveValidatesManifest(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	imagePath := filepath.Join(dir, "base.qcow2")
+	if err := os.WriteFile(imagePath, []byte("fake"), 0o600); err != nil {
+		t.Fatalf("seed image: %v", err)
+	}
+
+	cases := map[string]string{
+		"negative memory": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    vm:
+      memory_mb: -1
+`,
+		"host port out of range": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    ports:
+      - "99999:80"
+`,
+		"negative replicas": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    replicas: -1
+`,
+		"replicas above cap": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    replicas: 100000
+`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(dir, name+".yaml")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			file, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if _, err := file.Resolve(dir, dir); err == nil {
+				t.Fatalf("expected resolve error for %q, got nil", name)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsUnknownFields ensures the strict YAML decoder catches
+// typos that previously slipped through silently. Each case is the
+// minimum YAML needed to elicit the misspelled key, asserting against
+// the Go field that should have caught it.
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"top level typo": `
+name: typo
+servicez:
+  vm:
+    image: ./base.qcow2
+`,
+		"service-level typo": `
+name: typo
+services:
+  vm:
+    image: ./base.qcow2
+    portz:
+      - "8080:80"
+`,
+		"nested vm typo": `
+name: typo
+services:
+  vm:
+    image: ./base.qcow2
+    vm:
+      memry_mb: 512
+`,
+	}
+
+	dir := t.TempDir()
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(dir, name+".yaml")
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if _, err := Load(path); err == nil {
+				t.Fatalf("expected unknown-field error for %q, got nil", name)
+			}
+		})
+	}
+}

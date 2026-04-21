@@ -15,19 +15,22 @@ import (
 func (m *Manager) createSeedImage(manifest config.Manifest, instanceName string, index int, workDir string) (string, error) {
 	userData, metaData, networkConfig := cloudinit.Render(manifest, instanceName, index)
 	seedDir := filepath.Join(workDir, "seed")
-	if err := os.MkdirAll(seedDir, 0o755); err != nil {
+	// Seed material is sensitive: user-data carries cloud-init
+	// runcmd, write_files (often app secrets), and SSH authorized
+	// keys. Keep the directory and every file inside it owner-only.
+	if err := os.MkdirAll(seedDir, 0o700); err != nil {
 		return "", fmt.Errorf("create seed dir: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(seedDir, "user-data"), []byte(userData), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(seedDir, "user-data"), []byte(userData), 0o600); err != nil {
 		return "", fmt.Errorf("write user-data: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(seedDir, "meta-data"), []byte(metaData), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(seedDir, "meta-data"), []byte(metaData), 0o600); err != nil {
 		return "", fmt.Errorf("write meta-data: %w", err)
 	}
 
 	hasNetwork := networkConfig != ""
 	if hasNetwork {
-		if err := os.WriteFile(filepath.Join(seedDir, "network-config"), []byte(networkConfig), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(seedDir, "network-config"), []byte(networkConfig), 0o600); err != nil {
 			return "", fmt.Errorf("write network-config: %w", err)
 		}
 	}
@@ -43,6 +46,12 @@ func (m *Manager) createSeedImage(manifest config.Manifest, instanceName string,
 		if output, err := command.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("create cloud-init seed: %w: %s", err, strings.TrimSpace(string(output)))
 		}
+		// External tools follow the process umask, which on most
+		// distros yields 0644. The seed image embeds user-data verbatim,
+		// so tighten it after the fact.
+		if err := os.Chmod(outputPath, 0o600); err != nil {
+			return "", fmt.Errorf("tighten cloud-init seed: %w", err)
+		}
 		return outputPath, nil
 	}
 
@@ -55,6 +64,9 @@ func (m *Manager) createSeedImage(manifest config.Manifest, instanceName string,
 	command := exec.Command(isoBuilder, args...)
 	if output, err := command.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("create seed iso: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if err := os.Chmod(outputPath, 0o600); err != nil {
+		return "", fmt.Errorf("tighten seed iso: %w", err)
 	}
 	return outputPath, nil
 }

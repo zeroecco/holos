@@ -55,8 +55,40 @@ func TestRender_SystemScopeWithUser(t *testing.T) {
 	mustContain(t, content,
 		"WantedBy=multi-user.target",
 		"User=holos",
-		"ExecStart=/usr/bin/holos up -f /srv/db/holos.yaml --state-dir /var/lib/holos",
-		"ExecStop=/usr/bin/holos down db --state-dir /var/lib/holos",
+		"ExecStart=/usr/bin/holos up --state-dir /var/lib/holos -f /srv/db/holos.yaml",
+		"ExecStop=/usr/bin/holos down --state-dir /var/lib/holos db",
+	)
+}
+
+// TestRender_StateFlagBeforePositional pins the layout of ExecStop so
+// it never regresses to `holos down <project> --state-dir <dir>`. Go's
+// flag package stops parsing at the first non-flag token, so a
+// trailing --state-dir would silently be ignored at boot/shutdown time
+// and the unit would touch the default state path. The test fakes the
+// stop command via os.Args parsing in cmd/holos so we exercise the
+// exact same flag-order contract end-to-end.
+func TestRender_StateFlagBeforePositional(t *testing.T) {
+	_, content, err := Render(UnitSpec{
+		Project:     "demo",
+		ComposeFile: "/srv/demo/holos.yaml",
+		HolosBinary: "/usr/bin/holos",
+		StateDir:    "/tmp/holos-state",
+		Scope:       ScopeSystem,
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, badForm := range []string{
+		"holos down demo --state-dir",
+		"holos up -f /srv/demo/holos.yaml --state-dir",
+	} {
+		if strings.Contains(content, badForm) {
+			t.Fatalf("rendered unit contains flag-after-positional form %q:\n%s", badForm, content)
+		}
+	}
+	mustContain(t, content,
+		"ExecStart=/usr/bin/holos up --state-dir /tmp/holos-state -f /srv/demo/holos.yaml",
+		"ExecStop=/usr/bin/holos down --state-dir /tmp/holos-state demo",
 	)
 }
 

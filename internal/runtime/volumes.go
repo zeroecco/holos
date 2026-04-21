@@ -33,7 +33,9 @@ func (m *Manager) ensureProjectVolumes(project *compose.Project) error {
 	}
 
 	root := volumesRoot(m.stateDir, project.Name)
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	// Volume qcow2 backing files contain whatever the guest wrote to
+	// the mount; treat the whole tree as private to the holos user.
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("create volumes dir: %w", err)
 	}
 

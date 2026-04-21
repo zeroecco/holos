@@ -486,10 +486,29 @@ func (m *Manager) refreshProject(record *ProjectRecord) {
 
 // State directory layout and persistence.
 
+// ensureLayout creates (or tightens) the on-disk state hierarchy.
+//
+// Mode is 0700 because the tree contains material that should never
+// leak to other local users:
+//
+//   - projects/<name>.json includes generated SSH key paths and host
+//     port bindings.
+//   - instances/<project>/<inst>/seed/ holds cloud-init user-data,
+//     which can carry SSH authorized_keys, write_files (often app
+//     secrets), and runcmd entries.
+//   - ssh/<project>/ holds the per-project private key holos exec uses.
+//
+// Existing installations created before this hardening may have
+// 0755 dirs; we chmod them down on every invocation so the migration
+// is silent and idempotent. Failures here are surfaced because a
+// loose mode is a security regression worth refusing to paper over.
 func (m *Manager) ensureLayout() error {
 	for _, dir := range []string{m.stateDir, projectsDir(m.stateDir), instancesRoot(m.stateDir)} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("ensure state dir %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return fmt.Errorf("tighten state dir %s: %w", dir, err)
 		}
 	}
 	return nil
@@ -519,7 +538,9 @@ func (m *Manager) saveProject(record *ProjectRecord) error {
 	if err != nil {
 		return fmt.Errorf("encode project record: %w", err)
 	}
-	return os.WriteFile(projectFile(m.stateDir, record.Name), payload, 0o644)
+	// 0600: the record embeds host port bindings and per-project ssh
+	// key paths; no reason any other local user needs to read it.
+	return os.WriteFile(projectFile(m.stateDir, record.Name), payload, 0o600)
 }
 
 func projectsDir(root string) string {

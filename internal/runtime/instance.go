@@ -34,7 +34,10 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 	if err := os.RemoveAll(workDir); err != nil {
 		return InstanceRecord{}, fmt.Errorf("remove instance workdir: %w", err)
 	}
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	// 0700 mirrors the rest of the state tree: this dir holds the
+	// overlay qcow2, qmp socket, and console.log; nothing in there is
+	// meant for other users on the host.
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
 		return InstanceRecord{}, fmt.Errorf("create instance workdir: %w", err)
 	}
 

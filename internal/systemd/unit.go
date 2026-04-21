@@ -14,9 +14,12 @@
 // The generated unit is intentionally minimal: Type=oneshot plus
 // RemainAfterExit so systemctl reports the service as "active" while
 // the VMs themselves stay daemonized under holos's own state tracking.
-// ExecStart runs `holos up -f <abs compose>`, ExecStop runs
-// `holos down <project>`; this keeps stop/start semantics identical to
-// what the operator would type at the CLI.
+// ExecStart runs `holos up [--state-dir D] -f <abs compose>`,
+// ExecStop runs `holos down [--state-dir D] <project>`; flags are
+// always rendered before any positional argument because Go's flag
+// parser stops at the first non-flag token, which would otherwise
+// drop --state-dir on stop. This keeps stop/start semantics identical
+// to what the operator would type at the CLI.
 package systemd
 
 import (
@@ -86,8 +89,8 @@ RemainAfterExit=yes
 {{- if .User}}
 User={{.User}}
 {{- end}}
-ExecStart={{.HolosBinary}} up -f {{.ComposeFile}}{{.StateFlag}}
-ExecStop={{.HolosBinary}} down {{.Project}}{{.StateFlag}}
+ExecStart={{.HolosBinary}} up{{.StateFlag}} -f {{.ComposeFile}}
+ExecStop={{.HolosBinary}} down{{.StateFlag}} {{.Project}}
 TimeoutStartSec=300
 Restart=no
 
@@ -120,7 +123,13 @@ func Render(spec UnitSpec) (path, content string, err error) {
 		User:        spec.User,
 	}
 	if spec.StateDir != "" {
-		// Prefix with a space so it slots into ExecStart=... naturally.
+		// Prefix with a space so it slots into ExecStart=... and
+		// ExecStop=... naturally. The flag is rendered between the
+		// subcommand and the positional project argument
+		// (`holos down --state-dir /tmp/state demo`) because Go's
+		// flag package stops parsing at the first non-flag arg; a
+		// trailing --state-dir would be silently ignored and the
+		// unit would touch the default state path on stop.
 		d.StateFlag = " --state-dir " + spec.StateDir
 	}
 	switch spec.Scope {

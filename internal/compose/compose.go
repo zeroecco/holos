@@ -21,6 +21,13 @@ import (
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// maxReplicas is a soft cap on `replicas:` to catch typos at parse
+// time. The IP plan only has 253 usable addresses in 10.10.0.0/24
+// across the whole project, so 256 per service is already absurd; this
+// just makes the failure mode explicit instead of "ran out of IPs
+// halfway through allocation".
+const maxReplicas = 256
+
 // File is the user-facing YAML compose format.
 type File struct {
 	Name     string             `yaml:"name"`
@@ -205,14 +212,24 @@ func FindFile(dir string) (string, error) {
 }
 
 // Load reads and parses a compose file.
+//
+// Decoding is strict (KnownFields(true)) so typos like `portz:` or
+// `volume:` (singular) fail loudly instead of being silently dropped.
+// docker-compose users hit this regularly with `enviroment:` and
+// `volums:`; the YAML round-trips fine and the misspelled key just
+// vanishes, leaving them debugging missing port mappings or volume
+// mounts. We'd rather refuse to load.
 func Load(path string) (*File, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file: %w", err)
 	}
 
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+
 	var file File
-	if err := yaml.Unmarshal(data, &file); err != nil {
+	if err := decoder.Decode(&file); err != nil {
 		return nil, fmt.Errorf("parse compose file: %w", err)
 	}
 
@@ -244,6 +261,23 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 	ipCounter := 2
 	serviceIPs := make(map[string][]string)
 
+	// Replicas must be validated before the IP allocation below: a
+	// negative or absurdly large value would otherwise reach
+	// `make([]string, replicas)` and panic before manifest validation
+	// ever ran. We accept zero (treated as the documented default of
+	// 1) and reject anything else outside [1, 256]. The upper bound
+	// is a soft guard against typos like `replicas: 1000000` that
+	// would happily allocate a million addresses.
+	for _, name := range order {
+		svc := f.Services[name]
+		if svc.Replicas < 0 {
+			return nil, fmt.Errorf("service %q: replicas must be >= 1", name)
+		}
+		if svc.Replicas > maxReplicas {
+			return nil, fmt.Errorf("service %q: replicas %d exceeds maximum of %d", name, svc.Replicas, maxReplicas)
+		}
+	}
+
 	for _, name := range order {
 		svc := f.Services[name]
 		replicas := svc.Replicas
@@ -271,6 +305,15 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 		svc := f.Services[name]
 		manifest, err := f.resolveService(name, svc, baseDir, cacheDir, network, hosts, serviceIPs[name])
 		if err != nil {
+			return nil, fmt.Errorf("service %q: %w", name, err)
+		}
+		// Run the canonical Manifest validator on every resolved
+		// service so out-of-range fields (memory_mb, port numbers,
+		// healthcheck timing, ...) are caught at compose load time
+		// instead of surfacing as a runtime panic or, worse, a
+		// silently misconfigured VM. Without this, `holos validate`
+		// can return success on YAML the runtime will reject.
+		if err := manifest.Validate(); err != nil {
 			return nil, fmt.Errorf("service %q: %w", name, err)
 		}
 		services[name] = manifest
