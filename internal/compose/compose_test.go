@@ -588,6 +588,21 @@ services:
     ports:
       - "65535:80"
 `,
+		// 8080:80 and 8081:81 look disjoint on paper, but the
+		// runtime shifts both by the replica index, so replica 1
+		// tries to bind 8081 for *both* mappings. Pre-fix this
+		// slipped through validation and blew up mid-`holos up`
+		// with an opaque bind error.
+		"static host ports collide after replica offset": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    replicas: 2
+    ports:
+      - "8080:80"
+      - "8081:81"
+`,
 	}
 
 	for name, body := range cases {

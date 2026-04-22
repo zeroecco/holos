@@ -57,6 +57,88 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 	}
 }
 
+// TestBuildArgs_EscapesCommasInPaths pins the QEMU option-parser
+// contract: a `,` inside any interpolated value must be doubled to
+// `,,` before it lands in a comma-delimited option string. QEMU's
+// option parser treats `,` as the key=value separator; a directory
+// path like `/srv/foo,bar/holos.yaml` without escaping silently
+// becomes two pseudo-options (`path=/srv/foo`, `bar/holos.yaml`)
+// and QEMU either errors with "unknown parameter" or, worse for a
+// -virtfs mount, accepts an attacker-supplied `,readonly=off`
+// smuggled into a shared directory name. We exercise every path
+// field that flows through BuildArgs: console/qmp chardev sockets,
+// overlay/seed/pflash drives, bind-mount sources, and named-volume
+// disk paths. If any of these regress to raw interpolation the
+// assertion below fails on the very literal substring we just
+// injected.
+func TestBuildArgs_EscapesCommasInPaths(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:        "api",
+		Image:       "/images/base,v1.qcow2",
+		ImageFormat: "qcow2",
+		VM: config.VMConfig{
+			VCPU: 1, MemoryMB: 256, Machine: "q35", CPUModel: "host",
+			UEFI: true,
+		},
+		Mounts: []config.Mount{
+			{Source: "/srv/a,b", Target: "/var/lib/x", Kind: config.MountKindBind},
+		},
+	}
+
+	spec := LaunchSpec{
+		Name:        "api-0",
+		Index:       0,
+		OverlayPath: "/state/weird,path/root.qcow2",
+		SeedPath:    "/state/weird,path/seed.iso",
+		SerialPath:  "/state/weird,path/serial.sock",
+		QMPPath:     "/state/weird,path/qmp.sock",
+		LogPath:     "/state/weird,path/console.log",
+		OVMFCode:    "/usr/share/OVMF,variant/OVMF_CODE.fd",
+		OVMFVars:    "/state/weird,path/OVMF_VARS.fd",
+		Volumes: []VolumeAttachment{
+			{Name: "data", DiskPath: "/state/vols/a,b.qcow2"},
+		},
+	}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+	joined := strings.Join(args, " ")
+
+	for _, needle := range []string{
+		"path=/state/weird,,path/serial.sock",
+		"logfile=/state/weird,,path/console.log",
+		"path=/state/weird,,path/qmp.sock",
+		"file=/usr/share/OVMF,,variant/OVMF_CODE.fd",
+		"file=/state/weird,,path/OVMF_VARS.fd",
+		"file=/state/weird,,path/root.qcow2",
+		"file=/state/weird,,path/seed.iso",
+		"path=/srv/a,,b",
+		"file=/state/vols/a,,b.qcow2",
+	} {
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("expected escaped %q in args, got:\n%s", needle, joined)
+		}
+	}
+
+	// Negative check: no raw single-comma variants of those paths
+	// should appear. The double-escape turns a literal comma into
+	// ",," so the *single*-comma form is proof of regression.
+	for _, forbidden := range []string{
+		"path=/state/weird,path/serial.sock",
+		"file=/state/weird,path/root.qcow2",
+		"path=/srv/a,b",
+		"file=/state/vols/a,b.qcow2",
+	} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("found unescaped %q in args; comma splitting will break qemu:\n%s", forbidden, joined)
+		}
+	}
+}
+
 // TestBuildArgs_NamedVolumeReadOnly pins the `:ro` flag through to
 // QEMU. Prior to the fix the compose parser recorded ReadOnly, the
 // runtime dropped it in materializeInstanceVolumes, and the guest got

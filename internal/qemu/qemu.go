@@ -8,6 +8,20 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
+// qemuOptEscape escapes a value for inclusion inside a QEMU option
+// string (the comma-delimited key=value blobs used with -chardev,
+// -drive, -device, -virtfs, -netdev, etc.). QEMU's option parser
+// uses `,` as the separator and treats `,,` as a literal comma, so
+// any path (or other value) containing a comma must double its
+// commas before interpolation. Without this, a user legitimately
+// naming a directory `foo,bar` silently splits into two pseudo-
+// options and the launch either fails with a cryptic "unknown
+// parameter" error or, worse, quietly accepts an attacker-supplied
+// suffix like `,readonly=off` appended to a bind-mount path.
+func qemuOptEscape(s string) string {
+	return strings.ReplaceAll(s, ",", ",,")
+}
+
 // PortMapping is a resolved host-to-guest TCP port forward assigned to a
 // running instance.
 type PortMapping struct {
@@ -78,9 +92,10 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		"-nodefaults",
 		"-no-user-config",
 		"-display", "none",
-		"-chardev", fmt.Sprintf("socket,id=console0,path=%s,server=on,wait=off,logfile=%s,logappend=on", spec.SerialPath, spec.LogPath),
+		"-chardev", fmt.Sprintf("socket,id=console0,path=%s,server=on,wait=off,logfile=%s,logappend=on",
+			qemuOptEscape(spec.SerialPath), qemuOptEscape(spec.LogPath)),
 		"-serial", "chardev:console0",
-		"-chardev", fmt.Sprintf("socket,id=qmp,path=%s,server=on,wait=off", spec.QMPPath),
+		"-chardev", fmt.Sprintf("socket,id=qmp,path=%s,server=on,wait=off", qemuOptEscape(spec.QMPPath)),
 		"-mon", "chardev=qmp,mode=control",
 		"-device", "virtio-rng-pci",
 		"-device", "virtio-balloon-pci",
@@ -89,13 +104,13 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	// UEFI firmware (required for GPU passthrough, optional otherwise).
 	if manifest.VM.UEFI && spec.OVMFCode != "" && spec.OVMFVars != "" {
 		args = append(args,
-			"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", spec.OVMFCode),
-			"-drive", fmt.Sprintf("if=pflash,format=raw,file=%s", spec.OVMFVars),
+			"-drive", fmt.Sprintf("if=pflash,format=raw,readonly=on,file=%s", qemuOptEscape(spec.OVMFCode)),
+			"-drive", fmt.Sprintf("if=pflash,format=raw,file=%s", qemuOptEscape(spec.OVMFVars)),
 		)
 	}
 
 	args = append(args,
-		"-drive", fmt.Sprintf("if=virtio,cache=writeback,discard=unmap,format=qcow2,file=%s", spec.OverlayPath),
+		"-drive", fmt.Sprintf("if=virtio,cache=writeback,discard=unmap,format=qcow2,file=%s", qemuOptEscape(spec.OverlayPath)),
 	)
 
 	// User-mode NIC for host connectivity and port forwarding.
@@ -123,7 +138,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	}
 
 	if spec.SeedPath != "" {
-		args = append(args, "-drive", fmt.Sprintf("if=virtio,media=cdrom,readonly=on,format=raw,file=%s", spec.SeedPath))
+		args = append(args, "-drive", fmt.Sprintf("if=virtio,media=cdrom,readonly=on,format=raw,file=%s", qemuOptEscape(spec.SeedPath)))
 	}
 
 	for i, mount := range manifest.Mounts {
@@ -136,8 +151,13 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		}
 		options := []string{
 			"local",
-			fmt.Sprintf("path=%s", mount.Source),
-			fmt.Sprintf("mount_tag=%s", mountTag(i, mount.Target)),
+			fmt.Sprintf("path=%s", qemuOptEscape(mount.Source)),
+			// mount_tag is a small, deterministic token we build
+			// ourselves (see mountTag), so escaping is defensive
+			// rather than necessary: it costs nothing and
+			// insulates us from a future mountTag that allows
+			// commas.
+			fmt.Sprintf("mount_tag=%s", qemuOptEscape(mountTag(i, mount.Target))),
 			"security_model=none",
 		}
 		if mount.ReadOnly {
@@ -153,7 +173,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		// The `if=virtio` shorthand doesn't accept serial.
 		driveID := volumeDriveID(vol.Name)
 		driveOpts := fmt.Sprintf("id=%s,if=none,format=qcow2,file=%s,cache=writeback,discard=unmap",
-			driveID, vol.DiskPath)
+			driveID, qemuOptEscape(vol.DiskPath))
 		if vol.ReadOnly {
 			// QEMU honors readonly=on on the -drive node; the
 			// virtio-blk device inherits the mode and the guest
@@ -172,9 +192,9 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		if dev.PCI == "" {
 			continue
 		}
-		vfioOpts := fmt.Sprintf("vfio-pci,host=%s", dev.PCI)
+		vfioOpts := fmt.Sprintf("vfio-pci,host=%s", qemuOptEscape(dev.PCI))
 		if dev.ROMFile != "" {
-			vfioOpts += fmt.Sprintf(",romfile=%s", dev.ROMFile)
+			vfioOpts += fmt.Sprintf(",romfile=%s", qemuOptEscape(dev.ROMFile))
 		}
 		args = append(args, "-device", vfioOpts)
 	}

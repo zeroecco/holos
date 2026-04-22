@@ -359,6 +359,19 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("healthcheck.start_period_sec must be >= 0")
 		}
 	}
+	// claimed tracks every static host port that any replica will
+	// try to bind once the runtime has applied its per-replica
+	// offset. Two compose entries that look independent on paper can
+	// collide after the offset: `8080:80` and `8081:81` with
+	// replicas: 2 both land on host 8081 for replica index 1, and
+	// the second bind fails deep inside `holos up`. We model the
+	// full cross product here so `holos validate` surfaces the
+	// collision up front instead of mid-launch.
+	//
+	// Ephemeral ports (HostPort == 0) are allocated uniquely per
+	// replica by the runtime and cannot collide, so we skip them.
+	type claim struct{ baseHost, guest int }
+	claimed := make(map[int]claim, len(m.Ports)*m.Replicas)
 	for _, port := range m.Ports {
 		if port.GuestPort < 1 || port.GuestPort > 65535 {
 			return fmt.Errorf("guest port %d is out of range", port.GuestPort)
@@ -366,18 +379,21 @@ func (m Manifest) Validate() error {
 		if port.HostPort < 0 || port.HostPort > 65535 {
 			return fmt.Errorf("host port %d is out of range", port.HostPort)
 		}
-		// Static host ports are shifted by replica index at launch
-		// time (internal/runtime/ports.go), so a base of 65535 with
-		// replicas: 2 would try to bind 65536 and fail deep inside
-		// `holos up`. Validate the whole contiguous range here so
-		// `holos validate` catches it. Ephemeral ports (HostPort==0)
-		// are allocated uniquely per replica and are not affected.
 		if port.HostPort > 0 {
 			top := port.HostPort + m.Replicas - 1
 			if top > 65535 {
 				return fmt.Errorf(
 					"host port %d with replicas %d would overflow to %d (must be <= 65535)",
 					port.HostPort, m.Replicas, top)
+			}
+			for r := 0; r < m.Replicas; r++ {
+				host := port.HostPort + r
+				if prev, dup := claimed[host]; dup {
+					return fmt.Errorf(
+						"host port %d is claimed by both mapping %d:%d and %d:%d at replica %d",
+						host, prev.baseHost, prev.guest, port.HostPort, port.GuestPort, r)
+				}
+				claimed[host] = claim{baseHost: port.HostPort, guest: port.GuestPort}
 			}
 		}
 		if port.Protocol != "tcp" {
