@@ -3,6 +3,8 @@ package images
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -306,6 +308,63 @@ func TestDownload_BodyIdleTimeout(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("download hung past body idle timeout; watchdog is missing")
 	}
+}
+
+// TestDownload_CloseErrorVoidsCache proves that a writeback error
+// surfaced at Close (ENOSPC on a full disk, a broken NFS mount, ...)
+// aborts the download and removes the partial file. Without the
+// check, the download would compute its sha256 over the bytes it
+// managed to feed through MultiWriter, report success, and rename a
+// truncated image into the cache where every future `holos up`
+// reuses it forever.
+func TestDownload_CloseErrorVoidsCache(t *testing.T) {
+	payload := strings.Repeat("a", 1024)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(payload))
+	}))
+	t.Cleanup(srv.Close)
+
+	original := tempFileFactory
+	t.Cleanup(func() { tempFileFactory = original })
+	tempFileFactory = func(name string) (io.WriteCloser, error) {
+		f, err := os.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		return &failCloseWriter{WriteCloser: f}, nil
+	}
+
+	dest := filepath.Join(t.TempDir(), "image.qcow2")
+	err := download(srv.URL, dest, "")
+	if err == nil {
+		t.Fatal("expected Close error to fail the download")
+	}
+	if !strings.Contains(err.Error(), "finalize") {
+		t.Fatalf("error should mention finalize step, got: %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Fatalf("dest file should not exist on close failure, stat err=%v", statErr)
+	}
+	if _, statErr := os.Stat(dest + ".part"); !os.IsNotExist(statErr) {
+		t.Fatalf("partial file should be cleaned up, stat err=%v", statErr)
+	}
+}
+
+// failCloseWriter is a WriteCloser that succeeds every Write but
+// returns an error on Close. Mirrors the real "writeback surfaces at
+// Close" behavior that the finding described.
+type failCloseWriter struct {
+	io.WriteCloser
+}
+
+func (f *failCloseWriter) Close() error {
+	// Close the underlying file so the test tmpdir cleanup does not
+	// race with an open handle on Windows (and stays tidy on POSIX).
+	_ = f.WriteCloser.Close()
+	return fmt.Errorf("simulated writeback failure")
 }
 
 func TestCacheFilename(t *testing.T) {

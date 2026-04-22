@@ -127,20 +127,22 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 	}
 
 	// Generate (or reuse) the project's `holos exec` keypair and
-	// append the public half to every service's authorized_keys. We
-	// copy the manifest before mutating so callers who reuse the
-	// Project struct (e.g. tests) see no side effects.
+	// append the public half to every service's authorized_keys.
+	//
+	// Earlier code wrote the augmented manifest back into
+	// project.Services, which quietly mutated the caller's struct.
+	// A second Up() on the same *compose.Project (tests, a REPL, a
+	// future watch-mode loop) would then find the public key
+	// already present and append it a second time, growing
+	// authorized_keys unboundedly and changing the spec hash with
+	// every call. Keep the augmented manifests in a local map so
+	// the caller's Project is read-only from our perspective, as
+	// the existing comment always promised.
 	_, pubKey, err := ensureProjectSSHKey(m.stateDir, project.Name)
 	if err != nil {
 		return nil, fmt.Errorf("ensure exec ssh key: %w", err)
 	}
-	for name, manifest := range project.Services {
-		manifest.CloudInit.SSHAuthorizedKeys = append(
-			append([]string(nil), manifest.CloudInit.SSHAuthorizedKeys...),
-			pubKey,
-		)
-		project.Services[name] = manifest
-	}
+	augmented := augmentServicesWithExecKey(project.Services, pubKey)
 
 	record.SpecHash = project.SpecHash
 	record.Network = NetworkState{
@@ -162,7 +164,7 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 	// convention that healthchecks are only a gating tool.
 	hasDependents := make(map[string]bool)
 	for _, svc := range project.ServiceOrder {
-		for _, dep := range project.Services[svc].DependsOn {
+		for _, dep := range augmented[svc].DependsOn {
 			hasDependents[dep] = true
 		}
 	}
@@ -171,7 +173,7 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 
 	var services []ServiceRecord
 	for _, svcName := range project.ServiceOrder {
-		manifest := project.Services[svcName]
+		manifest := augmented[svcName]
 		existing := existingByService[svcName]
 
 		svcRecord, err := m.reconcileService(project.Name, manifest, existing)
@@ -188,7 +190,7 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 	}
 
 	for name, existing := range existingByService {
-		if _, ok := project.Services[name]; !ok {
+		if _, ok := augmented[name]; !ok {
 			m.stopAllInstances(existing.Instances)
 			m.removeInstanceDirs(existing.Instances)
 		}
@@ -201,6 +203,25 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 		return nil, err
 	}
 	return record, nil
+}
+
+// augmentServicesWithExecKey returns a copy of the service map with
+// pubKey appended to every service's authorized_keys list. The caller's
+// map is not touched, and each returned manifest carries a freshly
+// allocated SSHAuthorizedKeys slice so later mutations (e.g. another
+// Up call) cannot leak back into the original through a shared
+// backing array. This is the single choke point for Up's "don't
+// mutate the input" contract.
+func augmentServicesWithExecKey(services map[string]config.Manifest, pubKey string) map[string]config.Manifest {
+	out := make(map[string]config.Manifest, len(services))
+	for name, manifest := range services {
+		manifest.CloudInit.SSHAuthorizedKeys = append(
+			append([]string(nil), manifest.CloudInit.SSHAuthorizedKeys...),
+			pubKey,
+		)
+		out[name] = manifest
+	}
+	return out
 }
 
 // Down stops and removes all resources for a project.

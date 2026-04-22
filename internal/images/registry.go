@@ -23,6 +23,14 @@ import (
 // broken mirror notices and Ctrl-Cs within a minute.
 var bodyIdleTimeout = 60 * time.Second
 
+// tempFileFactory is the indirection that lets tests replace the
+// partial-file sink so they can exercise failure modes (e.g. Close
+// returning ENOSPC) without needing a real quota-capped filesystem.
+// Production always uses os.Create.
+var tempFileFactory = func(name string) (io.WriteCloser, error) {
+	return os.Create(name)
+}
+
 // httpClient is the package-wide client used for image downloads.
 // We avoid a total Client.Timeout because cloud images can legitimately
 // take a long time to transfer over slow home links (the Debian
@@ -242,7 +250,7 @@ func download(url, dest, expectSHA256 string) error {
 		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 	}
 
-	file, err := os.Create(tmp)
+	file, err := tempFileFactory(tmp)
 	if err != nil {
 		return err
 	}
@@ -261,7 +269,19 @@ func download(url, dest, expectSHA256 string) error {
 		}
 		return err
 	}
-	file.Close()
+
+	// Close *before* we promote the partial file. On NFS,
+	// aggressive write-back caching, or a full disk, the last
+	// delayed writes can surface at Close rather than Write, so
+	// ignoring the return value lets a truncated file slip through
+	// with a "valid" hash over the bytes we managed to hand off
+	// before the failure. Any Close error voids the download: blow
+	// away the .part and return, so `holos pull` retries next time
+	// rather than caching a bad artifact forever.
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("finalize %s: %w", tmp, err)
+	}
 
 	gotHex := hex.EncodeToString(hasher.Sum(nil))
 

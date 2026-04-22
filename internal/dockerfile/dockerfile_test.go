@@ -112,6 +112,45 @@ RUN ["apk", "add", "curl"]
 	}
 }
 
+// TestParseExecFormRunPreservesArgvBoundaries pins the Docker exec-
+// form contract: argv elements must survive the trip through our
+// cloud-init bash script without being re-split by the shell. Before
+// the fix, RUN ["echo", "hello world", "$PATH"] got flattened to
+// `echo hello world $PATH`, which bash would tokenize into four
+// arguments and expand $PATH. After the fix, each element is
+// single-quoted so the guest sees exactly three argv entries and the
+// literal string "$PATH".
+func TestParseExecFormRunPreservesArgvBoundaries(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfContent := `FROM alpine
+RUN ["echo", "hello world", "$PATH", "a'b"]
+`
+	dfPath := filepath.Join(dir, "Dockerfile")
+	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	for _, want := range []string{
+		"'hello world'",
+		"'$PATH'",
+		`'a'\''b'`,
+	} {
+		if !strings.Contains(result.Script, want) {
+			t.Errorf("script missing quoted arg %q:\n%s", want, result.Script)
+		}
+	}
+	if strings.Contains(result.Script, "echo hello world $PATH") {
+		t.Errorf("argv boundaries flattened (pre-fix behavior):\n%s", result.Script)
+	}
+}
+
 func TestParseCopyChmod(t *testing.T) {
 	t.Parallel()
 

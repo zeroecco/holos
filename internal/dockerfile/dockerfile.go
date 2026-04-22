@@ -148,11 +148,23 @@ func parseFrom(args string) string {
 
 func parseRun(args string) string {
 	args = strings.TrimSpace(args)
-	// Exec form: ["cmd", "arg1", ...]
+	// Exec form: ["cmd", "arg1", ...]. Docker treats exec form as a
+	// direct execve: argv boundaries are preserved, no shell runs,
+	// and special characters ($, *, quotes, spaces) are passed
+	// verbatim to the program. The output of this parser is dropped
+	// into a bash script (cloud-init runcmd), so we MUST quote each
+	// argv element before joining. Otherwise a RUN ["echo", "$PATH"]
+	// from a Dockerfile would surprise the guest by expanding $PATH,
+	// and a RUN ["sh", "-c", "echo hi && rm -rf /"] would rejoin
+	// into a shell command a docker user did not write.
 	if strings.HasPrefix(args, "[") {
 		var parts []string
 		if err := json.Unmarshal([]byte(args), &parts); err == nil {
-			return strings.Join(parts, " ")
+			quoted := make([]string, len(parts))
+			for i, p := range parts {
+				quoted[i] = shellQuote(p)
+			}
+			return strings.Join(quoted, " ")
 		}
 	}
 	return args
