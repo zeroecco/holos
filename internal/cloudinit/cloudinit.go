@@ -243,18 +243,42 @@ func volumeMountRunCmd(manifest config.Manifest) []string {
 		label := "vol-" + m.VolumeName
 		// Quote embedded targets defensively; most will be plain paths
 		// but users can put spaces anywhere.
-		script := strings.Join([]string{
+
+		// Read-only volumes can't be formatted or have their fstab
+		// entry written by the guest: the QEMU drive is opened
+		// readonly=on, so mkfs.ext4 would fail and every fresh boot
+		// would dump a noisy error into cloud-init. More importantly,
+		// an `ro`-in-compose contract must hold end-to-end: we must
+		// not let the guest mount a volume rw when the operator
+		// asked for ro, even if the filesystem is technically
+		// writable in a future rebuild. Split the fstab/mount path
+		// on m.ReadOnly so ro volumes get `ro,nofail` in fstab and
+		// skip mkfs entirely (assuming the volume was pre-populated
+		// by a prior rw run or by an operator).
+		var steps []string
+		steps = append(steps,
 			fmt.Sprintf("udevadm settle --exit-if-exists=%s || true", shquote(dev)),
-			fmt.Sprintf("if [ -b %s ] && ! blkid %s >/dev/null 2>&1; then mkfs.ext4 -F -L %s %s; fi",
-				shquote(dev), shquote(dev), shquote(label), shquote(dev)),
-			fmt.Sprintf("mkdir -p %s", shquote(target)),
+		)
+		if !m.ReadOnly {
+			steps = append(steps,
+				fmt.Sprintf("if [ -b %s ] && ! blkid %s >/dev/null 2>&1; then mkfs.ext4 -F -L %s %s; fi",
+					shquote(dev), shquote(dev), shquote(label), shquote(dev)),
+			)
+		}
+		steps = append(steps, fmt.Sprintf("mkdir -p %s", shquote(target)))
+
+		fstabOpts := "defaults,nofail"
+		if m.ReadOnly {
+			fstabOpts = "ro,nofail"
+		}
+		steps = append(steps,
 			fmt.Sprintf("grep -qE %s /etc/fstab || echo %s >> /etc/fstab",
 				shquote(" "+target+" "),
-				shquote(dev+" "+target+" ext4 defaults,nofail 0 2"),
+				shquote(dev+" "+target+" ext4 "+fstabOpts+" 0 2"),
 			),
 			fmt.Sprintf("mountpoint -q %s || mount %s || true", shquote(target), shquote(target)),
-		}, " && ")
-		cmds = append(cmds, script)
+		)
+		cmds = append(cmds, strings.Join(steps, " && "))
 	}
 	return cmds
 }

@@ -124,6 +124,63 @@ func TestRenderAlpineSkipsSystemdBits(t *testing.T) {
 	}
 }
 
+// TestVolumeMountRunCmd_ReadWrite asserts the baseline behavior for
+// writable named volumes: a `defaults,nofail` fstab entry is appended
+// and an mkfs.ext4 guard runs on first boot only.
+func TestVolumeMountRunCmd_ReadWrite(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Mounts: []config.Mount{
+			{Kind: config.MountKindVolume, VolumeName: "data", Target: "/var/lib/data"},
+		},
+	}
+	cmds := volumeMountRunCmd(manifest)
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 runcmd, got %d: %v", len(cmds), cmds)
+	}
+	s := cmds[0]
+	if !strings.Contains(s, "mkfs.ext4") {
+		t.Fatalf("writable volume should mkfs: %s", s)
+	}
+	if !strings.Contains(s, "ext4 defaults,nofail") {
+		t.Fatalf("writable volume should use defaults,nofail fstab opts: %s", s)
+	}
+	if strings.Contains(s, "ext4 ro,nofail") {
+		t.Fatalf("writable volume should not be marked ro in fstab: %s", s)
+	}
+}
+
+// TestVolumeMountRunCmd_ReadOnly pins the ro contract end-to-end on
+// the guest side. Before the fix, cloud-init blindly ran mkfs.ext4
+// against a readonly=on QEMU drive (which fails and spams errors)
+// and wrote a `defaults,nofail` fstab line, so the guest mounted the
+// disk writable despite the operator's compose `:ro` suffix. The
+// renderer must skip mkfs and emit `ro,nofail`.
+func TestVolumeMountRunCmd_ReadOnly(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Mounts: []config.Mount{
+			{Kind: config.MountKindVolume, VolumeName: "shared", Target: "/srv/shared", ReadOnly: true},
+		},
+	}
+	cmds := volumeMountRunCmd(manifest)
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 runcmd, got %d: %v", len(cmds), cmds)
+	}
+	s := cmds[0]
+	if strings.Contains(s, "mkfs.ext4") {
+		t.Fatalf("read-only volume must not attempt mkfs: %s", s)
+	}
+	if !strings.Contains(s, "ext4 ro,nofail") {
+		t.Fatalf("read-only volume should use ro,nofail fstab opts: %s", s)
+	}
+	if strings.Contains(s, "ext4 defaults,nofail") {
+		t.Fatalf("read-only volume should not fall back to defaults,nofail: %s", s)
+	}
+}
+
 // Conversely, when the image isn't Alpine, the existing systemd-oriented
 // configuration must still be emitted.
 func TestRenderSystemdIncludesSerialGetty(t *testing.T) {

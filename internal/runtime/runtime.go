@@ -194,6 +194,13 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 
 		svcRecord, err := m.reconcileService(project.Name, manifest, existing)
 		if err != nil {
+			// reconcileService returns a partial ServiceRecord on
+			// error so we can still persist the replicas that did
+			// start. Append it even on failure; the alternative is
+			// an orphaned QEMU process with no tracking record.
+			if svcRecord != nil && len(svcRecord.Instances) > 0 {
+				started = append(started, *svcRecord)
+			}
 			upErr = fmt.Errorf("service %q: %w", svcName, err)
 			break
 		}
@@ -242,12 +249,22 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 // carryOverUnreachedServices builds the service list to persist when
 // Up's reconcile loop aborted midway. It keeps everything the failed
 // call started (so real running VMs have a record) and then appends
-// any prior ServiceRecord whose service is still declared in the
-// current compose file but which this call never reached. Prior
-// records for services the operator has since removed from the file
-// are intentionally dropped: they will be torn down by the next
-// successful Up.
+// every prior ServiceRecord this call never reached, regardless of
+// whether the service is still declared in the current compose file.
+//
+// The "still declared" check we used to do looked sensible but leaked
+// orphans: if an operator removed service X from compose.yaml and the
+// subsequent `up` failed before the happy-path teardown ran, X's
+// QEMU processes kept running with no record, so `holos ps` showed
+// nothing and `holos down <project>` had no target. Keeping prior
+// entries on failure preserves full visibility; the next successful
+// Up will run the normal teardown sweep and reconcile state.
+//
+// stillDesired is retained in the signature to document the intent
+// at the call site even though we no longer gate on it; keeping the
+// parameter also keeps the test API stable.
 func carryOverUnreachedServices(started, prior []ServiceRecord, stillDesired map[string]config.Manifest) []ServiceRecord {
+	_ = stillDesired
 	seen := make(map[string]struct{}, len(started))
 	for _, s := range started {
 		seen[s.Name] = struct{}{}
@@ -255,9 +272,6 @@ func carryOverUnreachedServices(started, prior []ServiceRecord, stillDesired map
 	out := append([]ServiceRecord(nil), started...)
 	for _, p := range prior {
 		if _, touched := seen[p.Name]; touched {
-			continue
-		}
-		if _, desired := stillDesired[p.Name]; !desired {
 			continue
 		}
 		out = append(out, p)
@@ -504,7 +518,21 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		}
 	}
 
+	// Build up instances incrementally. If any replica start fails
+	// partway through we return a *partial* ServiceRecord alongside
+	// the error so the caller (Up) can still persist the replicas
+	// that did start. Before this change a failure in replica 1
+	// silently left replica 0's QEMU process running with nothing
+	// in the project record, so `holos ps` showed empty and
+	// `holos down` had no target to kill: an invisible orphan that
+	// held ports and memory until the operator manually pkilled it.
 	instances := make([]InstanceRecord, 0, manifest.Replicas)
+	sortAndAttach := func() {
+		sort.Slice(instances, func(i, j int) bool {
+			return instances[i].Index < instances[j].Index
+		})
+		svc.Instances = instances
+	}
 	for index := 0; index < manifest.Replicas; index++ {
 		if inst, ok := existingInstances[index]; ok && inst.Status == "running" {
 			instances = append(instances, *inst)
@@ -514,7 +542,8 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		if prev, ok := existingInstances[index]; ok && prev.WorkDir != "" && dirExists(prev.WorkDir) {
 			inst, err := m.restartInstance(project, manifest, *prev)
 			if err != nil {
-				return nil, err
+				sortAndAttach()
+				return svc, err
 			}
 			instances = append(instances, inst)
 			continue
@@ -522,7 +551,8 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 
 		inst, err := m.startInstance(project, manifest, index)
 		if err != nil {
-			return nil, err
+			sortAndAttach()
+			return svc, err
 		}
 		instances = append(instances, inst)
 	}
@@ -536,10 +566,7 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		}
 	}
 
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].Index < instances[j].Index
-	})
-	svc.Instances = instances
+	sortAndAttach()
 	return svc, nil
 }
 

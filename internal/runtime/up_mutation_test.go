@@ -14,6 +14,14 @@ import (
 // in a three-service project would quietly erase A's record from
 // the previous Up while A's qemu process was still running.
 //
+// Prior records for services no longer in the compose file must
+// ALSO survive a failed Up. The happy-path teardown sweep is gated
+// behind `upErr == nil`, so if we dropped those records on failure
+// their QEMU processes would keep running with nothing to track
+// them; `holos ps` would show empty and `holos down` would have no
+// target. We only reconcile the disappeared services on the next
+// successful Up.
+//
 // DesiredReplicas is used as a "which copy won" marker: the fresh
 // `started` record for service a carries a different count from its
 // prior entry, and the helper must prefer the fresh one.
@@ -25,7 +33,8 @@ func TestCarryOverUnreachedServices(t *testing.T) {
 		{Name: "a", DesiredReplicas: 1},
 		{Name: "b", DesiredReplicas: 3},
 		{Name: "c", DesiredReplicas: 4},
-		{Name: "stale", DesiredReplicas: 9},
+		{Name: "removed-but-running", DesiredReplicas: 9,
+			Instances: []InstanceRecord{{Name: "removed-but-running-0", PID: 12345}}},
 	}
 	desired := map[string]config.Manifest{
 		"a": {Name: "a"},
@@ -39,7 +48,7 @@ func TestCarryOverUnreachedServices(t *testing.T) {
 	for i, s := range got {
 		gotNames[i] = s.Name
 	}
-	want := []string{"a", "b", "c"}
+	want := []string{"a", "b", "c", "removed-but-running"}
 	if len(gotNames) != len(want) {
 		t.Fatalf("want %v, got %v", want, gotNames)
 	}
@@ -55,13 +64,11 @@ func TestCarryOverUnreachedServices(t *testing.T) {
 		t.Fatalf("carry-over preferred prior record for `a`; want DesiredReplicas=2, got %d", got[0].DesiredReplicas)
 	}
 
-	// `stale` was in prior but not in desired, so it must be dropped
-	// (the operator removed it from the compose file; the next
-	// successful Up will garbage collect it).
-	for _, n := range gotNames {
-		if n == "stale" {
-			t.Fatalf("stale service leaked through: %v", gotNames)
-		}
+	// The instance from the "removed-but-running" service must ride
+	// through intact so `holos down` knows what PID to stop.
+	last := got[len(got)-1]
+	if len(last.Instances) != 1 || last.Instances[0].PID != 12345 {
+		t.Fatalf("removed-but-running service lost its instance record: %+v", last)
 	}
 }
 
