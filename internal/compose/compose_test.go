@@ -607,6 +607,35 @@ services:
 	}
 }
 
+// TestHealthcheckRejectsUnknownFields pins that typos inside the
+// healthcheck block surface as an error rather than being silently
+// dropped. The outer Load() uses KnownFields(true), but the custom
+// Healthcheck.UnmarshalYAML has to re-enforce it because
+// yaml.Node.Decode has no strict-fields toggle.
+func TestHealthcheckRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	yamlDoc := `
+name: hctypo
+services:
+  api:
+    image: ./img.qcow2
+    healthcheck:
+      test: ["true"]
+      retriez: 3
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "holos.yaml")
+	if err := os.WriteFile(path, []byte(yamlDoc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected Load to reject typo'd healthcheck field")
+	} else if !strings.Contains(err.Error(), "retriez") {
+		t.Fatalf("error should name the offending field, got: %v", err)
+	}
+}
+
 // TestResolveRejectsMissingLocalImage pins the contract that a
 // compose file pointing at a local qcow2/raw that is not on disk is
 // rejected at resolution time, which is what `holos validate` runs.

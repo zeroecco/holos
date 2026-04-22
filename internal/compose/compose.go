@@ -124,7 +124,30 @@ type Healthcheck struct {
 // (canonical docker-compose form) or a single shell string. The single-
 // string form is wrapped in ["sh", "-c", ...] so it runs through the
 // shell exactly like docker-compose's CMD-SHELL variant.
+//
+// The outer Load() uses yaml.Decoder.KnownFields(true), but that
+// setting is lost as soon as a custom UnmarshalYAML takes over:
+// yaml.Node.Decode has no equivalent toggle. To keep the same
+// strict-typo guarantee ("retriez:" is an error, not a silently
+// dropped field), we explicitly enumerate this struct's keys and
+// reject anything else before calling node.Decode.
 func (h *Healthcheck) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		allowed := map[string]struct{}{
+			"test":         {},
+			"interval":     {},
+			"retries":      {},
+			"start_period": {},
+			"timeout":      {},
+		}
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i].Value
+			if _, ok := allowed[key]; !ok {
+				return fmt.Errorf("line %d: field %s not found in type compose.Healthcheck", node.Content[i].Line, key)
+			}
+		}
+	}
+
 	type rawHealthcheck struct {
 		Test        yaml.Node `yaml:"test"`
 		Interval    string    `yaml:"interval"`

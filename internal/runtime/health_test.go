@@ -203,6 +203,84 @@ func writeClientKey(t *testing.T, priv ed25519.PrivateKey) string {
 	return path
 }
 
+// TestWaitForHealthy_StartPeriodDoesNotConsumeRetries pins the
+// two-phase contract: if start_period is long and retries is small,
+// failures that happen inside the grace window must not burn retry
+// budget. Under the old max(start_period, retries*interval) logic a
+// run with start_period=60s, interval=10ms (scaled), retries=3 would
+// exhaust the deadline before phase 2 ran at all.
+func TestWaitForHealthy_StartPeriodDoesNotConsumeRetries(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	// Fail for the entire grace window, succeed on the very first
+	// post-grace attempt. If the loop wrongly uses a single combined
+	// deadline it will never reach the success path.
+	probe := func(ctx context.Context, timeout time.Duration) error {
+		calls++
+		if calls <= 5 {
+			return fmt.Errorf("grace failure #%d", calls)
+		}
+		return nil
+	}
+
+	// Short grace to keep the test fast. 50ms is enough for the
+	// loop to make several attempts at a 10ms interval.
+	err := waitForHealthyWith(context.Background(), probe,
+		10*time.Millisecond /* interval */, 1 /* retries */, 50*time.Millisecond /* start_period */, 5*time.Second /* timeout */)
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("probe ran %d times; expected multiple grace attempts + one post-grace", calls)
+	}
+}
+
+// TestWaitForHealthy_RetriesHonored makes sure the post-grace phase
+// actually runs exactly `retries` attempts before giving up.
+func TestWaitForHealthy_RetriesHonored(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	probe := func(ctx context.Context, timeout time.Duration) error {
+		calls++
+		return fmt.Errorf("nope")
+	}
+
+	err := waitForHealthyWith(context.Background(), probe,
+		1*time.Millisecond /* interval */, 3 /* retries */, 0 /* start_period */, time.Second /* timeout */)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if calls != 3 {
+		t.Fatalf("probe ran %d times, want 3 retries", calls)
+	}
+}
+
+// TestWaitForHealthy_SucceedsDuringGrace short-circuits the loop as
+// soon as the probe reports healthy inside the grace window.
+func TestWaitForHealthy_SucceedsDuringGrace(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	probe := func(ctx context.Context, timeout time.Duration) error {
+		calls++
+		if calls == 2 {
+			return nil
+		}
+		return fmt.Errorf("not yet")
+	}
+
+	err := waitForHealthyWith(context.Background(), probe,
+		1*time.Millisecond, 3, time.Second, time.Second)
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("probe ran %d times; expected early return at 2", calls)
+	}
+}
+
 // writeTempPrivateKey emits a throwaway valid key so probeHealthcheck's
 // key-loading branch executes before the dial even starts; keeps the
 // TestProbeHealthcheck_DialFailure case focused on the dial error path.

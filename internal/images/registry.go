@@ -1,6 +1,7 @@
 package images
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -10,8 +11,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// bodyIdleTimeout bounds how long a download may go without receiving
+// any bytes. The Transport only covers connect/TLS/header phases, so
+// once headers arrive a silent mirror can keep the TCP stream open
+// indefinitely while `holos pull` hangs. 60 seconds is roomy enough
+// for a legitimate slow peer but short enough that an operator on a
+// broken mirror notices and Ctrl-Cs within a minute.
+var bodyIdleTimeout = 60 * time.Second
 
 // httpClient is the package-wide client used for image downloads.
 // We avoid a total Client.Timeout because cloud images can legitimately
@@ -203,10 +213,20 @@ func ListAvailable() []Image {
 // non-empty, the final hash must match (case-insensitive). On mismatch
 // the partial file is deleted and an explanatory error is returned so
 // callers can surface tampered or truncated downloads to the user.
+//
+// A per-request context is bound to an idle-timeout watchdog so that a
+// mirror which sends headers and then stalls does not leave the
+// caller stuck inside io.Copy. The watchdog cancels the request the
+// moment bodyIdleTimeout elapses without a successful Read; the
+// Transport propagates the cancellation into the outstanding Read as
+// an error, so io.Copy unblocks promptly.
 func download(url, dest, expectSHA256 string) error {
 	tmp := dest + ".part"
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -230,10 +250,15 @@ func download(url, dest, expectSHA256 string) error {
 	hasher := sha256.New()
 	writer := io.MultiWriter(file, hasher)
 
-	size, err := io.Copy(writer, resp.Body)
+	body := newIdleTimeoutReader(resp.Body, bodyIdleTimeout, cancel)
+	size, err := io.Copy(writer, body)
+	body.Stop()
 	if err != nil {
 		file.Close()
 		_ = os.Remove(tmp)
+		if body.TimedOut() {
+			return fmt.Errorf("download stalled (no bytes for %s): %w", bodyIdleTimeout, err)
+		}
 		return err
 	}
 	file.Close()
@@ -261,6 +286,60 @@ func download(url, dest, expectSHA256 string) error {
 
 	return os.Rename(tmp, dest)
 }
+
+// idleTimeoutReader wraps an HTTP response body with a watchdog that
+// fires if no bytes arrive within `timeout`. When it fires it calls
+// the request's cancel func, which aborts the outstanding Transport
+// Read and makes io.Copy return quickly. Every successful Read with
+// n > 0 resets the watchdog, so long-but-healthy transfers pass
+// through untouched.
+type idleTimeoutReader struct {
+	r       io.ReadCloser
+	timeout time.Duration
+	timer   *time.Timer
+	fired   atomicBool
+}
+
+// newIdleTimeoutReader starts the watchdog immediately so that a
+// mirror which never sends the first byte is still caught.
+func newIdleTimeoutReader(r io.ReadCloser, timeout time.Duration, cancel context.CancelFunc) *idleTimeoutReader {
+	itr := &idleTimeoutReader{r: r, timeout: timeout}
+	itr.timer = time.AfterFunc(timeout, func() {
+		itr.fired.Store(true)
+		cancel()
+	})
+	return itr
+}
+
+func (i *idleTimeoutReader) Read(p []byte) (int, error) {
+	n, err := i.r.Read(p)
+	if n > 0 {
+		// Reset keeps the watchdog honest on fast connections; we
+		// ignore its return value because races with an in-flight
+		// expiry are fine (the next Read sees ctx.Err()).
+		i.timer.Reset(i.timeout)
+	}
+	return n, err
+}
+
+// Stop prevents the watchdog from firing after a normal end-of-body.
+// Callers must invoke Stop before checking TimedOut, otherwise a
+// late expiry could race with the success path.
+func (i *idleTimeoutReader) Stop() {
+	i.timer.Stop()
+}
+
+func (i *idleTimeoutReader) TimedOut() bool {
+	return i.fired.Load()
+}
+
+// atomicBool is a tiny wrapper so the watchdog's "did I fire?" flag
+// is safe to read from the Read() goroutine while the timer's
+// goroutine may be writing it.
+type atomicBool struct{ v atomic.Bool }
+
+func (b *atomicBool) Store(x bool) { b.v.Store(x) }
+func (b *atomicBool) Load() bool   { return b.v.Load() }
 
 func cacheFilename(img *Image) string {
 	h := sha256.Sum256([]byte(img.URL))

@@ -262,6 +262,52 @@ func TestDownload_HeaderTimeout(t *testing.T) {
 	}
 }
 
+// TestDownload_BodyIdleTimeout proves the new watchdog catches the
+// stall that happens *after* headers arrive: the server responds with
+// a valid 200 and some bytes, then blocks the connection indefinitely.
+// The Transport's ResponseHeaderTimeout is useless here because
+// headers already landed; only the idle reader can rescue us.
+func TestDownload_BodyIdleTimeout(t *testing.T) {
+	unblock := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Flush headers + one byte so the Transport handshake
+		// completes, then stall. This is exactly the "mirror went
+		// dark mid-download" failure mode the finding described.
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("x"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-unblock
+	}))
+
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(unblock) })
+
+	originalIdle := bodyIdleTimeout
+	t.Cleanup(func() { bodyIdleTimeout = originalIdle })
+	bodyIdleTimeout = 150 * time.Millisecond
+
+	done := make(chan error, 1)
+	go func() {
+		done <- download(srv.URL+"/stall", filepath.Join(t.TempDir(), "out"), "")
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected idle-timeout error, got nil")
+		}
+		if !strings.Contains(err.Error(), "stalled") {
+			t.Fatalf("error should identify the stall, got: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("download hung past body idle timeout; watchdog is missing")
+	}
+}
+
 func TestCacheFilename(t *testing.T) {
 	t.Parallel()
 
