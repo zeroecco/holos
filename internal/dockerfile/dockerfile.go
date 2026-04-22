@@ -184,7 +184,11 @@ func parseCopy(args string, contextDir string) (config.WriteFile, error) {
 	src := paths[0]
 	dst := paths[len(paths)-1]
 
-	srcPath := filepath.Join(contextDir, src)
+	srcPath, err := resolveCopySource(contextDir, src)
+	if err != nil {
+		return config.WriteFile{}, err
+	}
+
 	info, err := os.Stat(srcPath)
 	if err != nil {
 		return config.WriteFile{}, fmt.Errorf("source %q: %w", src, err)
@@ -214,6 +218,62 @@ func parseCopy(args string, contextDir string) (config.WriteFile, error) {
 		Permissions: perms,
 		Owner:       owner,
 	}, nil
+}
+
+// resolveCopySource turns a COPY source (relative to contextDir) into
+// an absolute path on disk while enforcing that the final path stays
+// under the build context. This mirrors docker's well-known rule that
+// "the <src> path must be inside of the context of the build"; without
+// it, `COPY ../../etc/shadow /tmp/x` would happily be read off the
+// host and then embedded into the VM's cloud-init write_files,
+// leaking arbitrary host files into the guest's filesystem.
+//
+// The check runs in four steps:
+//
+//  1. Refuse absolute source paths up front. docker itself errors on
+//     these ("Forbidden path outside the build context"); our
+//     filepath.Join contract would paste them unchanged onto the
+//     context root, producing a path that does not exist.
+//  2. Canonicalize the context root AND the joined source via
+//     EvalSymlinks so macOS's /var -> /private/var, NixOS's /bin
+//     symlinks, and similar host-level links do not produce false
+//     "escapes" from filepath.Rel. EvalSymlinks requires the target
+//     to exist, which is fine because the caller immediately stats
+//     the result and missing files should surface as errors anyway.
+//  3. filepath.Rel against the canonical context; a result starting
+//     with ".." means the source escapes the context.
+//  4. Catch symlinks INSIDE the context that point to /etc/shadow
+//     and friends, caught implicitly by (2) since EvalSymlinks
+//     follows the chain before we do the Rel check.
+func resolveCopySource(contextDir, src string) (string, error) {
+	if filepath.IsAbs(src) {
+		return "", fmt.Errorf("source %q escapes build context: absolute paths are not allowed in COPY", src)
+	}
+
+	absContext, err := filepath.Abs(contextDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve context dir: %w", err)
+	}
+	canonContext, err := filepath.EvalSymlinks(absContext)
+	if err != nil {
+		return "", fmt.Errorf("resolve context dir %q: %w", absContext, err)
+	}
+
+	joined := filepath.Clean(filepath.Join(canonContext, src))
+	resolved, err := filepath.EvalSymlinks(joined)
+	if err != nil {
+		return "", fmt.Errorf("source %q: %w", src, err)
+	}
+
+	rel, err := filepath.Rel(canonContext, resolved)
+	if err != nil {
+		return "", fmt.Errorf("source %q is not reachable from build context: %w", src, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("source %q escapes build context %q", src, canonContext)
+	}
+
+	return resolved, nil
 }
 
 // parseEnv returns key-value pairs from an ENV instruction.

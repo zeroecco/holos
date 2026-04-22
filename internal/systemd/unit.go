@@ -269,19 +269,52 @@ func (s UnitSpec) validate() error {
 	if !filepath.IsAbs(s.ComposeFile) {
 		return fmt.Errorf("compose file must be absolute, got %q", s.ComposeFile)
 	}
+	if err := rejectUnsafePathChars("compose file", s.ComposeFile); err != nil {
+		return err
+	}
 	if s.HolosBinary == "" {
 		return errors.New("holos binary path is required")
 	}
 	if !filepath.IsAbs(s.HolosBinary) {
 		return fmt.Errorf("holos binary must be absolute, got %q", s.HolosBinary)
 	}
+	if err := rejectUnsafePathChars("holos binary", s.HolosBinary); err != nil {
+		return err
+	}
 	if s.StateDir != "" && !filepath.IsAbs(s.StateDir) {
 		return fmt.Errorf("state dir must be absolute, got %q", s.StateDir)
+	}
+	if s.StateDir != "" {
+		if err := rejectUnsafePathChars("state dir", s.StateDir); err != nil {
+			return err
+		}
 	}
 	switch s.Scope {
 	case ScopeUser, ScopeSystem:
 	default:
 		return fmt.Errorf("unknown scope %q", s.Scope)
+	}
+	return nil
+}
+
+// unsafeExecChars are characters that change systemd's tokenisation
+// of an ExecStart/ExecStop line or collide with systemd specifiers.
+// systemd(5) parses Exec* with sh(1)-style quoting, expands %x
+// specifiers, and treats ; as a conditional command separator. We
+// could emit quotes and escape these, but getting that right across
+// every systemd version is fragile; refusing to emit a unit with a
+// path that would need escaping is a loud, survivable failure, and
+// the caller can move the compose file / binary / state dir to a
+// path without any of these characters. The set intentionally
+// includes the whole whitespace family so a newline smuggled via
+// an env var can't split a command across lines.
+const unsafeExecChars = " \t\n\r\"'\\`$%;"
+
+func rejectUnsafePathChars(field, value string) error {
+	if i := strings.IndexAny(value, unsafeExecChars); i >= 0 {
+		return fmt.Errorf(
+			"%s %q contains character %q which would break systemd unit parsing; move to a path without whitespace or shell metacharacters",
+			field, value, value[i:i+1])
 	}
 	return nil
 }

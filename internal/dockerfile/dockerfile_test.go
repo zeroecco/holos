@@ -1,6 +1,7 @@
 package dockerfile
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,5 +165,86 @@ ENV MY_VAR some value with spaces
 
 	if !strings.Contains(result.Script, "export MY_VAR='some value with spaces'") {
 		t.Errorf("legacy ENV not handled: %s", result.Script)
+	}
+}
+
+// TestCopyRejectsEscapingSource pins the contract that COPY sources
+// must stay inside the build context. Without this, a Dockerfile in a
+// repo could exfiltrate host files (ssh keys, /etc/shadow, ...) into
+// the generated cloud-init write_files, which holos then hands to the
+// VM verbatim. Each case plants a genuine secret file on disk and
+// asserts that Parse refuses to read it.
+func TestCopyRejectsEscapingSource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	secret := filepath.Join(root, "secret")
+	if err := os.WriteFile(secret, []byte("sensitive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	contextDir := filepath.Join(root, "ctx")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := map[string]string{
+		"relative parent traversal": `FROM alpine:3.21
+COPY ../secret /opt/exfil
+`,
+		"absolute host path": fmt.Sprintf(`FROM alpine:3.21
+COPY %s /opt/exfil
+`, secret),
+	}
+
+	for name, dfContent := range cases {
+		t.Run(name, func(t *testing.T) {
+			dfPath := filepath.Join(contextDir, "Dockerfile."+strings.ReplaceAll(name, " ", "_"))
+			if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Parse(dfPath, contextDir); err == nil {
+				t.Fatal("expected COPY-escape error, got nil")
+			} else if !strings.Contains(err.Error(), "escapes build context") {
+				t.Fatalf("error should name the escape; got %v", err)
+			}
+		})
+	}
+}
+
+// TestCopyRejectsSymlinkEscape closes the subtler hole where a
+// textually-inside source resolves via symlink to a host file outside
+// the context. filepath.EvalSymlinks should catch this before we read
+// the target, so the secret never enters a WriteFile.
+func TestCopyRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	secret := filepath.Join(root, "shadow")
+	if err := os.WriteFile(secret, []byte("root:x:*:0:0:::"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	contextDir := filepath.Join(root, "ctx")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(contextDir, "inside.link")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	dfContent := `FROM alpine:3.21
+COPY inside.link /opt/exfil
+`
+	dfPath := filepath.Join(contextDir, "Dockerfile")
+	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Parse(dfPath, contextDir); err == nil {
+		t.Fatal("expected symlink-escape error, got nil")
+	} else if !strings.Contains(err.Error(), "escapes build context") {
+		t.Fatalf("error should name the escape; got %v", err)
 	}
 }

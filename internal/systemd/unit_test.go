@@ -123,6 +123,43 @@ func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
 			HolosBinary: "/usr/bin/holos",
 			Scope:       "global",
 		},
+		"space in compose file": {
+			Project:     "x",
+			ComposeFile: "/srv/my holos/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
+		"space in binary path": {
+			Project:     "x",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/opt/My Apps/holos",
+			Scope:       ScopeUser,
+		},
+		"space in state dir": {
+			Project:     "x",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			StateDir:    "/var/lib/holos state",
+			Scope:       ScopeSystem,
+		},
+		"systemd specifier in path": {
+			Project:     "x",
+			ComposeFile: "/etc/%H/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
+		"command separator in path": {
+			Project:     "x",
+			ComposeFile: "/abs/holos.yaml;rm",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
+		"newline in path": {
+			Project:     "x",
+			ComposeFile: "/abs/holos.yaml\ninjected",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
 	}
 	for name, spec := range cases {
 		t.Run(name, func(t *testing.T) {

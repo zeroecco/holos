@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultUser(t *testing.T) {
@@ -216,6 +217,49 @@ func TestPull_ChecksumVerification(t *testing.T) {
 			t.Fatalf("temp file left behind after mismatch: %v", statErr)
 		}
 	})
+}
+
+// TestDownload_HeaderTimeout verifies that a server that accepts the
+// TCP connection but never sends a response is aborted by the transport
+// instead of hanging forever. We do this by swapping the package
+// httpClient for one with aggressively short timeouts so the test
+// runs in milliseconds even on slow machines. Without the fix this
+// test would hang the whole go-test process.
+func TestDownload_HeaderTimeout(t *testing.T) {
+	blocked := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Wait until the test completes before returning so no
+		// headers are ever sent.
+		<-blocked
+	}))
+
+	// Cleanup is LIFO: unblock handlers first so the server's Close
+	// (which waits for in-flight requests) does not deadlock the test.
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(blocked) })
+
+	original := httpClient
+	t.Cleanup(func() { httpClient = original })
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			ResponseHeaderTimeout: 100 * time.Millisecond,
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- download(srv.URL+"/slow", filepath.Join(t.TempDir(), "out"), "")
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected header-timeout error, got nil")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("download hung past ResponseHeaderTimeout; client is missing phased timeouts")
+	}
 }
 
 func TestCacheFilename(t *testing.T) {

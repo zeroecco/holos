@@ -5,11 +5,39 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// httpClient is the package-wide client used for image downloads.
+// We avoid a total Client.Timeout because cloud images can legitimately
+// take a long time to transfer over slow home links (the Debian
+// generic qcow2 is ~400 MB). Instead we set per-phase timeouts on the
+// Transport so a stalled DNS lookup, TCP connect, TLS handshake, or
+// response-header wait cannot hang `holos pull` or `holos up`
+// indefinitely. An idle-connection read stall after headers is still
+// possible; for that, responsive cancellation comes from the caller's
+// context when we expose one. This at minimum fixes the common
+// "offline mirror, no DNS" failure mode the default client silently
+// absorbs forever.
+var httpClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		ForceAttemptHTTP2:     true,
+	},
+}
 
 // Image describes a downloadable cloud image.
 type Image struct {
@@ -178,7 +206,13 @@ func ListAvailable() []Image {
 func download(url, dest, expectSHA256 string) error {
 	tmp := dest + ".part"
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("User-Agent", "holos/image-pull")
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
