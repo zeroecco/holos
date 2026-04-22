@@ -181,6 +181,21 @@ func parseCopy(args string, contextDir string) (config.WriteFile, error) {
 		return config.WriteFile{}, fmt.Errorf("requires source and destination")
 	}
 
+	// Dockerfile's real COPY accepts `COPY src1 src2 dst/` and
+	// copies every source into dst. holos emits a single cloud-init
+	// write_files entry per COPY, so the historical code just took
+	// paths[0] and silently dropped the rest. That turned
+	// `COPY package.json package-lock.json /app/` into "only
+	// package.json arrived", which is a nasty, silent misbehavior.
+	// Refuse the multi-source form outright so the operator either
+	// splits it into one COPY per file (explicit, supported) or
+	// learns we do not implement the fan-out.
+	if len(paths) > 2 {
+		return config.WriteFile{}, fmt.Errorf(
+			"multi-source COPY with %d sources is not supported; split into one COPY per source",
+			len(paths)-1)
+	}
+
 	src := paths[0]
 	dst := paths[len(paths)-1]
 

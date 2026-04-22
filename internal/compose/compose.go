@@ -21,6 +21,37 @@ import (
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
+// ValidateName enforces that a project, service, or volume name
+// matches the DNS-label pattern used throughout holos.
+//
+// This is the single source of truth for "is this string safe to
+// embed in a filesystem path or a systemd unit filename". The CLI
+// funnels every user-supplied name (from `-f`, from positional
+// arguments to `down`, `console`, `exec`, `logs`, and from
+// `--name` on install/uninstall) through this helper so a value
+// like "../../../etc/passwd" cannot be turned into a path like
+// <state-dir>/projects/../../../etc/passwd.json or
+// /etc/systemd/system/holos-../../etc/passwd.service.
+//
+// The pattern allows:
+//   - 1 to 63 characters (DNS-label maximum)
+//   - lowercase letters, digits, and hyphens
+//   - first and last characters are alphanumeric
+//
+// That ruleset rejects path separators, path traversals (`..`),
+// whitespace, control characters, shell metacharacters, and
+// uppercase (which systemd treats case-insensitively on some
+// filesystems, confusing `holos ps` output).
+func ValidateName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name is empty")
+	}
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("name %q must match %s", name, namePattern.String())
+	}
+	return nil
+}
+
 // maxReplicas is a soft cap on `replicas:` for a single service to
 // catch typos at parse time. It is intentionally larger than the
 // per-project total so a single-service stack can use the full
@@ -962,6 +993,20 @@ func resolveImage(ref string, explicitFormat string, baseDir string, cacheDir st
 		if abs, err := filepath.Abs(path); err == nil {
 			path = abs
 		}
+	}
+
+	// Cached remote images are guaranteed to exist: images.Pull only
+	// returns a cached path after stating it. Local-path refs
+	// (images.Pull returns them verbatim when the ref is not a
+	// registry entry) bypass that stat, so `holos validate` would
+	// silently approve `image: ./missing.qcow2` and the real error
+	// would not surface until qemu-img failed deep in `holos up`.
+	// Checking here turns the silent pass into an early, specific
+	// failure that names the compose field.
+	if info, err := os.Stat(path); err != nil {
+		return "", "", fmt.Errorf("image %q: %w", ref, err)
+	} else if info.IsDir() {
+		return "", "", fmt.Errorf("image %q is a directory, expected a qcow2 or raw file", ref)
 	}
 
 	if explicitFormat != "" {

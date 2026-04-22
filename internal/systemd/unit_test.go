@@ -160,6 +160,24 @@ func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
 			HolosBinary: "/usr/bin/holos",
 			Scope:       ScopeUser,
 		},
+		"project path traversal": {
+			Project:     "foo/../../etc/passwd",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeSystem,
+		},
+		"project uppercase": {
+			Project:     "MyProj",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
+		"project leading hyphen": {
+			Project:     "-bad",
+			ComposeFile: "/abs/holos.yaml",
+			HolosBinary: "/usr/bin/holos",
+			Scope:       ScopeUser,
+		},
 	}
 	for name, spec := range cases {
 		t.Run(name, func(t *testing.T) {

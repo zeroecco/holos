@@ -136,6 +136,13 @@ func runDown(args []string) error {
 	// If a positional arg is given, use it as the project name directly.
 	if flags.NArg() > 0 {
 		projectName = flags.Arg(0)
+		// User-supplied names are untrusted until validated: without
+		// this, `holos down ../../etc/passwd` would successfully
+		// resolve to state_dir/projects/../../etc/passwd.json and
+		// attempt to unlink outside the state tree.
+		if err := compose.ValidateName(projectName); err != nil {
+			return fmt.Errorf("invalid project name: %w", err)
+		}
 	} else {
 		project, err := loadProject(*filePath, *stateDir)
 		if err != nil {
@@ -658,7 +665,16 @@ func resolveInstanceTarget(manager *runtime.Manager, filePath, stateDir string, 
 		return instanceTarget{}, errors.New("missing project or instance name")
 	}
 
+	// When no compose file is specified, positional[0] is treated
+	// as a project name and goes directly into filesystem paths
+	// under the state dir. Validate it before we try to resolve so
+	// that names like "../foo" produce a useful error rather than
+	// silently falling through to the "look for holos.yaml in the
+	// current directory" branch.
 	if filePath == "" {
+		if err := compose.ValidateName(positional[0]); err != nil {
+			return instanceTarget{}, fmt.Errorf("invalid project name: %w", err)
+		}
 		if record, ok := lookupProjectRecord(manager, positional[0]); ok {
 			tgt := instanceTarget{
 				ProjectName: record.Name,
@@ -889,6 +905,28 @@ func runInstall(args []string) error {
 		return err
 	}
 
+	// When the operator installs a system unit that runs as a
+	// different user, the default --state-dir comes from the
+	// installer's own environment (typically root's when invoked
+	// via sudo). The runtime hardens the state tree to 0700, so
+	// `User=alice` would fail to start because alice cannot read
+	// root's state directory. Rather than silently pre-chown root's
+	// tree to alice (surprising) or fall back to alice's homedir
+	// (unreliable inside sudo), refuse to proceed until the operator
+	// tells us which directory alice should own.
+	stateDirExplicit := false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "state-dir" {
+			stateDirExplicit = true
+		}
+	})
+	if *system && *runAs != "" && !stateDirExplicit {
+		return fmt.Errorf(
+			"install --system --user %s requires --state-dir pointing at a directory %[1]s can read and write; "+
+				"holos locks the state tree to 0700 so running as %[1]s would otherwise fail at start",
+			*runAs)
+	}
+
 	project, absCompose, err := loadProjectWithPath(*filePath, *stateDir)
 	if err != nil {
 		return err
@@ -972,6 +1010,14 @@ func runUninstall(args []string) error {
 			return err
 		}
 		projectName = project.Name
+	} else {
+		// --name is typed by the operator and otherwise flows
+		// straight into the unit filename (holos-<name>.service)
+		// and into systemctl args; reject anything that isn't a
+		// DNS label before we touch /etc/systemd/system.
+		if err := compose.ValidateName(projectName); err != nil {
+			return fmt.Errorf("invalid --name: %w", err)
+		}
 	}
 
 	scope := systemd.ScopeUser

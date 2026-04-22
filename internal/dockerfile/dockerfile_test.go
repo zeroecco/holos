@@ -248,3 +248,31 @@ COPY inside.link /opt/exfil
 		t.Fatalf("error should name the escape; got %v", err)
 	}
 }
+
+// TestCopyRejectsMultiSource guards against the silent-dropped-source
+// bug: `COPY a b /dst/` previously copied only `a` and let `b`
+// disappear without a warning. Users then shipped guests missing the
+// files they thought they had. The parser now rejects the form so the
+// operator sees the problem immediately.
+func TestCopyRejectsMultiSource(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, f := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dfPath := filepath.Join(dir, "Dockerfile")
+	if err := os.WriteFile(dfPath, []byte("FROM alpine:3.21\nCOPY a.txt b.txt /opt/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Parse(dfPath, dir)
+	if err == nil {
+		t.Fatal("expected multi-source COPY to be rejected")
+	}
+	if !strings.Contains(err.Error(), "multi-source") {
+		t.Fatalf("error should name the multi-source form; got %v", err)
+	}
+}

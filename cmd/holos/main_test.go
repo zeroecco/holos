@@ -569,6 +569,37 @@ func TestResolveInstanceTarget_SingleInstanceProject(t *testing.T) {
 	}
 }
 
+// TestResolveInstanceTarget_RejectsTraversalNames proves the project
+// name supplied as a bare CLI argument cannot escape the state
+// directory. Without the validator at the CLI boundary a call like
+// `holos exec ../../../etc/passwd` would be fed directly into
+// loadProject -> filepath.Join -> os.ReadFile.
+func TestResolveInstanceTarget_RejectsTraversalNames(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := runtime.NewManager(stateDir)
+
+	// A sibling project is seeded so the traversal's only route out
+	// is the name itself, not a stale record on disk.
+	if err := writeFakeProjectRecord(stateDir, "legit"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	badNames := []string{
+		"../etc/passwd",
+		"legit/../legit",
+		"legit\x00injected",
+		"UPPER",
+		"",
+	}
+	for _, name := range badNames {
+		if _, err := resolveInstanceTarget(manager, "", stateDir, []string{name}); err == nil {
+			t.Errorf("expected error for bad name %q, got nil", name)
+		}
+	}
+}
+
 // writeFakeProjectRecord is the minimum payload that ProjectStatus
 // will accept. We avoid using runtime internals (saveProject etc.)
 // so the test stays decoupled from runtime implementation details.

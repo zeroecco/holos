@@ -29,9 +29,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 )
+
+// projectNamePattern mirrors compose.ValidateName; duplicated here so
+// this package stays free of compose/config imports. UnitPath and
+// Render call this defensively so that any caller slipping a bad
+// project name past the CLI validator still cannot escape the unit
+// directory (e.g. "foo/../../etc/passwd" landing in
+// /etc/systemd/system/holos-foo/../../etc/passwd.service).
+var projectNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+func validateProjectName(name string) error {
+	if name == "" {
+		return fmt.Errorf("project name is empty")
+	}
+	if !projectNamePattern.MatchString(name) {
+		return fmt.Errorf("project %q must match %s", name, projectNamePattern.String())
+	}
+	return nil
+}
 
 // Scope selects between a per-user unit and a host-wide unit.
 type Scope string
@@ -162,6 +181,9 @@ func Render(spec UnitSpec) (path, content string, err error) {
 // without touching the filesystem. Callers can use this to present a
 // dry-run path to the user before committing.
 func UnitPath(scope Scope, project string) (string, error) {
+	if err := validateProjectName(project); err != nil {
+		return "", err
+	}
 	name := fmt.Sprintf("holos-%s.service", project)
 	switch scope {
 	case ScopeUser:
@@ -257,11 +279,11 @@ type Result struct {
 // --- internals --------------------------------------------------------------
 
 func (s UnitSpec) validate() error {
-	if s.Project == "" {
-		return errors.New("project is required")
-	}
-	if strings.ContainsAny(s.Project, "/ \t\n") {
-		return fmt.Errorf("project name %q contains whitespace or slash; not a valid systemd unit component", s.Project)
+	// The DNS-label check already rejects whitespace, slashes, and
+	// every other character that systemd treats specially, so it
+	// subsumes the earlier "no slash or whitespace" rule.
+	if err := validateProjectName(s.Project); err != nil {
+		return err
 	}
 	if s.ComposeFile == "" {
 		return errors.New("compose file path is required")

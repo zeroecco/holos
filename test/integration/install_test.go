@@ -107,6 +107,47 @@ services:
 	}
 }
 
+// TestInstall_SystemUserRequiresExplicitStateDir pins the guardrail
+// that prevents the silent-failure trap where `sudo holos install
+// --system --user alice` emits a unit whose User= cannot read the
+// default (root-owned, 0700) state directory.
+func TestInstall_SystemUserRequiresExplicitStateDir(t *testing.T) {
+	h := newHarness(t)
+
+	dir := h.writeProject("sysuser", "", nil)
+	img := h.fakeImage(dir, "base.qcow2")
+	compose := fmt.Sprintf(`
+name: sysuser
+services:
+  web:
+    image: %s
+`, img)
+	if _, err := writeFile(dir, "holos.yaml", compose); err != nil {
+		t.Fatal(err)
+	}
+
+	// The install CLI validator only trips when --state-dir was not
+	// set on the command line. HOLOS_STATE_DIR (injected by the
+	// harness) feeds the flag's default value but is invisible to
+	// flag.Visit, so this still reproduces the "operator forgot to
+	// think about where alice's state dir lives" trap the finding
+	// flagged.
+	cmd := []string{"install", "-f", filepath.Join(dir, "holos.yaml"), "--system", "--user", "alice", "--dry-run"}
+	_, stderr, err := h.run(cmd...)
+	if err == nil {
+		t.Fatalf("expected error, got success; stderr=%s", stderr)
+	}
+	if !strings.Contains(stderr, "--state-dir") || !strings.Contains(stderr, "alice") {
+		t.Fatalf("error should steer the operator to --state-dir for alice, got: %s", stderr)
+	}
+
+	// With --state-dir supplied, the same command must succeed.
+	cmd = append(cmd, "--state-dir", h.stateDir)
+	if _, _, err := h.run(cmd...); err != nil {
+		t.Fatalf("install with explicit --state-dir failed: %v", err)
+	}
+}
+
 // TestUninstall_RemovesFile confirms the symmetry: install writes a
 // file, uninstall removes it, and a second uninstall is a no-op so
 // automation can retry safely.

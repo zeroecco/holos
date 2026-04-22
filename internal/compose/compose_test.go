@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/config"
@@ -52,6 +53,9 @@ func TestLoadAndResolve(t *testing.T) {
 	dir := t.TempDir()
 	composePath := filepath.Join(dir, "holos.yaml")
 	if err := os.WriteFile(composePath, []byte(testCompose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "base.qcow2"), []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "www"), 0o755); err != nil {
@@ -361,7 +365,11 @@ services:
       timeout: 2s
 `
 	file := mustLoad(t, yamlDoc)
-	proj, err := file.Resolve(t.TempDir(), t.TempDir())
+	baseDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(baseDir, "img.qcow2"), []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := file.Resolve(baseDir, t.TempDir())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -391,7 +399,11 @@ services:
       test: "pg_isready | grep -q accepting"
 `
 	file := mustLoad(t, yamlDoc)
-	proj, err := file.Resolve(t.TempDir(), t.TempDir())
+	baseDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(baseDir, "img.qcow2"), []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proj, err := file.Resolve(baseDir, t.TempDir())
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -592,6 +604,37 @@ services:
 				t.Fatalf("expected resolve error for %q, got nil", name)
 			}
 		})
+	}
+}
+
+// TestResolveRejectsMissingLocalImage pins the contract that a
+// compose file pointing at a local qcow2/raw that is not on disk is
+// rejected at resolution time, which is what `holos validate` runs.
+// Without this the failure surfaces much later inside qemu-img in
+// `holos up`, and users reasonably assume `validate` caught anything
+// it would.
+func TestResolveRejectsMissingLocalImage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "missing.yaml")
+	body := `
+name: missing
+services:
+  vm:
+    image: ./missing.qcow2
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	file, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if _, err := file.Resolve(dir, dir); err == nil {
+		t.Fatal("expected missing-image error, got nil")
+	} else if !strings.Contains(err.Error(), "missing.qcow2") {
+		t.Fatalf("error should name the missing file, got %v", err)
 	}
 }
 

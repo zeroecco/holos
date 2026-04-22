@@ -515,6 +515,14 @@ func (m *Manager) ensureLayout() error {
 }
 
 func (m *Manager) loadProject(name string) (*ProjectRecord, error) {
+	// Defense in depth: every lookup that can accept a user-provided
+	// project name (Down, ProjectStatus, FindInstance, ...) funnels
+	// through here, so validating once keeps path traversal attempts
+	// from reaching os.ReadFile/os.Remove regardless of which CLI
+	// command the caller came from.
+	if err := compose.ValidateName(name); err != nil {
+		return nil, fmt.Errorf("invalid project name: %w", err)
+	}
 	if err := m.ensureLayout(); err != nil {
 		return nil, err
 	}
