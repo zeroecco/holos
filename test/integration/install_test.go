@@ -35,11 +35,16 @@ services:
 
 	// Key fragments the unit must contain: binary-absolute ExecStart,
 	// a project-scoped Description, and default.target for user scope.
+	// The harness always passes --state-dir, so the unit must render
+	// with --state-dir between the subcommand and the (compose path or
+	// project name) positional. A trailing --state-dir would be silently
+	// dropped at boot/shutdown; see TestRender_StateFlagBeforePositional
+	// in internal/systemd for the unit-test pin of the same contract.
 	for _, want := range []string{
 		"ExecStart=",
-		" up -f " + filepath.Join(dir, "holos.yaml"),
+		" up --state-dir " + h.stateDir + " -f " + filepath.Join(dir, "holos.yaml"),
 		"ExecStop=",
-		" down rebootproj",
+		" down --state-dir " + h.stateDir + " rebootproj",
 		"Description=holos project rebootproj",
 		"WantedBy=default.target",
 		"# would write to:",
