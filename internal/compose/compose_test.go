@@ -557,6 +557,25 @@ services:
     image: ./base.qcow2
     replicas: 100000
 `,
+		"project replicas exceed subnet": `
+name: bad
+services:
+  a:
+    image: ./base.qcow2
+    replicas: 200
+  b:
+    image: ./base.qcow2
+    replicas: 100
+`,
+		"static host port overflows across replicas": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    replicas: 2
+    ports:
+      - "65535:80"
+`,
 	}
 
 	for name, body := range cases {

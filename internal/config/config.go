@@ -366,6 +366,20 @@ func (m Manifest) Validate() error {
 		if port.HostPort < 0 || port.HostPort > 65535 {
 			return fmt.Errorf("host port %d is out of range", port.HostPort)
 		}
+		// Static host ports are shifted by replica index at launch
+		// time (internal/runtime/ports.go), so a base of 65535 with
+		// replicas: 2 would try to bind 65536 and fail deep inside
+		// `holos up`. Validate the whole contiguous range here so
+		// `holos validate` catches it. Ephemeral ports (HostPort==0)
+		// are allocated uniquely per replica and are not affected.
+		if port.HostPort > 0 {
+			top := port.HostPort + m.Replicas - 1
+			if top > 65535 {
+				return fmt.Errorf(
+					"host port %d with replicas %d would overflow to %d (must be <= 65535)",
+					port.HostPort, m.Replicas, top)
+			}
+		}
 		if port.Protocol != "tcp" {
 			return fmt.Errorf("protocol %q is unsupported; only tcp is implemented", port.Protocol)
 		}

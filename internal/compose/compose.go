@@ -21,12 +21,23 @@ import (
 
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
-// maxReplicas is a soft cap on `replicas:` to catch typos at parse
-// time. The IP plan only has 253 usable addresses in 10.10.0.0/24
-// across the whole project, so 256 per service is already absurd; this
-// just makes the failure mode explicit instead of "ran out of IPs
-// halfway through allocation".
+// maxReplicas is a soft cap on `replicas:` for a single service to
+// catch typos at parse time. It is intentionally larger than the
+// per-project total so a single-service stack can use the full
+// subnet and the error messages stay specific ("replicas 1000000
+// exceeds maximum of 256" vs a surprise project-wide reject).
 const maxReplicas = 256
+
+// maxProjectInstances is the number of usable host addresses in
+// subnetCIDR. The allocator starts at .2 and must stop at .254 to
+// avoid producing nonsense octets like 10.10.0.270; reserving .1 for
+// the gateway placeholder and .255 as the broadcast address leaves
+// 253 addresses for VMs. This is the SUM of replicas across every
+// service in a project, not a per-service limit.
+const (
+	maxProjectInstances = 253
+	subnetCIDR          = "10.10.0.0/24"
+)
 
 // File is the user-facing YAML compose format.
 type File struct {
@@ -265,9 +276,19 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 	// negative or absurdly large value would otherwise reach
 	// `make([]string, replicas)` and panic before manifest validation
 	// ever ran. We accept zero (treated as the documented default of
-	// 1) and reject anything else outside [1, 256]. The upper bound
-	// is a soft guard against typos like `replicas: 1000000` that
-	// would happily allocate a million addresses.
+	// 1) and reject anything else outside [1, maxReplicas]. The
+	// upper bound is a soft guard against typos like `replicas:
+	// 1000000` that would happily allocate a million addresses.
+	//
+	// Project-wide, the internal network is 10.10.0.0/24 with the
+	// pool starting at .2 (.1 is the gateway/host placeholder),
+	// leaving .2-.254 or 253 usable addresses. A project that asks
+	// for more instances than the subnet can hold is rejected up
+	// front so the allocator never emits nonsense like 10.10.0.270;
+	// previously two services with replicas: 200 + 100 passed
+	// validation and produced invalid IPs the runtime would then
+	// fail to route.
+	totalReplicas := 0
 	for _, name := range order {
 		svc := f.Services[name]
 		if svc.Replicas < 0 {
@@ -276,6 +297,16 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 		if svc.Replicas > maxReplicas {
 			return nil, fmt.Errorf("service %q: replicas %d exceeds maximum of %d", name, svc.Replicas, maxReplicas)
 		}
+		replicas := svc.Replicas
+		if replicas == 0 {
+			replicas = 1
+		}
+		totalReplicas += replicas
+	}
+	if totalReplicas > maxProjectInstances {
+		return nil, fmt.Errorf(
+			"project requires %d instances but the internal network %s only has %d usable addresses",
+			totalReplicas, subnetCIDR, maxProjectInstances)
 	}
 
 	for _, name := range order {
