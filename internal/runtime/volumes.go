@@ -89,6 +89,7 @@ func materializeInstanceVolumes(stateDir, project, workDir string, mounts []conf
 		attachments = append(attachments, qemu.VolumeAttachment{
 			Name:     mount.VolumeName,
 			DiskPath: link,
+			ReadOnly: mount.ReadOnly,
 		})
 	}
 	return attachments, nil

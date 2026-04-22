@@ -6,6 +6,80 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
+// TestCarryOverUnreachedServices pins the mid-run-failure contract:
+// every VM that got started this call must end up in the saved
+// record, and pre-existing entries for services the loop never
+// reached must survive so `holos ps` and `holos down` can still
+// manage them. Without this, a failing healthcheck on service B
+// in a three-service project would quietly erase A's record from
+// the previous Up while A's qemu process was still running.
+//
+// DesiredReplicas is used as a "which copy won" marker: the fresh
+// `started` record for service a carries a different count from its
+// prior entry, and the helper must prefer the fresh one.
+func TestCarryOverUnreachedServices(t *testing.T) {
+	t.Parallel()
+
+	started := []ServiceRecord{{Name: "a", DesiredReplicas: 2}}
+	prior := []ServiceRecord{
+		{Name: "a", DesiredReplicas: 1},
+		{Name: "b", DesiredReplicas: 3},
+		{Name: "c", DesiredReplicas: 4},
+		{Name: "stale", DesiredReplicas: 9},
+	}
+	desired := map[string]config.Manifest{
+		"a": {Name: "a"},
+		"b": {Name: "b"},
+		"c": {Name: "c"},
+	}
+
+	got := carryOverUnreachedServices(started, prior, desired)
+
+	gotNames := make([]string, len(got))
+	for i, s := range got {
+		gotNames[i] = s.Name
+	}
+	want := []string{"a", "b", "c"}
+	if len(gotNames) != len(want) {
+		t.Fatalf("want %v, got %v", want, gotNames)
+	}
+	for i, n := range want {
+		if gotNames[i] != n {
+			t.Fatalf("want[%d]=%q, got[%d]=%q (full: %v)", i, n, i, gotNames[i], gotNames)
+		}
+	}
+
+	// The fresh `started` entry for `a` must win. If the helper
+	// preferred `prior` it would silently discard the new state.
+	if got[0].DesiredReplicas != 2 {
+		t.Fatalf("carry-over preferred prior record for `a`; want DesiredReplicas=2, got %d", got[0].DesiredReplicas)
+	}
+
+	// `stale` was in prior but not in desired, so it must be dropped
+	// (the operator removed it from the compose file; the next
+	// successful Up will garbage collect it).
+	for _, n := range gotNames {
+		if n == "stale" {
+			t.Fatalf("stale service leaked through: %v", gotNames)
+		}
+	}
+}
+
+// TestCarryOverUnreachedServices_NoError returns the started slice
+// untouched when the loop never aborted. The happy path must not pay
+// for the carry-over logic.
+func TestCarryOverUnreachedServices_NoError(t *testing.T) {
+	t.Parallel()
+
+	started := []ServiceRecord{{Name: "a"}, {Name: "b"}}
+	out := carryOverUnreachedServices(started, nil, map[string]config.Manifest{
+		"a": {}, "b": {},
+	})
+	if len(out) != 2 || out[0].Name != "a" || out[1].Name != "b" {
+		t.Fatalf("unexpected output: %v", out)
+	}
+}
+
 // TestAugmentServicesWithExecKey_DoesNotMutateInput pins the Manager.Up
 // "no side effects on caller's Project" contract. Before the fix the
 // loop wrote manifests back into the shared map, so a second Up() on

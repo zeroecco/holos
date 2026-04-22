@@ -171,38 +171,98 @@ func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
 
 	privKeyPath := privateKeyPath(m.stateDir, project.Name)
 
-	var services []ServiceRecord
+	// Service starts are not transactional: each reconcileService
+	// spawns QEMU processes that keep running even after this
+	// function returns an error. If we bail out of the loop without
+	// persisting what got started, `holos ps` shows nothing while
+	// real VMs still hold ports, memory, and kernel resources, and
+	// `holos down` has no record to target. The only way to
+	// recover would be `pkill qemu`, which is both unfriendly and
+	// dangerous on shared hosts.
+	//
+	// Instead we always save whatever made it past reconcileService
+	// before returning the loop error. The saved record is a
+	// superset: services already started this call, plus carry-over
+	// entries for services we never reached so earlier instances
+	// aren't silently dropped. A subsequent `holos down <project>`
+	// (or a retry `holos up`) then has complete visibility.
+	var started []ServiceRecord
+	var upErr error
 	for _, svcName := range project.ServiceOrder {
 		manifest := augmented[svcName]
 		existing := existingByService[svcName]
 
 		svcRecord, err := m.reconcileService(project.Name, manifest, existing)
 		if err != nil {
-			return nil, fmt.Errorf("service %q: %w", svcName, err)
+			upErr = fmt.Errorf("service %q: %w", svcName, err)
+			break
 		}
-		services = append(services, *svcRecord)
+		started = append(started, *svcRecord)
 
 		if manifest.Healthcheck != nil && hasDependents[svcName] {
 			if err := m.waitForServiceHealthy(svcRecord, manifest, privKeyPath); err != nil {
-				return nil, fmt.Errorf("service %q unhealthy: %w", svcName, err)
+				upErr = fmt.Errorf("service %q unhealthy: %w", svcName, err)
+				break
 			}
 		}
 	}
 
-	for name, existing := range existingByService {
-		if _, ok := augmented[name]; !ok {
-			m.stopAllInstances(existing.Instances)
-			m.removeInstanceDirs(existing.Instances)
+	services := started
+	if upErr != nil {
+		services = carryOverUnreachedServices(started, record.Services, augmented)
+	} else {
+		// Happy path only: tear down services that disappeared from
+		// the compose file. On a mid-run failure we skip this so an
+		// error in service B does not collaterally stop a healthy
+		// service that was simply removed from the file and would
+		// have cleaned up on the next Up.
+		for name, existing := range existingByService {
+			if _, ok := augmented[name]; !ok {
+				m.stopAllInstances(existing.Instances)
+				m.removeInstanceDirs(existing.Instances)
+			}
 		}
 	}
 
 	record.Services = services
 	record.UpdatedAt = time.Now().UTC()
 
-	if err := m.saveProject(record); err != nil {
-		return nil, err
+	if saveErr := m.saveProject(record); saveErr != nil {
+		if upErr != nil {
+			return nil, fmt.Errorf("%w (also failed to persist partial state: %v)", upErr, saveErr)
+		}
+		return nil, saveErr
+	}
+	if upErr != nil {
+		return record, upErr
 	}
 	return record, nil
+}
+
+// carryOverUnreachedServices builds the service list to persist when
+// Up's reconcile loop aborted midway. It keeps everything the failed
+// call started (so real running VMs have a record) and then appends
+// any prior ServiceRecord whose service is still declared in the
+// current compose file but which this call never reached. Prior
+// records for services the operator has since removed from the file
+// are intentionally dropped: they will be torn down by the next
+// successful Up.
+func carryOverUnreachedServices(started, prior []ServiceRecord, stillDesired map[string]config.Manifest) []ServiceRecord {
+	seen := make(map[string]struct{}, len(started))
+	for _, s := range started {
+		seen[s.Name] = struct{}{}
+	}
+	out := append([]ServiceRecord(nil), started...)
+	for _, p := range prior {
+		if _, touched := seen[p.Name]; touched {
+			continue
+		}
+		if _, desired := stillDesired[p.Name]; !desired {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // augmentServicesWithExecKey returns a copy of the service map with

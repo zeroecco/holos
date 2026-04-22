@@ -53,6 +53,11 @@ type VolumeAttachment struct {
 	// project-level qcow2 file, so tearing the workdir down never
 	// removes the volume data.
 	DiskPath string
+	// ReadOnly maps the compose `:ro` suffix on a named volume to
+	// QEMU's drive readonly=on. Without this the runtime silently
+	// dropped the flag; operators who asked for a read-only volume
+	// still got a writable drive and could corrupt shared data.
+	ReadOnly bool
 }
 
 // BuildArgs produces the full qemu-system-x86_64 argument list for launching
@@ -147,9 +152,17 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 		// /dev/disk/by-id/virtio-<serial> via udev inside the guest.
 		// The `if=virtio` shorthand doesn't accept serial.
 		driveID := volumeDriveID(vol.Name)
+		driveOpts := fmt.Sprintf("id=%s,if=none,format=qcow2,file=%s,cache=writeback,discard=unmap",
+			driveID, vol.DiskPath)
+		if vol.ReadOnly {
+			// QEMU honors readonly=on on the -drive node; the
+			// virtio-blk device inherits the mode and the guest
+			// sees the disk as read-only without any in-guest
+			// configuration.
+			driveOpts += ",readonly=on"
+		}
 		args = append(args,
-			"-drive", fmt.Sprintf("id=%s,if=none,format=qcow2,file=%s,cache=writeback,discard=unmap",
-				driveID, vol.DiskPath),
+			"-drive", driveOpts,
 			"-device", fmt.Sprintf("virtio-blk-pci,drive=%s,serial=%s", driveID, volumeSerial(vol.Name)),
 		)
 	}

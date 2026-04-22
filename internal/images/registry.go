@@ -2,6 +2,7 @@ package images
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -229,7 +230,21 @@ func ListAvailable() []Image {
 // Transport propagates the cancellation into the outstanding Read as
 // an error, so io.Copy unblocks promptly.
 func download(url, dest, expectSHA256 string) error {
-	tmp := dest + ".part"
+	// Concurrent `holos pull` or `holos up` invocations racing on
+	// the same uncached image must not share a partial-file path.
+	// Before this change both processes opened `dest + ".part"`,
+	// interleaved their writes, and produced a corrupt blob that
+	// either failed a supplied sha256 check (flaky) or, for images
+	// without a pinned hash, got renamed into the cache and poisoned
+	// every later boot. A per-call random suffix keeps each
+	// downloader isolated; rename is atomic on POSIX within the
+	// same filesystem, so one winner claims the cache slot and the
+	// losers just discard wasted bandwidth without corrupting state.
+	suffix, err := randomHexSuffix()
+	if err != nil {
+		return fmt.Errorf("generate tmp suffix: %w", err)
+	}
+	tmp := dest + ".part." + suffix
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -305,6 +320,18 @@ func download(url, dest, expectSHA256 string) error {
 	)
 
 	return os.Rename(tmp, dest)
+}
+
+// randomHexSuffix returns a short hex string suitable for
+// disambiguating per-call temp files inside the image cache. 16 hex
+// chars (8 bytes) is overkill for collision avoidance but trivial
+// to read in a directory listing if a crash leaves debris behind.
+func randomHexSuffix() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 // idleTimeoutReader wraps an HTTP response body with a watchdog that

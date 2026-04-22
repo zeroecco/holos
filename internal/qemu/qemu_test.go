@@ -57,6 +57,54 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 	}
 }
 
+// TestBuildArgs_NamedVolumeReadOnly pins the `:ro` flag through to
+// QEMU. Prior to the fix the compose parser recorded ReadOnly, the
+// runtime dropped it in materializeInstanceVolumes, and the guest got
+// a writable disk despite the operator's explicit request. A broken
+// read-only contract lets one VM trash a shared backing qcow2, so we
+// assert readonly=on lands on the -drive node for the named-volume
+// path but does *not* appear on writable volumes in the same launch.
+func TestBuildArgs_NamedVolumeReadOnly(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:        "api",
+		Image:       "/images/base.qcow2",
+		ImageFormat: "qcow2",
+		VM: config.VMConfig{
+			VCPU:     1,
+			MemoryMB: 256,
+			Machine:  "q35",
+			CPUModel: "host",
+		},
+	}
+	spec := LaunchSpec{
+		Name:        "api-0",
+		Index:       0,
+		OverlayPath: "/state/api-0/root.qcow2",
+		SeedPath:    "/state/api-0/seed.iso",
+		LogPath:     "/state/api-0/console.log",
+		QMPPath:     "/state/api-0/qmp.sock",
+		Volumes: []VolumeAttachment{
+			{Name: "data", DiskPath: "/state/vols/api-data.qcow2", ReadOnly: true},
+			{Name: "cache", DiskPath: "/state/vols/api-cache.qcow2"},
+		},
+	}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "file=/state/vols/api-data.qcow2,cache=writeback,discard=unmap,readonly=on") {
+		t.Fatalf("read-only volume lost readonly=on: %s", joined)
+	}
+	if strings.Contains(joined, "file=/state/vols/api-cache.qcow2,cache=writeback,discard=unmap,readonly=on") {
+		t.Fatalf("writable volume unexpectedly got readonly=on: %s", joined)
+	}
+}
+
 func TestBuildArgsWithInternalNetwork(t *testing.T) {
 	t.Parallel()
 

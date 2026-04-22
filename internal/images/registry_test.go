@@ -215,8 +215,12 @@ func TestPull_ChecksumVerification(t *testing.T) {
 		if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
 			t.Fatalf("partial file left behind after mismatch: %v", statErr)
 		}
-		if _, statErr := os.Stat(dest + ".part"); !os.IsNotExist(statErr) {
-			t.Fatalf("temp file left behind after mismatch: %v", statErr)
+		// tmp suffix is random now; glob the family and assert none
+		// survive the failure so concurrent-safe naming doesn't
+		// accidentally leak debris past cleanup.
+		leftovers, _ := filepath.Glob(dest + ".part.*")
+		if len(leftovers) != 0 {
+			t.Fatalf("temp file(s) left behind after mismatch: %v", leftovers)
 		}
 	})
 }
@@ -348,8 +352,87 @@ func TestDownload_CloseErrorVoidsCache(t *testing.T) {
 	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
 		t.Fatalf("dest file should not exist on close failure, stat err=%v", statErr)
 	}
-	if _, statErr := os.Stat(dest + ".part"); !os.IsNotExist(statErr) {
-		t.Fatalf("partial file should be cleaned up, stat err=%v", statErr)
+	leftovers, _ := filepath.Glob(dest + ".part.*")
+	if len(leftovers) != 0 {
+		t.Fatalf("partial file(s) should be cleaned up: %v", leftovers)
+	}
+}
+
+// TestDownload_ConcurrentSafeTempPaths proves two concurrent
+// downloaders sharing the same `dest` don't clobber each other's
+// partial file. The previous implementation truncated `dest+".part"`
+// on every call, so racing downloads interleaved their bodies and
+// either tripped the sha256 check or, for images without a pinned
+// hash, promoted a corrupt blob into the cache. We run N concurrent
+// downloads of distinct payloads pointed at the same `dest` and
+// require each to finish without error; at least one ends up as the
+// renamed cache entry, and no `.part.*` files are left behind.
+func TestDownload_ConcurrentSafeTempPaths(t *testing.T) {
+	// Each concurrent request gets its own payload so a partial-file
+	// collision would reliably fail the per-request sha256 check
+	// rather than silently producing something that hashes to one of
+	// the valid values.
+	const workers = 6
+
+	payloads := make([][]byte, workers)
+	hashes := make([]string, workers)
+	for i := 0; i < workers; i++ {
+		buf := make([]byte, 4096)
+		for j := range buf {
+			buf[j] = byte(i + 1)
+		}
+		payloads[i] = buf
+		sum := sha256.Sum256(buf)
+		hashes[i] = hex.EncodeToString(sum[:])
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Path suffix selects which payload to return; each worker
+		// hits a unique URL pointing at the same `dest`.
+		var idx int
+		_, _ = fmt.Sscanf(r.URL.Path, "/img-%d", &idx)
+		body := payloads[idx]
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		w.WriteHeader(http.StatusOK)
+		// Write in small chunks with a yield between so the Go
+		// runtime has a chance to interleave goroutines. Without
+		// this the race is theoretical; with it we reliably
+		// reproduce the corruption on the buggy implementation.
+		for off := 0; off < len(body); off += 128 {
+			end := off + 128
+			if end > len(body) {
+				end = len(body)
+			}
+			_, _ = w.Write(body[off:end])
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "shared.qcow2")
+
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		i := i
+		go func() {
+			errs <- download(fmt.Sprintf("%s/img-%d", srv.URL, i), dest, hashes[i])
+		}()
+	}
+	for i := 0; i < workers; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("worker failed, indicating corrupted partial file: %v", err)
+		}
+	}
+
+	if _, err := os.Stat(dest); err != nil {
+		t.Fatalf("one winner should own the cache slot: %v", err)
+	}
+	leftovers, _ := filepath.Glob(dest + ".part.*")
+	if len(leftovers) != 0 {
+		t.Fatalf("leftover partial files after concurrent downloads: %v", leftovers)
 	}
 }
 
