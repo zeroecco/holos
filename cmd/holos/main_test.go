@@ -440,8 +440,8 @@ func TestSoleInstanceAndFindInstanceInRecord(t *testing.T) {
 			{Name: "vm", Instances: []runtime.InstanceRecord{{Name: "vm-0"}}},
 		},
 	}
-	if inst, ok := soleInstance(single); !ok || inst.Name != "vm-0" {
-		t.Errorf("soleInstance(single) = (%v, %v), want vm-0", inst, ok)
+	if inst, svc, ok := soleInstance(single); !ok || inst.Name != "vm-0" || svc.Name != "vm" {
+		t.Errorf("soleInstance(single) = (%v, %v, %v), want vm-0 under vm", inst, svc, ok)
 	}
 
 	multi := &runtime.ProjectRecord{
@@ -449,14 +449,14 @@ func TestSoleInstanceAndFindInstanceInRecord(t *testing.T) {
 			{Name: "web", Instances: []runtime.InstanceRecord{{Name: "web-0"}, {Name: "web-1"}}},
 		},
 	}
-	if _, ok := soleInstance(multi); ok {
+	if _, _, ok := soleInstance(multi); ok {
 		t.Errorf("soleInstance(multi) returned true; want false (cannot disambiguate)")
 	}
 
-	if inst, ok := findInstanceInRecord(multi, "web-1"); !ok || inst.Name != "web-1" {
-		t.Errorf("findInstanceInRecord(web-1) = (%v, %v)", inst, ok)
+	if inst, svc, ok := findInstanceInRecord(multi, "web-1"); !ok || inst.Name != "web-1" || svc.Name != "web" {
+		t.Errorf("findInstanceInRecord(web-1) = (%v, %v, %v)", inst, svc, ok)
 	}
-	if _, ok := findInstanceInRecord(multi, "nope-0"); ok {
+	if _, _, ok := findInstanceInRecord(multi, "nope-0"); ok {
 		t.Errorf("findInstanceInRecord(unknown) returned true; want false")
 	}
 }
@@ -566,6 +566,48 @@ func TestResolveInstanceTarget_SingleInstanceProject(t *testing.T) {
 	}
 	if tgt.Inst.Name != "vm-0" {
 		t.Errorf("got %q, want vm-0", tgt.Inst.Name)
+	}
+}
+
+// TestResolveInstanceTarget_SingleInstanceCmdTail pins the
+// `holos exec <project> <cmd...>` shorthand that was broken before:
+// the old path forwarded any second positional into
+// findInstanceInRecord and errored with "no instance \"ls\"", making
+// the operator either type vm-0 or switch to -f. For single-instance
+// projects the sole-instance resolver must kick in and treat
+// positional[1:] as the remote command verbatim.
+func TestResolveInstanceTarget_SingleInstanceCmdTail(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := runtime.NewManager(stateDir)
+	if err := writeProjectRecord(stateDir, &runtime.ProjectRecord{
+		Name: "ad-hoc",
+		Services: []runtime.ServiceRecord{
+			{Name: "vm", LoginUser: "debian", Instances: []runtime.InstanceRecord{
+				{Name: "vm-0", Status: "running", SSHPort: 2222, SerialPath: "/tmp/s0"},
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	tgt, err := resolveInstanceTarget(manager, "", stateDir, []string{"ad-hoc", "ls", "-la"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tgt.Inst.Name != "vm-0" {
+		t.Errorf("got inst=%q, want vm-0", tgt.Inst.Name)
+	}
+	if got, want := strings.Join(tgt.CmdArgs, " "), "ls -la"; got != want {
+		t.Errorf("CmdArgs = %q, want %q", got, want)
+	}
+	// LoginUser is sourced from ServiceRecord.LoginUser now, so a
+	// user-authored compose project launched from some arbitrary
+	// directory answers the right user (debian/alpine/...) without
+	// needing state_dir/runs/<project>/holos.yaml to exist.
+	if tgt.LoginUser != "debian" {
+		t.Errorf("LoginUser = %q, want debian (from ServiceRecord)", tgt.LoginUser)
 	}
 }
 

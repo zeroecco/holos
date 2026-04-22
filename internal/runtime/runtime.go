@@ -46,6 +46,14 @@ type ServiceRecord struct {
 	Name            string           `json:"name"`
 	DesiredReplicas int              `json:"desired_replicas"`
 	Instances       []InstanceRecord `json:"instances"`
+	// LoginUser is the cloud-init user the service was resolved
+	// with. We persist it here so `holos exec <project>` can pick
+	// the right account (debian, alpine, fedora, custom, ...)
+	// without needing to locate or re-parse the original compose
+	// file. Pre-exec records written by older holos versions leave
+	// this empty; callers fall back to lookupLoginUser in that
+	// case for graceful upgrade.
+	LoginUser string `json:"login_user,omitempty"`
 }
 
 // InstanceRecord is the persisted state of a single QEMU VM instance,
@@ -502,6 +510,7 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 	svc := &ServiceRecord{
 		Name:            manifest.Name,
 		DesiredReplicas: manifest.Replicas,
+		LoginUser:       manifest.CloudInit.User,
 	}
 
 	existingInstances := make(map[int]*InstanceRecord)

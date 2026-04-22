@@ -347,6 +347,58 @@ func TestParseVolume_Named(t *testing.T) {
 	}
 }
 
+// TestParseVolume_RejectsUnknownMode pins the allow-list contract on
+// the third ":mode" field. Before this change anything that wasn't
+// exactly "ro" silently parsed as read-write, so a typo like
+// `:readonly` or docker-compose's `:rw,Z` delivered a writable mount
+// without any signal to the operator. The fix is to fail loudly for
+// both bind mounts and named volumes; the test exercises both paths
+// because the code branches on the declared map before validation.
+func TestParseVolume_RejectsUnknownMode(t *testing.T) {
+	t.Parallel()
+
+	declared := map[string]Volume{"data": {Size: "1G"}}
+
+	cases := []struct {
+		name string
+		spec string
+		decl map[string]Volume
+	}{
+		{"bind readonly-typo", "./data:/var/lib/db:readonly", nil},
+		{"bind r0-typo", "./data:/var/lib/db:r0", nil},
+		{"bind docker-style-z", "./data:/var/lib/db:Z", nil},
+		{"named readonly-typo", "data:/var/lib/db:readonly", declared},
+		{"named empty-mode", "data:/var/lib/db:", declared},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseVolume(tc.spec, t.TempDir(), tc.decl)
+			if err == nil {
+				t.Fatalf("expected error for %q, got nil", tc.spec)
+			}
+			if !strings.Contains(err.Error(), "unknown mode") {
+				t.Fatalf("error should call out unknown mode, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestParseVolume_AcceptsExplicitRW covers the symmetric side: `:rw`
+// is equivalent to no mode suffix and must not be rejected by the
+// new allow-list. Users migrating from docker-compose files that
+// spell the mode out shouldn't need to strip it.
+func TestParseVolume_AcceptsExplicitRW(t *testing.T) {
+	t.Parallel()
+
+	mount, err := parseVolume("./data:/var/lib/db:rw", t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("parseVolume: %v", err)
+	}
+	if mount.ReadOnly {
+		t.Fatalf("`:rw` must parse as writable, got ReadOnly=true")
+	}
+}
+
 // TestResolveHealthcheck_ListForm confirms the YAML `test:` list form
 // flows through to the resolved config unchanged.
 func TestResolveHealthcheck_ListForm(t *testing.T) {

@@ -389,31 +389,45 @@ func lookupProjectRecord(manager *runtime.Manager, name string) (*runtime.Projec
 
 // findInstanceInRecord locates an instance by name in a project
 // record. Used by the project-name resolution paths in console/exec
-// where we don't have a compose.Project to consult.
-func findInstanceInRecord(record *runtime.ProjectRecord, instanceName string) (runtime.InstanceRecord, bool) {
+// where we don't have a compose.Project to consult. The owning
+// ServiceRecord is returned alongside the instance so callers can
+// pick up service-level state (LoginUser) without a second scan.
+func findInstanceInRecord(record *runtime.ProjectRecord, instanceName string) (runtime.InstanceRecord, runtime.ServiceRecord, bool) {
 	for _, svc := range record.Services {
 		for _, inst := range svc.Instances {
 			if inst.Name == instanceName {
-				return inst, true
+				return inst, svc, true
 			}
 		}
 	}
-	return runtime.InstanceRecord{}, false
+	return runtime.InstanceRecord{}, runtime.ServiceRecord{}, false
 }
 
 // soleInstance returns the only instance in a project record when
 // there is exactly one across all services. This lets callers omit
 // the instance name entirely for the common `holos run` case (one
-// service, one replica, one instance).
-func soleInstance(record *runtime.ProjectRecord) (runtime.InstanceRecord, bool) {
-	var hits []runtime.InstanceRecord
+// service, one replica, one instance). The owning ServiceRecord is
+// returned alongside so callers get the right LoginUser in one pass.
+func soleInstance(record *runtime.ProjectRecord) (runtime.InstanceRecord, runtime.ServiceRecord, bool) {
+	var (
+		hitInst runtime.InstanceRecord
+		hitSvc  runtime.ServiceRecord
+		count   int
+	)
 	for _, svc := range record.Services {
-		hits = append(hits, svc.Instances...)
+		for _, inst := range svc.Instances {
+			count++
+			if count > 1 {
+				return runtime.InstanceRecord{}, runtime.ServiceRecord{}, false
+			}
+			hitInst = inst
+			hitSvc = svc
+		}
 	}
-	if len(hits) == 1 {
-		return hits[0], true
+	if count == 1 {
+		return hitInst, hitSvc, true
 	}
-	return runtime.InstanceRecord{}, false
+	return runtime.InstanceRecord{}, runtime.ServiceRecord{}, false
 }
 
 // instanceList renders "<svc/inst>, <svc/inst>, ..." for error
@@ -676,28 +690,48 @@ func resolveInstanceTarget(manager *runtime.Manager, filePath, stateDir string, 
 			return instanceTarget{}, fmt.Errorf("invalid project name: %w", err)
 		}
 		if record, ok := lookupProjectRecord(manager, positional[0]); ok {
-			tgt := instanceTarget{
-				ProjectName: record.Name,
-				LoginUser:   lookupLoginUser(stateDir, record.Name),
-			}
+			tgt := instanceTarget{ProjectName: record.Name}
+
+			// Disambiguation between `exec <project> <inst> [cmd...]`
+			// and `exec <project> <cmd...>` (the second form matters
+			// for single-instance projects where the operator
+			// reasonably expects `holos exec my-stack ls` to run
+			// ls in the one VM that exists, mirroring how
+			// `docker exec` treats the second token as a command
+			// when the container is implicit).
+			//
+			// Rule: if the second positional matches a known
+			// instance name, treat it as explicit instance; the
+			// rest is the command. Otherwise fall through to the
+			// sole-instance resolver, and the whole tail
+			// (positional[1:]) becomes the remote command. This
+			// keeps the explicit two-token form unambiguous and
+			// makes the single-instance shorthand Just Work.
 			if len(positional) >= 2 {
-				inst, ok := findInstanceInRecord(record, positional[1])
-				if !ok {
-					return instanceTarget{}, fmt.Errorf(
-						"no instance %q in project %q (available: %s)",
-						positional[1], record.Name, instanceList(record))
+				if inst, svc, ok := findInstanceInRecord(record, positional[1]); ok {
+					tgt.Inst = inst
+					tgt.LoginUser = serviceLoginUser(svc, record, stateDir)
+					tgt.CmdArgs = positional[2:]
+					return tgt, nil
 				}
-				tgt.Inst = inst
-				tgt.CmdArgs = positional[2:]
-				return tgt, nil
 			}
-			inst, ok := soleInstance(record)
+
+			inst, svc, ok := soleInstance(record)
 			if !ok {
+				// Multi-instance case with no explicit match:
+				// echo back what the user typed so they can see
+				// why it didn't resolve, plus the full menu.
+				missing := ""
+				if len(positional) >= 2 {
+					missing = fmt.Sprintf(" (no instance %q)", positional[1])
+				}
 				return instanceTarget{}, fmt.Errorf(
-					"project %q has multiple instances; specify one (available: %s)",
-					record.Name, instanceList(record))
+					"project %q has multiple instances%s; specify one (available: %s)",
+					record.Name, missing, instanceList(record))
 			}
 			tgt.Inst = inst
+			tgt.LoginUser = serviceLoginUser(svc, record, stateDir)
+			tgt.CmdArgs = positional[1:]
 			return tgt, nil
 		}
 	}
@@ -721,12 +755,53 @@ func resolveInstanceTarget(manager *runtime.Manager, filePath, stateDir string, 
 	return tgt, nil
 }
 
+// serviceLoginUser resolves the cloud-init login user for a single
+// service inside a project record, preferring what was persisted at
+// `up` time and degrading gracefully for records written by older
+// holos builds.
+//
+// Resolution order:
+//  1. svc.LoginUser (populated for every new `holos up` since we
+//     added the field; the authoritative answer for the owning
+//     service, even in multi-service projects with mixed distros)
+//  2. any non-empty LoginUser in the record (covers the migration
+//     window where an older service in the same project has it set
+//     and the target service doesn't)
+//  3. lookupLoginUser(stateDir, project): reads the compose file
+//     `holos run` stashes under state_dir/runs/<project>, which is
+//     all we have for ad-hoc VMs launched before this field existed
+//  4. "" - caller falls back to -u / the "ubuntu" default
+//
+// Hand-written compose projects launched from arbitrary directories
+// used to fall all the way through to "ubuntu" in step 4, which
+// broke auth for Alpine/Debian/custom-user VMs. With LoginUser on
+// ServiceRecord we now answer correctly from the state dir alone.
+func serviceLoginUser(svc runtime.ServiceRecord, record *runtime.ProjectRecord, stateDir string) string {
+	if svc.LoginUser != "" {
+		return svc.LoginUser
+	}
+	if record != nil {
+		for _, other := range record.Services {
+			if other.LoginUser != "" {
+				return other.LoginUser
+			}
+		}
+	}
+	if record != nil {
+		return lookupLoginUser(stateDir, record.Name)
+	}
+	return ""
+}
+
 // lookupLoginUser tries to recover the cloud-init user for a project
-// without requiring the operator's original holos.yaml to be on
-// disk. `holos run` persists its synthesised compose under
-// state_dir/runs/<project>/holos.yaml, so for ad-hoc VMs we get the
-// right answer (debian / alpine / fedora / etc.) even when the user
-// runs `holos exec <project>` from an unrelated directory.
+// from the on-disk compose file. `holos run` persists its synthesised
+// compose under state_dir/runs/<project>/holos.yaml, so for ad-hoc
+// VMs we get the right answer (debian / alpine / fedora / etc.) even
+// when the user runs `holos exec <project>` from an unrelated
+// directory. For user-authored compose files launched from somewhere
+// else on disk, we have no way to locate the source, and this helper
+// returns ""; serviceLoginUser now reads LoginUser off ServiceRecord
+// first to cover that case.
 //
 // Returns "" when nothing is recoverable; callers fall back to "ubuntu"
 // or whatever the user passed via -u.

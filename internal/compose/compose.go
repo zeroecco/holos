@@ -892,7 +892,27 @@ func parseVolume(spec string, baseDir string, declared map[string]Volume) (confi
 
 	source := parts[0]
 	target := parts[1]
-	readOnly := len(parts) == 3 && parts[2] == "ro"
+	readOnly := false
+	if len(parts) == 3 {
+		// Only `ro` is supported today. The previous implementation
+		// accepted anything here and silently fell back to
+		// read-write, so a typo like `:readonly`, `:r0`, or
+		// docker-compose's `:rw,Z` got interpreted as "mount it
+		// writable" and the operator had no signal that their
+		// intent was dropped. Fail loudly instead; the day we grow
+		// more modes (e.g. rshared, noexec, nodev) we add them to
+		// this allow-list deliberately.
+		switch parts[2] {
+		case "ro":
+			readOnly = true
+		case "rw":
+			readOnly = false
+		default:
+			return config.Mount{}, fmt.Errorf(
+				"volume %q: unknown mode %q (supported: ro, rw)",
+				spec, parts[2])
+		}
+	}
 
 	if vol, ok := declared[source]; ok {
 		sizeBytes, err := parseVolumeSize(vol.Size)
