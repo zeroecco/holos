@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/runtime"
 )
 
@@ -189,6 +190,104 @@ func TestGenerateRunNameLongImageFallback(t *testing.T) {
 	}
 	if !runNamePattern.MatchString(got) {
 		t.Errorf("generateRunName(long) = %q, fails compose name validation", got)
+	}
+}
+
+func TestWriteRunComposeFilePermissions(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	projectName := "alpine-test"
+	composePath, err := writeRunComposeFile(stateDir, projectName, compose.File{
+		Name: projectName,
+		Services: map[string]compose.Service{
+			"vm": {Image: "alpine"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeRunComposeFile failed: %v", err)
+	}
+
+	runDir := filepath.Dir(composePath)
+	dirInfo, err := os.Stat(runDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("run dir mode = %o, want 700", got)
+	}
+	runsInfo, err := os.Stat(filepath.Dir(runDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runsInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("runs root mode = %o, want 700", got)
+	}
+	stateInfo, err := os.Stat(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateInfo.Mode().Perm(); got != 0o700 {
+		t.Fatalf("state dir mode = %o, want 700", got)
+	}
+
+	fileInfo, err := os.Stat(composePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("compose file mode = %o, want 600", got)
+	}
+}
+
+func TestDoctorCommandRequiresExecutableProbe(t *testing.T) {
+	dir := t.TempDir()
+	probe := filepath.Join(dir, "probe")
+	if err := os.WriteFile(probe, []byte("#!/bin/sh\necho probe-ok\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOLOS_TEST_PROBE", probe)
+	check := checkCommand("probe", "HOLOS_TEST_PROBE", []string{"--version"}, "test probe")
+	if check.Status != "ok" {
+		t.Fatalf("checkCommand status = %s (%s), want ok", check.Status, check.Message)
+	}
+	if !strings.Contains(check.Message, "probe-ok") {
+		t.Fatalf("checkCommand message = %q, want probe output", check.Message)
+	}
+
+	notExecutable := filepath.Join(dir, "not-executable")
+	if err := os.WriteFile(notExecutable, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOLOS_TEST_PROBE", notExecutable)
+	check = checkCommand("probe", "HOLOS_TEST_PROBE", []string{"--version"}, "test probe")
+	if check.Status != "fail" {
+		t.Fatalf("non-executable status = %s, want fail", check.Status)
+	}
+}
+
+func TestCheckOVMFRequiresCodeAndVarsPair(t *testing.T) {
+	dir := t.TempDir()
+	code := filepath.Join(dir, "OVMF_CODE.fd")
+	vars := filepath.Join(dir, "OVMF_VARS.fd")
+	if err := os.WriteFile(code, []byte("code"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(vars, []byte("vars"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOLOS_OVMF_CODE", code)
+	t.Setenv("HOLOS_OVMF_VARS", "")
+	if check := checkOVMF(); check.Status != "fail" {
+		t.Fatalf("single env OVMF status = %s, want fail", check.Status)
+	}
+
+	t.Setenv("HOLOS_OVMF_CODE", code)
+	t.Setenv("HOLOS_OVMF_VARS", vars)
+	if check := checkOVMF(); check.Status != "ok" {
+		t.Fatalf("paired env OVMF status = %s (%s), want ok", check.Status, check.Message)
 	}
 }
 

@@ -38,8 +38,8 @@
     },
     "duration": {
       "type": "string",
-      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)$",
-      "examples": ["30s", "2m", "1h"]
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))*$",
+      "examples": ["30s", "2m", "1h30m", "500ms"]
     },
     "service": {
       "type": "object",
@@ -71,14 +71,15 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^[0-9]{1,5}:[0-9]{1,5}$",
-            "examples": ["8080:80"]
+            "pattern": "^([0-9]{1,5}:)?[0-9]{1,5}(/tcp)?$",
+            "examples": ["80", "8080:80", "8080:80/tcp"]
           }
         },
         "volumes": {
           "type": "array",
           "items": {
             "type": "string",
+            "pattern": "^[^:]+:[^:]+(:ro|:rw)?$",
             "description": "SRC:TARGET[:ro|rw]. SRC can be a bind path or a top-level named volume."
           }
         },
@@ -147,7 +148,6 @@
       "properties": {
         "pci": {
           "type": "string",
-          "pattern": "^([0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-7]$",
           "examples": ["0000:01:00.0", "01:00.0"]
         },
         "rom_file": {
@@ -160,8 +160,7 @@
       "additionalProperties": false,
       "properties": {
         "user": {
-          "type": "string",
-          "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+          "type": "string"
         },
         "ssh_authorized_keys": {
           "type": "array",
@@ -198,7 +197,7 @@
     "writeFile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "content"],
+      "required": ["path"],
       "properties": {
         "path": {
           "type": "string",
@@ -220,6 +219,7 @@
     "healthcheck": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["test"],
       "properties": {
         "test": {
           "oneOf": [
@@ -256,7 +256,7 @@
       "properties": {
         "size": {
           "type": "string",
-          "pattern": "^[0-9]+([KkMmGgTt])?$",
+          "pattern": "^[0-9]+(\\.[0-9]+)?([KkMmGgTt])?$",
           "default": "10G"
         }
       }

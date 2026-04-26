@@ -122,17 +122,9 @@ func runRun(args []string) error {
 		},
 	}
 
-	runDir := filepath.Join(*stateDir, "runs", projectName)
-	if err := os.MkdirAll(runDir, 0o755); err != nil {
-		return fmt.Errorf("create run dir: %w", err)
-	}
-	composePath := filepath.Join(runDir, "holos.yaml")
-	yamlBytes, err := yaml.Marshal(file)
+	composePath, err := writeRunComposeFile(*stateDir, projectName, file)
 	if err != nil {
-		return fmt.Errorf("marshal compose: %w", err)
-	}
-	if err := os.WriteFile(composePath, yamlBytes, 0o644); err != nil {
-		return fmt.Errorf("write compose: %w", err)
+		return err
 	}
 
 	project, err := loadProject(composePath, *stateDir)
@@ -157,6 +149,30 @@ func runRun(args []string) error {
 	fmt.Printf("  holos logs    %s     # console.log tail\n", projectName)
 	fmt.Printf("  holos down    %s\n", projectName)
 	return nil
+}
+
+func writeRunComposeFile(stateDir, projectName string, file compose.File) (string, error) {
+	runsRoot := filepath.Join(stateDir, "runs")
+	for _, dir := range []string{stateDir, runsRoot, filepath.Join(runsRoot, projectName)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("create run dir %s: %w", dir, err)
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", fmt.Errorf("tighten run dir %s: %w", dir, err)
+		}
+	}
+	composePath := filepath.Join(runsRoot, projectName, "holos.yaml")
+	yamlBytes, err := yaml.Marshal(file)
+	if err != nil {
+		return "", fmt.Errorf("marshal compose: %w", err)
+	}
+	if err := os.WriteFile(composePath, yamlBytes, 0o600); err != nil {
+		return "", fmt.Errorf("write compose: %w", err)
+	}
+	if err := os.Chmod(composePath, 0o600); err != nil {
+		return "", fmt.Errorf("tighten compose file: %w", err)
+	}
+	return composePath, nil
 }
 
 type stringList []string

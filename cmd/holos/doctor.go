@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,7 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/zeroecco/holos/internal/runtime"
 )
@@ -59,10 +62,15 @@ func buildDoctorReport(stateDir string) doctorReport {
 
 	report.Checks = append(report.Checks, checkHostOS())
 	report.Checks = append(report.Checks, checkKVM())
-	report.Checks = append(report.Checks, checkBinary("qemu-system-x86_64", "HOLOS_QEMU_SYSTEM", "required to launch VMs"))
-	report.Checks = append(report.Checks, checkBinary("qemu-img", "HOLOS_QEMU_IMG", "required to create overlays and volumes"))
-	report.Checks = append(report.Checks, checkAnyBinary("cloud-init seed builder", []string{"cloud-localds", "genisoimage", "mkisofs", "xorriso"}, "required to create NoCloud seed media"))
-	report.Checks = append(report.Checks, checkAnyBinary("ssh", []string{"ssh"}, "required for holos exec and healthchecks"))
+	report.Checks = append(report.Checks, checkCommand("qemu-system-x86_64", "HOLOS_QEMU_SYSTEM", []string{"--version"}, "required to launch VMs"))
+	report.Checks = append(report.Checks, checkCommand("qemu-img", "HOLOS_QEMU_IMG", []string{"--version"}, "required to create overlays and volumes"))
+	report.Checks = append(report.Checks, checkAnyCommand("cloud-init seed builder", []doctorCommand{
+		{name: "cloud-localds", args: []string{"--help"}},
+		{name: "genisoimage", args: []string{"--version"}},
+		{name: "mkisofs", args: []string{"--version"}},
+		{name: "xorriso", args: []string{"-version"}},
+	}, "required to create NoCloud seed media"))
+	report.Checks = append(report.Checks, checkCommand("ssh", "", []string{"-V"}, "required for holos exec and healthchecks"))
 	report.Checks = append(report.Checks, checkOVMF())
 	report.Checks = append(report.Checks, checkStateDir(stateDir))
 	return report
@@ -79,47 +87,97 @@ func checkKVM() doctorCheck {
 	if goruntime.GOOS != "linux" {
 		return doctorCheck{Name: "/dev/kvm", Status: "warn", Message: "KVM is Linux-only; run workloads on a Linux host"}
 	}
-	if _, err := os.Stat("/dev/kvm"); err != nil {
-		return doctorCheck{Name: "/dev/kvm", Status: "fail", Message: "missing /dev/kvm; enable virtualization and load kvm/kvm-intel or kvm-amd"}
+	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+	if err != nil {
+		return doctorCheck{Name: "/dev/kvm", Status: "fail", Message: "cannot open /dev/kvm read-write; enable virtualization, load kvm/kvm-intel or kvm-amd, and check group permissions: " + err.Error()}
 	}
-	return doctorCheck{Name: "/dev/kvm", Status: "ok", Message: "KVM device exists"}
+	_ = f.Close()
+	return doctorCheck{Name: "/dev/kvm", Status: "ok", Message: "KVM device opens read-write"}
 }
 
-func checkBinary(name, envVar, purpose string) doctorCheck {
+type doctorCommand struct {
+	name string
+	args []string
+}
+
+func checkCommand(name, envVar string, args []string, purpose string) doctorCheck {
+	path := ""
 	if override := os.Getenv(envVar); override != "" {
-		if _, err := os.Stat(override); err != nil {
-			return doctorCheck{Name: name, Status: "fail", Message: fmt.Sprintf("%s points to %s, but it is not readable: %v", envVar, override, err)}
+		if err := checkExecutable(override); err != nil {
+			return doctorCheck{Name: name, Status: "fail", Message: fmt.Sprintf("%s points to %s, but it is not executable: %v", envVar, override, err)}
 		}
-		return doctorCheck{Name: name, Status: "ok", Message: fmt.Sprintf("using %s=%s", envVar, override)}
+		path = override
+	} else if found, err := exec.LookPath(name); err == nil {
+		path = found
+	} else {
+		if envVar != "" {
+			return doctorCheck{Name: name, Status: "fail", Message: purpose + "; install it or set " + envVar}
+		}
+		return doctorCheck{Name: name, Status: "fail", Message: purpose + "; install " + name}
 	}
-	if path, err := exec.LookPath(name); err == nil {
-		return doctorCheck{Name: name, Status: "ok", Message: path}
+
+	out, err := runDoctorProbe(path, args)
+	if err != nil {
+		return doctorCheck{Name: name, Status: "fail", Message: fmt.Sprintf("%s found at %s but probe failed: %v", name, path, err)}
 	}
-	return doctorCheck{Name: name, Status: "fail", Message: purpose + "; install it or set " + envVar}
+	if out != "" {
+		return doctorCheck{Name: name, Status: "ok", Message: fmt.Sprintf("%s (%s)", path, out)}
+	}
+	return doctorCheck{Name: name, Status: "ok", Message: path}
 }
 
-func checkAnyBinary(label string, names []string, purpose string) doctorCheck {
-	for _, name := range names {
-		if path, err := exec.LookPath(name); err == nil {
-			return doctorCheck{Name: label, Status: "ok", Message: fmt.Sprintf("%s at %s", name, path)}
+func checkAnyCommand(label string, commands []doctorCommand, purpose string) doctorCheck {
+	var failures []string
+	for _, candidate := range commands {
+		path, err := exec.LookPath(candidate.name)
+		if err != nil {
+			failures = append(failures, candidate.name+": not found")
+			continue
 		}
+		out, err := runDoctorProbe(path, candidate.args)
+		if err != nil {
+			failures = append(failures, candidate.name+": "+err.Error())
+			continue
+		}
+		if out != "" {
+			return doctorCheck{Name: label, Status: "ok", Message: fmt.Sprintf("%s at %s (%s)", candidate.name, path, out)}
+		}
+		return doctorCheck{Name: label, Status: "ok", Message: fmt.Sprintf("%s at %s", candidate.name, path)}
 	}
-	return doctorCheck{Name: label, Status: "fail", Message: purpose + "; install one of " + joinNames(names)}
+	var names []string
+	for _, candidate := range commands {
+		names = append(names, candidate.name)
+	}
+	detail := purpose + "; install one of " + joinNames(names)
+	if len(failures) > 0 {
+		detail += " (" + strings.Join(failures, "; ") + ")"
+	}
+	return doctorCheck{Name: label, Status: "fail", Message: detail}
 }
 
 func checkOVMF() doctorCheck {
-	if code := os.Getenv("HOLOS_OVMF_CODE"); code != "" {
-		if _, err := os.Stat(code); err != nil {
-			return doctorCheck{Name: "OVMF firmware", Status: "warn", Message: fmt.Sprintf("HOLOS_OVMF_CODE points to %s, but it is not readable: %v", code, err)}
+	codeEnv := os.Getenv("HOLOS_OVMF_CODE")
+	varsEnv := os.Getenv("HOLOS_OVMF_VARS")
+	if codeEnv != "" || varsEnv != "" {
+		if codeEnv == "" || varsEnv == "" {
+			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: "set both HOLOS_OVMF_CODE and HOLOS_OVMF_VARS, or neither"}
 		}
-		return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: "using HOLOS_OVMF_CODE=" + code}
+		if err := checkReadableFile(codeEnv); err != nil {
+			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: fmt.Sprintf("HOLOS_OVMF_CODE=%s is not usable: %v", codeEnv, err)}
+		}
+		if err := checkReadableFile(varsEnv); err != nil {
+			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: fmt.Sprintf("HOLOS_OVMF_VARS=%s is not usable: %v", varsEnv, err)}
+		}
+		return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: "using HOLOS_OVMF_CODE and HOLOS_OVMF_VARS"}
 	}
-	for _, path := range ovmfCodeCandidates {
-		if _, err := os.Stat(path); err == nil {
-			return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: path}
+
+	for i, codePath := range ovmfCodeCandidates {
+		varsPath := ovmfVarsCandidates[i]
+		if checkReadableFile(codePath) == nil && checkReadableFile(varsPath) == nil {
+			return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: fmt.Sprintf("CODE=%s VARS=%s", codePath, varsPath)}
 		}
 	}
-	return doctorCheck{Name: "OVMF firmware", Status: "warn", Message: "not found; install ovmf/edk2-ovmf or set HOLOS_OVMF_CODE before using UEFI or PCI passthrough"}
+	return doctorCheck{Name: "OVMF firmware", Status: "warn", Message: "CODE/VARS pair not found; install ovmf/edk2-ovmf or set HOLOS_OVMF_CODE and HOLOS_OVMF_VARS before using UEFI or PCI passthrough"}
 }
 
 func checkStateDir(stateDir string) doctorCheck {
@@ -178,10 +236,73 @@ func joinNames(names []string) string {
 	return out
 }
 
+func checkExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("is a directory")
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("execute bit is not set")
+	}
+	return nil
+}
+
+func checkReadableFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("is a directory")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return f.Close()
+}
+
+func runDoctorProbe(path string, args []string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, args...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("probe timed out")
+	}
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("%w: %s", err, firstLine(msg))
+		}
+		return "", err
+	}
+	return firstLine(strings.TrimSpace(string(out))), nil
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return strings.TrimSpace(s)
+}
+
 var ovmfCodeCandidates = []string{
 	"/usr/share/OVMF/OVMF_CODE_4M.fd",
 	"/usr/share/OVMF/OVMF_CODE.fd",
 	"/usr/share/edk2/ovmf/OVMF_CODE.fd",
 	"/usr/share/edk2-ovmf/x64/OVMF_CODE.fd",
 	"/usr/share/qemu/OVMF_CODE.fd",
+}
+
+var ovmfVarsCandidates = []string{
+	"/usr/share/OVMF/OVMF_VARS_4M.fd",
+	"/usr/share/OVMF/OVMF_VARS.fd",
+	"/usr/share/edk2/ovmf/OVMF_VARS.fd",
+	"/usr/share/edk2-ovmf/x64/OVMF_VARS.fd",
+	"/usr/share/qemu/OVMF_VARS.fd",
 }
