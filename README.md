@@ -58,14 +58,14 @@ Pre-built binaries are attached to every
 [GitHub release](https://github.com/zeroecco/holos/releases):
 
 ```bash
-TAG=<release-tag>
+TAG=v0.2.2
 curl -L https://github.com/zeroecco/holos/releases/download/$TAG/holos_${TAG#v}_Linux_x86_64.tar.gz \
   | sudo tar -xz -C /usr/local/bin holos
 holos version
+holos doctor
 ```
 
-This README tracks `main`. Build from source when you want commands that have
-not been tagged yet, including `holos doctor` before the next release:
+Or build from source:
 
 ```bash
 go build -o bin/holos ./cmd/holos
