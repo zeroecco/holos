@@ -536,6 +536,9 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	if user == "" {
 		user = config.DefaultUser
 	}
+	if err := config.ValidateUserName(user); err != nil {
+		return config.Manifest{}, fmt.Errorf("cloud_init.user: %w", err)
+	}
 
 	writeFiles := make([]config.WriteFile, 0, len(dfWriteFiles)+len(svc.CloudInit.WriteFiles))
 	writeFiles = append(writeFiles, dfWriteFiles...)
@@ -560,8 +563,12 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 
 	devices := make([]config.Device, len(svc.Devices))
 	for i, d := range svc.Devices {
+		pci := normalizePCIAddress(d.PCI)
+		if err := config.ValidatePCIAddress(pci); err != nil {
+			return config.Manifest{}, fmt.Errorf("device %d pci %q: %w", i, d.PCI, err)
+		}
 		devices[i] = config.Device{
-			PCI:     normalizePCIAddress(d.PCI),
+			PCI:     pci,
 			ROMFile: d.ROMFile,
 		}
 	}

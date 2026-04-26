@@ -70,3 +70,68 @@ func TestLoadManifestRejectsInvalidServiceName(t *testing.T) {
 		t.Fatal("expected invalid service name error")
 	}
 }
+
+func TestValidateRejectsInvalidCloudInitUser(t *testing.T) {
+	t.Parallel()
+
+	m := Manifest{
+		Name:        "api",
+		Replicas:    1,
+		Image:       "/tmp/base.qcow2",
+		ImageFormat: "qcow2",
+		VM:          VMConfig{VCPU: 1, MemoryMB: 512},
+		Network:     NetworkConfig{Mode: "user"},
+		CloudInit:   CloudInit{User: "bad user"},
+	}
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected invalid cloud_init.user error")
+	}
+}
+
+func TestValidateRejectsInvalidPCIAddress(t *testing.T) {
+	t.Parallel()
+
+	m := Manifest{
+		Name:        "gpu",
+		Replicas:    1,
+		Image:       "/tmp/base.qcow2",
+		ImageFormat: "qcow2",
+		VM:          VMConfig{VCPU: 1, MemoryMB: 512},
+		Network:     NetworkConfig{Mode: "user"},
+		CloudInit:   CloudInit{User: "ubuntu"},
+		Devices:     []Device{{PCI: "01:00.8"}},
+	}
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected invalid PCI address error")
+	}
+}
+
+func TestValidateUserName(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"ubuntu", "_svc", "build-user", "u123"} {
+		if err := ValidateUserName(name); err != nil {
+			t.Fatalf("ValidateUserName(%q): %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "Ubuntu", "123user", "bad user", "bad/user", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} {
+		if err := ValidateUserName(name); err == nil {
+			t.Fatalf("ValidateUserName(%q) succeeded, want error", name)
+		}
+	}
+}
+
+func TestValidatePCIAddress(t *testing.T) {
+	t.Parallel()
+
+	for _, addr := range []string{"0000:01:00.0", "abcd:ef:12.7"} {
+		if err := ValidatePCIAddress(addr); err != nil {
+			t.Fatalf("ValidatePCIAddress(%q): %v", addr, err)
+		}
+	}
+	for _, addr := range []string{"", "01:00.0", "0000:01:00.8", "0000:01:00", "0000:1:00.0"} {
+		if err := ValidatePCIAddress(addr); err == nil {
+			t.Fatalf("ValidatePCIAddress(%q) succeeded, want error", addr)
+		}
+	}
+}

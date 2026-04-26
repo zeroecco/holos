@@ -189,11 +189,11 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 	}
 
 	if manifest.VM.UEFI {
-		ovmfCode, err := findOVMF("HOLOS_OVMF_CODE", ovmfCodePaths)
+		firmware, err := ResolveOVMFFirmware()
 		if err != nil {
 			return InstanceRecord{}, err
 		}
-		spec.OVMFCode = ovmfCode
+		spec.OVMFCode = firmware.CodePath
 		spec.OVMFVars = filepath.Join(prev.WorkDir, "OVMF_VARS.fd")
 	}
 

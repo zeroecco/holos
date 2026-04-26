@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/zeroecco/holos/internal/compose"
+	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/images"
 	"github.com/zeroecco/holos/internal/runtime"
 	"gopkg.in/yaml.v3"
@@ -96,6 +97,9 @@ func runRun(args []string) error {
 	resolvedUser := *user
 	if resolvedUser == "" {
 		resolvedUser = images.DefaultUser(image)
+	}
+	if err := config.ValidateUserName(resolvedUser); err != nil {
+		return fmt.Errorf("--user: %w", err)
 	}
 	resolvedUEFI := *uefi || len(devList) > 0
 

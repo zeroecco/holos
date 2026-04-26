@@ -156,28 +156,14 @@ func checkAnyCommand(label string, commands []doctorCommand, purpose string) doc
 }
 
 func checkOVMF() doctorCheck {
-	codeEnv := os.Getenv("HOLOS_OVMF_CODE")
-	varsEnv := os.Getenv("HOLOS_OVMF_VARS")
-	if codeEnv != "" || varsEnv != "" {
-		if codeEnv == "" || varsEnv == "" {
-			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: "set both HOLOS_OVMF_CODE and HOLOS_OVMF_VARS, or neither"}
+	firmware, err := runtime.ResolveOVMFFirmware()
+	if err != nil {
+		if os.Getenv("HOLOS_OVMF_CODE") != "" || os.Getenv("HOLOS_OVMF_VARS") != "" {
+			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: err.Error()}
 		}
-		if err := checkReadableFile(codeEnv); err != nil {
-			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: fmt.Sprintf("HOLOS_OVMF_CODE=%s is not usable: %v", codeEnv, err)}
-		}
-		if err := checkReadableFile(varsEnv); err != nil {
-			return doctorCheck{Name: "OVMF firmware", Status: "fail", Message: fmt.Sprintf("HOLOS_OVMF_VARS=%s is not usable: %v", varsEnv, err)}
-		}
-		return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: "using HOLOS_OVMF_CODE and HOLOS_OVMF_VARS"}
+		return doctorCheck{Name: "OVMF firmware", Status: "warn", Message: err.Error()}
 	}
-
-	for i, codePath := range ovmfCodeCandidates {
-		varsPath := ovmfVarsCandidates[i]
-		if checkReadableFile(codePath) == nil && checkReadableFile(varsPath) == nil {
-			return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: fmt.Sprintf("CODE=%s VARS=%s", codePath, varsPath)}
-		}
-	}
-	return doctorCheck{Name: "OVMF firmware", Status: "warn", Message: "CODE/VARS pair not found; install ovmf/edk2-ovmf or set HOLOS_OVMF_CODE and HOLOS_OVMF_VARS before using UEFI or PCI passthrough"}
+	return doctorCheck{Name: "OVMF firmware", Status: "ok", Message: fmt.Sprintf("CODE=%s VARS=%s", firmware.CodePath, firmware.VarsTemplatePath)}
 }
 
 func checkStateDir(stateDir string) doctorCheck {
@@ -250,21 +236,6 @@ func checkExecutable(path string) error {
 	return nil
 }
 
-func checkReadableFile(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return fmt.Errorf("is a directory")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	return f.Close()
-}
-
 func runDoctorProbe(path string, args []string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -289,20 +260,4 @@ func firstLine(s string) string {
 		return strings.TrimSpace(s[:i])
 	}
 	return strings.TrimSpace(s)
-}
-
-var ovmfCodeCandidates = []string{
-	"/usr/share/OVMF/OVMF_CODE_4M.fd",
-	"/usr/share/OVMF/OVMF_CODE.fd",
-	"/usr/share/edk2/ovmf/OVMF_CODE.fd",
-	"/usr/share/edk2-ovmf/x64/OVMF_CODE.fd",
-	"/usr/share/qemu/OVMF_CODE.fd",
-}
-
-var ovmfVarsCandidates = []string{
-	"/usr/share/OVMF/OVMF_VARS_4M.fd",
-	"/usr/share/OVMF/OVMF_VARS.fd",
-	"/usr/share/edk2/ovmf/OVMF_VARS.fd",
-	"/usr/share/edk2-ovmf/x64/OVMF_VARS.fd",
-	"/usr/share/qemu/OVMF_VARS.fd",
 }

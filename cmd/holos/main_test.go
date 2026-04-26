@@ -240,6 +240,22 @@ func TestWriteRunComposeFilePermissions(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidUserBeforeWritingCompose(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	err := runRun([]string{"--state-dir", stateDir, "--user", "bad user", "alpine"})
+	if err == nil {
+		t.Fatal("expected invalid --user error")
+	}
+	if !strings.Contains(err.Error(), "--user") {
+		t.Fatalf("error should name --user, got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(stateDir, "runs")); !os.IsNotExist(statErr) {
+		t.Fatalf("runs dir should not be written on invalid --user, stat err=%v", statErr)
+	}
+}
+
 func TestDoctorCommandRequiresExecutableProbe(t *testing.T) {
 	dir := t.TempDir()
 	probe := filepath.Join(dir, "probe")

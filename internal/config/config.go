@@ -13,6 +13,8 @@ import (
 )
 
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+var userNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+var pciAddressPattern = regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`)
 
 const (
 	DefaultReplicas           = 1
@@ -339,6 +341,14 @@ func (m Manifest) Validate() error {
 	if m.Network.Mode != "user" {
 		return fmt.Errorf("network.mode %q is unsupported; only user is implemented", m.Network.Mode)
 	}
+	if err := ValidateUserName(m.CloudInit.User); err != nil {
+		return fmt.Errorf("cloud_init.user: %w", err)
+	}
+	for _, device := range m.Devices {
+		if err := ValidatePCIAddress(device.PCI); err != nil {
+			return fmt.Errorf("device pci %q: %w", device.PCI, err)
+		}
+	}
 	if m.StopGracePeriodSec < 0 {
 		return fmt.Errorf("stop_grace_period_sec must be >= 0")
 	}
@@ -425,6 +435,33 @@ func (m Manifest) Validate() error {
 		if file.Path == "" {
 			return fmt.Errorf("write_files entries require path")
 		}
+	}
+	return nil
+}
+
+// ValidateUserName checks the guest account name holos asks cloud-init to
+// create. Keep this deliberately aligned with the systemd User= validation:
+// lowercase POSIX names are portable across the distro images holos targets and
+// cannot inject shell, YAML, or unit-file syntax through later command paths.
+func ValidateUserName(name string) error {
+	if name == "" {
+		return fmt.Errorf("user is empty")
+	}
+	if !userNamePattern.MatchString(name) {
+		return fmt.Errorf("user %q must match %s (POSIX username, 1-32 lowercase/digits/underscore/hyphen, leading [a-z_])",
+			name, userNamePattern.String())
+	}
+	return nil
+}
+
+// ValidatePCIAddress checks a canonical PCI BDF address:
+// domain:bus:slot.function, with the function constrained to 0-7.
+func ValidatePCIAddress(addr string) error {
+	if addr == "" {
+		return fmt.Errorf("address is empty")
+	}
+	if !pciAddressPattern.MatchString(addr) {
+		return fmt.Errorf("must match 0000:01:00.0")
 	}
 	return nil
 }

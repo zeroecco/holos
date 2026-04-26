@@ -148,6 +148,7 @@
       "properties": {
         "pci": {
           "type": "string",
+          "pattern": "^([0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-7]$",
           "examples": ["0000:01:00.0", "01:00.0"]
         },
         "rom_file": {
@@ -160,7 +161,8 @@
       "additionalProperties": false,
       "properties": {
         "user": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
         },
         "ssh_authorized_keys": {
           "type": "array",

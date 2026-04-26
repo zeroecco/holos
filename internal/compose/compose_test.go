@@ -171,6 +171,58 @@ func TestUEFIAutoEnabledWithDevices(t *testing.T) {
 	}
 }
 
+func TestResolveRejectsInvalidCloudInitUser(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.WriteFile(filepath.Join(dir, "base.qcow2"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	file := &File{
+		Name: "baduser",
+		Services: map[string]Service{
+			"vm": {
+				Image: "./base.qcow2",
+				CloudInit: CloudInit{
+					User: "bad user",
+				},
+			},
+		},
+	}
+	if _, err := file.Resolve(dir, stateDir); err == nil {
+		t.Fatal("expected invalid cloud_init.user error")
+	} else if !strings.Contains(err.Error(), "cloud_init.user") {
+		t.Fatalf("error should name cloud_init.user, got %v", err)
+	}
+}
+
+func TestResolveRejectsInvalidPCIAddress(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	if err := os.WriteFile(filepath.Join(dir, "base.qcow2"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	file := &File{
+		Name: "badpci",
+		Services: map[string]Service{
+			"vm": {
+				Image:   "./base.qcow2",
+				Devices: []ComposeDevice{{PCI: "01:00.8"}},
+			},
+		},
+	}
+	if _, err := file.Resolve(dir, stateDir); err == nil {
+		t.Fatal("expected invalid PCI address error")
+	} else if !strings.Contains(err.Error(), "pci") {
+		t.Fatalf("error should name pci, got %v", err)
+	}
+}
+
 func TestUserResolutionChain(t *testing.T) {
 	t.Parallel()
 
