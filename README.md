@@ -3,21 +3,24 @@
   <img alt="holos" src="./docs/holos-lockup-light.svg" width="340">
 </picture>
 
-Docker compose for KVM. Define multi-VM stacks in a single YAML file. No libvirt, no XML, no distributed control plane.
+Docker compose for KVM. Define multi-VM stacks in one YAML file. No libvirt, no
+XML, no distributed control plane.
 
-The primitive is a VM, not a container. Every workload instance gets its own kernel boundary, its own qcow2 overlay, and its own cloud-init seed.
+The primitive is a VM, not a container. Every workload instance gets its own
+kernel boundary, qcow2 overlay, cloud-init seed, and generated SSH access.
 
 ## Quick Start
 
-> Requires Linux + `/dev/kvm`. macOS builds run the offline subcommands
-> (`validate`, `import`, `images`) so you can author compose files on a
-> laptop, but `up`/`run` need a real KVM host.
+> Requires Linux + `/dev/kvm`. macOS builds run offline commands like
+> `validate`, `import`, `images`, and `pull`, but `up` and `run` need a KVM
+> host.
 
-The shortest path. One disposable VM, no compose file:
+One disposable VM, no compose file:
 
 ```bash
 holos run alpine
-# prints the exact `holos exec` and `holos down` commands for the new VM
+holos exec <printed-project-name>
+holos down <printed-project-name>
 ```
 
 A single-service stack you can `curl`. Save as `holos.yaml`:
@@ -42,470 +45,129 @@ services:
 
 ```bash
 holos up
-curl localhost:8080                 # → hello from holos
-holos down
+curl localhost:8080
+holos down hello
 ```
 
-That's a working VM with a real package install, a config file, and a
-host port forward. For multi-service stacks (depends\_on, named volumes,
-healthchecks, replicas), see [`examples/`](./examples) and the
-[Compose File](#compose-file) reference below.
-
-## CLI
-
-```
-holos up [-f holos.yaml]             start all services
-holos run [flags] <image> [-- cmd...]
-                                     launch a one-off VM from an image (no compose file)
-holos down <project>                 stop and remove a project (or [-f holos.yaml])
-holos ps [-f holos.yaml]             list running projects (-f narrows to one)
-holos start [-f holos.yaml] [svc]    start a stopped service or all services
-holos stop [-f holos.yaml] [svc]     stop a service or all services
-holos console <project> [<inst>]     attach serial console (or [-f file] <inst>)
-holos exec <project> [<inst>] [-- cmd...]
-                                     ssh into an instance (waits for sshd; project's generated key)
-                                     also accepts [-f file] <inst> form
-holos logs <project> [<svc|inst>]    show logs for a project, service, or one instance
-                                     also accepts [-f file] <svc|inst> form
-holos validate [-f holos.yaml]       validate compose file
-holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
-holos images                         list available images
-holos devices [--gpu]                list PCI devices and IOMMU groups
-holos install [-f holos.yaml] [--system] [--enable]
-                                     emit a systemd unit so the project survives reboot
-holos uninstall [-f holos.yaml] [--system]
-                                     remove the systemd unit written by `holos install`
-holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
-                                     convert virsh-defined VMs into a holos.yaml
-```
-
-## Adhoc VMs
-
-For one-off VMs you don't want to write a compose file for, `holos run`
-is the analogue of `docker run`:
-
-```bash
-holos run ubuntu:noble                          # bare VM, default 1 vCPU / 512 MB
-holos run --vcpu 4 --memory 4G ubuntu:noble     # bigger box
-holos run -p 8080:80 --pkg nginx \
-  --runcmd 'systemctl enable --now nginx' alpine
-holos run -v ./code:/srv ubuntu:noble           # bind mount
-holos run --device 0000:01:00.0 ubuntu:noble    # PCI passthrough
-holos run alpine -- echo hello world            # trailing args become a runcmd
-```
-
-The synthesised compose file is persisted under
-`state_dir/runs/<name>/holos.yaml`, and the project name is auto-derived
-from the image (override with `--name`). All other CLI verbs work
-against it the same way they do for hand-written projects:
-
-```bash
-holos exec -f ~/.local/state/holos/runs/<name>/holos.yaml vm-0
-holos console -f ~/.local/state/holos/runs/<name>/holos.yaml vm-0
-holos down <name>
-```
-
-`holos run` exits as soon as the VM is started. VMs are always
-detached, just like `holos up`. There is no foreground or `-it` mode.
-Shell in via `holos exec` (the recommended path), or attach to the
-serial console with `holos console` for boot/kernel logs.
-
-The login user is inferred from the image (`debian:*` → `debian`,
-`alpine` → `alpine`, etc.) so `holos exec` works out of the box.
-Cloud-init takes ~30s on first boot to actually create the account,
-so `holos console` may briefly show "Login incorrect" before the
-autologin kicks in. Override with `--user <name>` if you want a
-different account.
-
-Flags:
-
-| Flag | Description |
-|---|---|
-| `--name NAME` | project name (default: derived from image + random suffix) |
-| `--vcpu N` | vCPU count (default 1) |
-| `--memory SIZE` | memory, e.g. `512M`, `2G` (default 512M) |
-| `-p HOST:GUEST`, `--port` | publish a port (repeatable) |
-| `-v SRC:TGT[:ro]`, `--volume` | bind mount (repeatable) |
-| `--device PCI` | PCI passthrough (repeatable, auto-enables UEFI) |
-| `--pkg PKG` | cloud-init package (repeatable) |
-| `--runcmd CMD` | first-boot shell command (repeatable) |
-| `--user USER` | cloud-init user (default ubuntu) |
-| `--dockerfile PATH` | use a Dockerfile instead of (or with) an image |
-| `--uefi` | force OVMF boot |
-
-## Compose File
-
-The `holos.yaml` format is deliberately similar to docker-compose:
-
-* **services** - each service is a VM with its own image, resources, and cloud-init config
-* **depends\_on** - services start in dependency order
-* **ports** - `"host:guest"` syntax, auto-incremented across replicas
-* **volumes** - `"./source:/target:ro"` for bind mounts, `"name:/target"` for top-level named volumes
-* **replicas** - run N instances of a service
-* **cloud\_init** - packages, write\_files, runcmd -- standard cloud-init
-* **stop\_grace\_period** - how long to wait for ACPI shutdown before SIGTERM/SIGKILL (e.g. `"30s"`, `"2m"`); defaults to 30s
-* **healthcheck** - `test`, `interval`, `retries`, `start_period`, `timeout` to gate dependents
-* top-level **volumes** block - declare named data volumes that persist across `holos down`
-
-### Graceful shutdown
-
-`holos stop` and `holos down` send QMP `system_powerdown` to the guest
-(equivalent to pressing the power button), then wait up to
-`stop_grace_period` for QEMU to exit on its own. If the guest doesn't
-halt in time, or QMP is unreachable, the runtime falls back to SIGTERM
-then SIGKILL, matching docker-compose semantics.
-
-```yaml
-services:
-  db:
-    image: ubuntu:noble
-    stop_grace_period: 60s    # flush DB buffers before hard stop
-```
-
-### Data volumes
-
-Top-level `volumes:` declares named data stores that live under
-`state_dir/volumes/<project>/<name>.qcow2` and are symlinked into each
-instance's work directory. They survive `holos down`: tearing down a
-project only removes the symlink, never the backing file.
-
-```yaml
-name: demo
-services:
-  db:
-    image: ubuntu:noble
-    volumes:
-      - pgdata:/var/lib/postgresql
-
-volumes:
-  pgdata:
-    size: 20G
-```
-
-Volumes attach as virtio-blk devices with a stable `serial=vol-<name>`,
-so inside the guest they appear as `/dev/disk/by-id/virtio-vol-pgdata`.
-Cloud-init runs an idempotent `mkfs.ext4` + `/etc/fstab` snippet on
-first boot so there's nothing to configure by hand.
-
-### Healthchecks and `depends_on`
-
-A service with a healthcheck blocks its dependents from starting until
-the check passes. The probe runs via SSH (same key `holos exec` uses):
-
-```yaml
-services:
-  db:
-    image: postgres-cloud.qcow2
-    healthcheck:
-      test: ["pg_isready", "-U", "postgres"]
-      interval: 2s
-      retries: 30
-      start_period: 10s
-      timeout: 3s
-  api:
-    image: api.qcow2
-    depends_on: [db]     # waits for db to be healthy
-```
-
-`test:` accepts either a list (exec form) or a string (wrapped in
-`sh -c`). Set `HOLOS_HEALTH_BYPASS=1` to skip the actual probe; handy
-for CI environments without in-guest SSHD.
-
-### holos exec
-
-Every `holos up` auto-generates a per-project SSH keypair under
-`state_dir/ssh/<project>/` and injects the public key via cloud-init.
-A host port is allocated for each instance and forwarded to guest port
-22, so you can:
-
-```bash
-holos exec web-0                 # interactive shell
-holos exec db-0 -- pg_isready    # one-off command
-```
-
-`-u <user>` overrides the login user. The default is the service's
-explicit `cloud_init.user`, falling back to the image's conventional
-cloud user (`debian` for `debian:*`, `alpine` for `alpine:*`,
-`fedora`, `arch`, `ubuntu`), and finally `ubuntu` for local images.
-
-On a fresh VM `holos exec` waits up to 60s for sshd to be ready
-before attempting the handshake, masking the brief window where
-cloud-init regenerates host keys and bounces sshd. Use `-w 0` to
-opt out, or `-w 5m` to wait longer for slow first boots.
-
-### Reboot survival
-
-Emit a systemd unit so a project comes back up after the host reboots:
-
-```bash
-holos install --enable           # per-user, no sudo needed
-holos install --system --enable  # host-wide, before any login
-holos install --dry-run          # print the unit and exit
-```
-
-User units land under `~/.config/systemd/user/holos-<project>.service`;
-system units under `/etc/systemd/system/`. `holos uninstall` reverses
-it, and is idempotent (safe to call twice).
-
-### Networking
-
-Every service can reach every other service by name. Under the hood:
-
-* Each VM gets two NICs: user-mode (for host port forwarding) and socket multicast (for inter-VM L2)
-* Static IPs are assigned automatically on the internal `10.10.0.0/24` segment
-* `/etc/hosts` is populated via cloud-init so `db`, `web-0`, `web-1` all resolve
-* No libvirt. No bridge configuration. No root required for inter-VM networking.
-
-### GPU Passthrough
-
-Pass physical GPUs (or any PCI device) directly to a VM via VFIO:
-
-```yaml
-services:
-  ml:
-    image: ubuntu:noble
-    vm:
-      vcpu: 8
-      memory_mb: 16384
-    devices:
-      - pci: "01:00.0"       # GPU
-      - pci: "01:00.1"       # GPU audio
-    ports:
-      - "8888:8888"
-```
-
-What holos handles:
-
-* UEFI boot is enabled automatically when devices are present (OVMF firmware)
-* `kernel-irqchip=on` is set on the machine for NVIDIA compatibility
-* Per-instance OVMF\_VARS copy so each VM has its own EFI variable store
-* Optional `rom_file` for custom VBIOS ROMs
-
-What you handle (host setup):
-
-* Enable IOMMU in BIOS and kernel (`intel_iommu=on` or `amd_iommu=on`)
-* Bind the GPU to `vfio-pci` driver
-* Run `holos devices --gpu` to find PCI addresses and IOMMU groups
-
-### Images
-
-Use pre-built cloud images instead of building your own:
-
-```yaml
-services:
-  web:
-    image: alpine           # auto-pulled and cached
-  api:
-    image: ubuntu:noble     # specific tag
-  db:
-    image: debian           # defaults to debian:12
-```
-
-Available: `alpine`, `arch`, `debian`, `ubuntu`, `fedora`. Run `holos images` to see all tags.
-
-### Dockerfile
-
-Use a Dockerfile to provision a VM. `RUN`, `COPY`, `ENV`, and `WORKDIR` instructions are converted into a shell script that runs via cloud-init:
-
-```yaml
-services:
-  api:
-    dockerfile: ./Dockerfile
-    ports:
-      - "3000:3000"
-```
-
-```dockerfile
-FROM ubuntu:noble
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y nodejs npm
-COPY server.js /opt/app/
-WORKDIR /opt/app
-RUN npm init -y && npm install express
-```
-
-When `image` is omitted, the base image is taken from the Dockerfile's `FROM` line. The Dockerfile's instructions run before any `cloud_init.runcmd` entries.
-
-Supported: `FROM`, `RUN`, `COPY`, `ENV`, `WORKDIR`. Unsupported instructions (`CMD`, `ENTRYPOINT`, `EXPOSE`, etc.) are silently skipped. `COPY` sources are resolved relative to the Dockerfile's directory and must be files, not directories; use `volumes` for directory mounts.
-
-### Extra QEMU Arguments
-
-Pass arbitrary flags straight to `qemu-system-x86_64` with `extra_args`:
-
-```yaml
-services:
-  gpu:
-    image: ubuntu:noble
-    vm:
-      vcpu: 4
-      memory_mb: 8192
-      extra_args:
-        - "-device"
-        - "virtio-gpu-pci"
-        - "-display"
-        - "egl-headless"
-```
-
-Arguments are appended after all holos-managed flags. No validation -- you own it.
-
-### Resource Defaults
-
-| Field | Default |
-|-------|---------|
-| replicas | 1 |
-| vm.vcpu | 1 |
-| vm.memory\_mb | 512 |
-| vm.machine | q35 |
-| vm.cpu\_model | host |
-| cloud\_init.user | ubuntu |
-| image\_format | inferred from extension |
-
-### Import from virsh
-
-Already running VMs under libvirt? `holos import` reads libvirt domain
-XML and emits an equivalent `holos.yaml` so you can move existing
-workloads onto holos without retyping every field.
-
-```bash
-holos import web-prod db-prod                # via `virsh dumpxml`
-holos import --all -o holos.yaml             # every defined domain
-holos import --xml ./web.xml                 # offline, no virsh needed
-holos import --connect qemu:///system api    # non-default libvirt URI
-```
-
-The mapping covers the fields holos has a direct equivalent for:
-
-| libvirt                            | holos                        |
-|------------------------------------|------------------------------|
-| `<vcpu>`                           | `vm.vcpu`                    |
-| `<memory>` / `<currentMemory>`     | `vm.memory_mb`               |
-| `<os><type machine="pc-q35-…">`    | `vm.machine` (collapsed)     |
-| `<cpu mode="host-passthrough">`    | `vm.cpu_model: host`         |
-| `<os><loader>`                     | `vm.uefi: true`              |
-| first `<disk type="file">`         | `image:` + `image_format:`   |
-| `<hostdev type="pci">`             | `devices: [{pci: …}]`        |
-
-Anything holos can't translate cleanly (extra disks, bridged NICs,
-USB passthrough, custom emulators) is reported as a warning on stderr
-so you know what to revisit before `holos up`. Output goes to stdout
-unless you pass `-o`, so it composes with shell redirection
-(`holos import vm > holos.yaml`).
+That is a real VM booting a cloud image, installing a package, writing config,
+and forwarding a host port.
 
 ## Install
 
-Pre-built binaries (Linux + macOS, amd64 + arm64) are attached to every
+Pre-built binaries are attached to every
 [GitHub release](https://github.com/zeroecco/holos/releases):
 
 ```bash
-TAG=v0.1.0
+TAG=v0.2.1
 curl -L https://github.com/zeroecco/holos/releases/download/$TAG/holos_${TAG#v}_Linux_x86_64.tar.gz \
   | sudo tar -xz -C /usr/local/bin holos
 holos version
+holos doctor
 ```
 
-Or build from source (see below).
-
-> Linux is the only runtime target. `holos up` needs `/dev/kvm` and
-> `qemu-system-x86_64`. macOS builds exist so the offline subcommands
-> (`validate`, `import`, `images`) work for compose-file authoring on
-> a laptop.
-
-## Build
+Or build from source:
 
 ```bash
 go build -o bin/holos ./cmd/holos
+go test ./...
 ```
 
-### Cutting a release
+## CLI
 
-Releases are produced by [GoReleaser](https://goreleaser.com) on every
-`v*` git tag (see `.github/workflows/release.yml`):
+```text
+holos up [-f holos.yaml]             start all services
+holos run [flags] <image> [-- cmd...] launch a one-off VM
+holos down <project>                 stop and remove a project
+holos ps [-f holos.yaml]             list running projects
+holos start [-f holos.yaml] [svc]    start a stopped service or all services
+holos stop [-f holos.yaml] [svc]     stop a service or all services
+holos console <project> [<inst>]     attach serial console
+holos exec <project> [<inst>] [-- cmd...]
+                                     SSH into an instance
+holos logs <project> [<svc|inst>]    show console logs
+holos validate [-f holos.yaml]       validate compose file
+holos pull <image>                   pull a cloud image
+holos images                         list available images
+holos devices [--gpu]                list PCI devices and IOMMU groups
+holos doctor [--json]                check host dependencies
+holos install [-f holos.yaml] [--system] [--enable]
+                                     install a systemd unit
+holos uninstall [-f holos.yaml] [--system]
+                                     remove the systemd unit
+holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
+                                     convert virsh VMs into holos.yaml
+```
+
+## Docs
+
+- [CLI guide](./docs/cli.md): ad hoc VMs, `exec`, systemd install, virsh import,
+  and `doctor`.
+- [Compose file](./docs/compose.md): services, volumes, healthchecks,
+  networking, PCI passthrough, Dockerfile provisioning, and defaults.
+- [JSON Schema](./docs/holos.schema.json): editor completion and validation for
+  `holos.yaml`.
+- [Examples](./examples/README.md): runnable and template stacks with
+  README-style explanations.
+- [Development](./docs/development.md): build, test, host requirements, and
+  release process.
+- [Security policy](./SECURITY.md): supported versions and private reporting.
+- [Contributing](./CONTRIBUTING.md): build, test, style, and PR conventions.
+
+## Examples
+
+Start with the small nginx example:
 
 ```bash
-git tag -a v0.1.0 -m "v0.1.0"
-git push origin v0.1.0
+holos up -f examples/alpine-nginx/holos.yaml
+curl localhost:8080
+holos down alpine-nginx
 ```
 
-The workflow cross-compiles four targets, packages them with the
-`LICENSE`/`NOTICE`/`README.md`, computes SHA-256 checksums, drafts
-release notes from the commit log, and publishes a GitHub release.
-
-To rehearse locally without publishing:
-
-```bash
-goreleaser release --snapshot --clean --skip=publish
-ls dist/
-```
-
-Build a guest image (requires mkosi):
-
-```bash
-./scripts/build-image.sh
-```
+The examples directory also includes Dockerfile provisioning, GPU passthrough,
+and a multi-service stack that shows `depends_on`, generated config, and
+replicas.
 
 ## Host Requirements
 
-* `/dev/kvm`
-* `qemu-system-x86_64`
-* `qemu-img`
-* One of `cloud-localds`, `genisoimage`, `mkisofs`, or `xorriso`
-* `mkosi` (only for building the base image)
+- Linux with `/dev/kvm`
+- `qemu-system-x86_64`
+- `qemu-img`
+- One of `cloud-localds`, `genisoimage`, `mkisofs`, or `xorriso`
+- OVMF / edk2-ovmf firmware for UEFI or PCI passthrough
+- `ssh` for `holos exec` and healthchecks
+
+Run `holos doctor` to check the host.
 
 ## Troubleshooting
 
-### `kex_exchange_identification: read: Connection reset by peer`
+### SSH resets on first boot
 
-sshd accepted the TCP connection but closed it before the SSH
-handshake completed. On a fresh VM this almost always means
-cloud-init is still regenerating host keys and bouncing sshd. The
-listener is briefly flapping, not broken.
+`kex_exchange_identification: read: Connection reset by peer` usually means
+cloud-init is still regenerating host keys and restarting sshd. `holos exec`
+waits up to 60s by default, but very slow first boots may need another retry or
+`holos exec -w 5m <project>`.
 
-`holos exec` waits up to 60s for sshd to be ready by default; if
-you hit this immediately after `holos run` or `holos up`, give it
-another 30s and retry. Use `-w 5m` to wait longer for slow first
-boots, or `-w 0` to disable the wait entirely.
+### Console shows `Login incorrect`
 
-If the error persists past two minutes, attach the serial console
-(`holos console <inst>`) and look for cloud-init failures.
+The serial console may attempt autologin before cloud-init creates the user.
+Wait for `cloud-init ... finished` in the console log, then use `holos exec`.
+Cloud images generally do not ship with a console password, and holos does not
+add one.
 
-### Console shows `Login incorrect` and `Password:` repeatedly
+### `up` fails on macOS
 
-Same window as above. The serial-getty autologin retries the
-configured user (e.g. `debian`) before cloud-init has actually
-created the account, so the first few attempts fail. Watch the
-console log for `cloud-init ... finished`. After that line the
-autologin succeeds and you land in a shell.
-
-For interactive shell access the supported path is `holos exec`,
-which uses the project's auto-generated SSH key over a forwarded
-port. The serial console is meant for boot/kernel diagnostics, not
-day-to-day operation. Cloud images don't ship with a console
-password and we don't add one.
-
-### `holos up` fails on macOS
-
-holos needs `/dev/kvm` and `qemu-system-x86_64` to actually launch
-VMs, and KVM is a Linux kernel feature. macOS builds exist so the
-offline subcommands (`validate`, `import`, `images`, `pull`) work
-for compose-file authoring on a laptop, but `up` and `run` only
-work on Linux hosts.
-
-Run holos against a remote KVM host via SSH, or use a Linux VM /
-dev container for actual workload execution.
+KVM is a Linux kernel feature. macOS binaries are useful for authoring and
+offline commands, but `holos up` and `holos run` must execute on a Linux KVM
+host.
 
 ## Non-Goals
 
-This is not Kubernetes. It does not try to solve:
+holos is not Kubernetes. It does not try to solve multi-host clustering, live
+migration, service meshes, overlay networks, schedulers, CRDs, or control plane
+quorum.
 
-* Multi-host clustering
-* Live migration
-* Service meshes
-* Overlay networks
-* Scheduler, CRDs, or control plane quorum
-
-The goal is to make KVM workable for single-host stacks without importing the operational shape of Kubernetes.
+The goal is to make KVM workable for single-host stacks without importing the
+operational shape of Kubernetes.
 
 ## License
 

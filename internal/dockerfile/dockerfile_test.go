@@ -31,9 +31,6 @@ RUN apt-get update && \
 RUN echo "hello"
 
 COPY app.conf /etc/nginx/conf.d/
-
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
 `
 	dfPath := filepath.Join(dir, "Dockerfile")
 	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
@@ -87,6 +84,46 @@ CMD ["nginx", "-g", "daemon off;"]
 	}
 	if buildScript.Permissions != "0755" {
 		t.Errorf("build script perms = %q, want 0755", buildScript.Permissions)
+	}
+}
+
+func TestParseRejectsUnsupportedInstructions(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"EXPOSE":      "publish ports in holos.yaml",
+		"CMD":         "cloud_init.runcmd",
+		"ENTRYPOINT":  "cloud_init.runcmd",
+		"HEALTHCHECK": "services.<name>.healthcheck",
+		"ADD":         "use COPY",
+		"USER":        "not supported",
+	}
+
+	for instruction, want := range cases {
+		t.Run(instruction, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			dfContent := fmt.Sprintf("FROM alpine:3.21\n%s ignored\n", instruction)
+			if instruction == "CMD" || instruction == "ENTRYPOINT" {
+				dfContent = fmt.Sprintf("FROM alpine:3.21\n%s [\"echo\", \"hi\"]\n", instruction)
+			}
+			dfPath := filepath.Join(dir, "Dockerfile")
+			if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := Parse(dfPath, dir)
+			if err == nil {
+				t.Fatalf("expected %s to be rejected", instruction)
+			}
+			if !strings.Contains(err.Error(), instruction) {
+				t.Fatalf("error should name %s; got %v", instruction, err)
+			}
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error should explain remediation %q; got %v", want, err)
+			}
+		})
 	}
 }
 

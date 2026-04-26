@@ -2,8 +2,8 @@
 #
 # Tag a release:
 #
-#   git tag -a v0.1.0 -m "v0.1.0"
-#   git push origin v0.1.0
+#   git tag -a v0.2.1 -m "v0.2.1"
+#   git push origin v0.2.1
 #
 # GoReleaser handles cross-compilation, archive packaging, checksum
 # generation, and release-note assembly. fetch-depth: 0 is required so

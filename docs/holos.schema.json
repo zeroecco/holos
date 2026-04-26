@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/zeroecco/holos/main/docs/holos.schema.json",
+  "title": "holos.yaml",
+  "description": "Compose-style VM stack definition for holos.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["services"],
+  "properties": {
+    "name": {
+      "$ref": "#/$defs/dnsLabel",
+      "description": "Project name. Defaults to the compose directory name when omitted."
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$": {
+          "$ref": "#/$defs/service"
+        }
+      }
+    },
+    "volumes": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$": {
+          "$ref": "#/$defs/namedVolume"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "dnsLabel": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)$",
+      "examples": ["30s", "2m", "1h"]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Image alias (ubuntu:noble, alpine) or local image path."
+        },
+        "image_format": {
+          "type": "string",
+          "enum": ["qcow2", "raw"],
+          "description": "Optional override when the image format cannot be inferred."
+        },
+        "dockerfile": {
+          "type": "string",
+          "description": "Dockerfile to translate into cloud-init provisioning."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256,
+          "default": 1
+        },
+        "vm": {
+          "$ref": "#/$defs/vm"
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{1,5}:[0-9]{1,5}$",
+            "examples": ["8080:80"]
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "SRC:TARGET[:ro|rw]. SRC can be a bind path or a top-level named volume."
+          }
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/device"
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dnsLabel"
+          }
+        },
+        "cloud_init": {
+          "$ref": "#/$defs/cloudInit"
+        },
+        "stop_grace_period": {
+          "$ref": "#/$defs/duration"
+        },
+        "healthcheck": {
+          "$ref": "#/$defs/healthcheck"
+        }
+      },
+      "anyOf": [
+        { "required": ["image"] },
+        { "required": ["dockerfile"] }
+      ]
+    },
+    "vm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vcpu": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_mb": {
+          "type": "integer",
+          "minimum": 128
+        },
+        "machine": {
+          "type": "string",
+          "default": "q35"
+        },
+        "cpu_model": {
+          "type": "string",
+          "default": "host"
+        },
+        "uefi": {
+          "type": "boolean"
+        },
+        "extra_args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pci"],
+      "properties": {
+        "pci": {
+          "type": "string",
+          "pattern": "^([0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-7]$",
+          "examples": ["0000:01:00.0", "01:00.0"]
+        },
+        "rom_file": {
+          "type": "string"
+        }
+      }
+    },
+    "cloudInit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+        },
+        "ssh_authorized_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "write_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeFile"
+          }
+        },
+        "runcmd": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "bootcmd": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "writeFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "content": {
+          "type": "string"
+        },
+        "permissions": {
+          "type": "string",
+          "pattern": "^[0-7]{3,4}$"
+        },
+        "owner": {
+          "type": "string",
+          "default": "root:root"
+        }
+      }
+    },
+    "healthcheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "test": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "interval": {
+          "$ref": "#/$defs/duration"
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_period": {
+          "$ref": "#/$defs/duration"
+        },
+        "timeout": {
+          "$ref": "#/$defs/duration"
+        }
+      }
+    },
+    "namedVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "type": "string",
+          "pattern": "^[0-9]+([KkMmGgTt])?$",
+          "default": "10G"
+        }
+      }
+    }
+  }
+}

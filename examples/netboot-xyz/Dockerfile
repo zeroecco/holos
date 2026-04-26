@@ -14,5 +14,3 @@ RUN wget -q https://boot.netboot.xyz/ipxe/netboot.xyz.kpxe && \
     wget -q https://boot.netboot.xyz/ipxe/netboot.xyz.iso
 
 COPY index.html /var/www/html/
-
-EXPOSE 80

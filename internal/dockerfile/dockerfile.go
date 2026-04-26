@@ -55,7 +55,7 @@ func Parse(path string, contextDir string) (*Result, error) {
 			script.WriteString(parseRun(args))
 			script.WriteString("\n")
 
-		case "COPY", "ADD":
+		case "COPY":
 			wf, err := parseCopy(args, contextDir)
 			if err != nil {
 				return nil, fmt.Errorf("%s %s: %w", cmd, args, err)
@@ -71,18 +71,8 @@ func Parse(path string, contextDir string) (*Result, error) {
 			dir := strings.TrimSpace(args)
 			fmt.Fprintf(&script, "mkdir -p %s && cd %s\n", shellQuote(dir), shellQuote(dir))
 
-		case "USER":
-			// USER changes the effective UID for subsequent RUN
-			// instructions in a container build. In our shell-script
-			// provisioning model there is no equivalent: everything
-			// runs as root. Silently dropping this would surprise
-			// users whose Dockerfile expects later RUN steps to
-			// execute as a non-root user, so emit a warning.
-			fmt.Fprintf(os.Stderr, "holos: warning: Dockerfile USER %s ignored; RUN steps execute as root\n", strings.TrimSpace(args))
-			continue
-		case "EXPOSE", "CMD", "ENTRYPOINT", "LABEL", "VOLUME",
-			"HEALTHCHECK", "STOPSIGNAL", "SHELL", "ONBUILD", "ARG":
-			continue
+		default:
+			return nil, unsupportedInstructionError(cmd)
 		}
 	}
 
@@ -96,6 +86,25 @@ func Parse(path string, contextDir string) (*Result, error) {
 	})
 
 	return result, nil
+}
+
+func unsupportedInstructionError(cmd string) error {
+	switch cmd {
+	case "ADD":
+		return fmt.Errorf("Dockerfile ADD is not supported; use COPY for local files and cloud_init.runcmd for downloads or archive extraction")
+	case "ARG":
+		return fmt.Errorf("Dockerfile ARG is not supported; set concrete values with ENV or cloud_init.runcmd")
+	case "CMD", "ENTRYPOINT":
+		return fmt.Errorf("Dockerfile %s is not supported; use cloud_init.runcmd or a systemd unit inside the guest to start long-running processes", cmd)
+	case "EXPOSE":
+		return fmt.Errorf("Dockerfile EXPOSE is not supported; publish ports in holos.yaml with services.<name>.ports")
+	case "HEALTHCHECK":
+		return fmt.Errorf("Dockerfile HEALTHCHECK is not supported; use services.<name>.healthcheck in holos.yaml")
+	case "LABEL", "ONBUILD", "SHELL", "STOPSIGNAL", "USER", "VOLUME":
+		return fmt.Errorf("Dockerfile %s is not supported by holos's cloud-init provisioning model", cmd)
+	default:
+		return fmt.Errorf("Dockerfile instruction %s is not supported; supported instructions are FROM, RUN, COPY, ENV, WORKDIR", cmd)
+	}
 }
 
 // BuildCommand returns the runcmd entry that executes the generated build script.
