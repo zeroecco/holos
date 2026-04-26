@@ -7,8 +7,9 @@
 #
 # Build matrix:
 #   - linux/amd64, linux/arm64   primary runtime targets (need /dev/kvm)
-#   - darwin/amd64, darwin/arm64 useful for the offline subcommands
-#                                (validate, import, images, exec) on Macs
+#   - darwin/amd64, darwin/arm64 useful for offline-ish subcommands
+#                                (validate, import, images, pull, doctor)
+#                                and compose-file authoring on Macs
 #
 # Anything that needs `/dev/kvm` won't work on darwin; we ship the
 # binary anyway because compose-file authoring on a laptop is a real
@@ -111,8 +112,8 @@ release:
     holos version
     ```
 
-    Linux requires `/dev/kvm` and `qemu-system-x86_64` at runtime.
-    macOS builds are intended for the offline subcommands
-    (`validate`, `import`, `images`).
+    Linux requires `/dev/kvm` and `qemu-system-x86_64` for `up` and `run`.
+    macOS builds are intended for compose-file authoring and offline-ish
+    subcommands (`validate`, `import`, `images`, `pull`, `doctor`).
   footer: |
     **Full Changelog**: https://github.com/zeroecco/holos/compare/{{ .PreviousTag }}...{{ .Tag }}

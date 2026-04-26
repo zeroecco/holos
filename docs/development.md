@@ -31,8 +31,8 @@ macOS builds are shipped for offline work: `validate`, `import`, `images`,
 Releases are produced by GoReleaser on every `v*` tag:
 
 ```bash
-git tag -a v0.2.2 -m "v0.2.2"
-git push origin v0.2.2
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
 ```
 
 The workflow cross-compiles Linux and macOS binaries for amd64 and arm64,

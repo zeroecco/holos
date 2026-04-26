@@ -34,7 +34,9 @@ Core fields:
   replica index.
 - `vm`: virtual hardware (`vcpu`, `memory_mb`, `machine`, `cpu_model`, `uefi`,
   `extra_args`).
-- `ports`: `"host:guest"` TCP forwards.
+- `ports`: TCP forwards. Use `"host:guest"` for a fixed host port,
+  `"guest"` to have holos allocate an ephemeral host port, or append
+  `"/tcp"` explicitly (`"8080:80/tcp"`).
 - `volumes`: bind mounts or top-level named volumes with `SRC:TGT[:ro|rw]`.
 - `depends_on`: service startup ordering. If the dependency has a healthcheck,
   dependents wait until it is healthy.
