@@ -6,6 +6,8 @@
 Docker compose for KVM. Define multi-VM stacks in one YAML file. No libvirt, no
 XML, no distributed control plane.
 
+Website and docs: <https://zeroecco.github.io/holos/>
+
 The primitive is a VM, not a container. Every workload instance gets its own
 kernel boundary, qcow2 overlay, cloud-init seed, and generated SSH access.
 
@@ -101,6 +103,7 @@ holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
 
 ## Docs
 
+- [Website](https://zeroecco.github.io/holos/): landing page and rendered docs.
 - [CLI guide](./docs/cli.md): ad hoc VMs, `exec`, systemd install, virsh import,
   and `doctor`.
 - [Compose file](./docs/compose.md): services, volumes, healthchecks,

@@ -1,0 +1,12 @@
+title: holos
+description: Docker compose for KVM. Define multi-VM stacks in one YAML file.
+url: https://zeroecco.github.io
+baseurl: /holos
+repository: zeroecco/holos
+markdown: kramdown
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

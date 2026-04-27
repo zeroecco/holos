@@ -1,3 +1,9 @@
+---
+title: Development
+description: Build, test, host requirements, and release process for holos.
+permalink: /development/
+---
+
 # Development
 
 ## Build

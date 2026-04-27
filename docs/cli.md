@@ -1,3 +1,9 @@
+---
+title: CLI Guide
+description: holos command-line workflows for VMs, SSH, systemd, imports, and diagnostics.
+permalink: /cli/
+---
+
 # CLI Guide
 
 ## Ad Hoc VMs

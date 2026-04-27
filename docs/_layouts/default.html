@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if page.title %}{{ page.title }} | {% endif %}{{ site.title }}</title>
+    <meta name="description" content="{{ page.description | default: site.description }}">
+    <link rel="icon" href="{{ '/holos-favicon.svg' | relative_url }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ '/assets/site.css' | relative_url }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="{{ '/' | relative_url }}" aria-label="holos home">
+        <img src="{{ '/holos-lockup-light.svg' | relative_url }}" alt="holos">
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="{{ '/compose/' | relative_url }}">Compose</a>
+        <a href="{{ '/cli/' | relative_url }}">CLI</a>
+        <a href="{{ '/examples/' | relative_url }}">Examples</a>
+        <a href="{{ '/development/' | relative_url }}">Develop</a>
+        <a href="https://github.com/{{ site.repository }}">GitHub</a>
+      </nav>
+    </header>
+    <main class="page">
+      {{ content }}
+    </main>
+    <footer class="site-footer">
+      <span>Apache-2.0 licensed.</span>
+      <a href="https://github.com/{{ site.repository }}/releases">Releases</a>
+      <a href="https://github.com/{{ site.repository }}/blob/main/docs/holos.schema.json">JSON Schema</a>
+    </footer>
+  </body>
+</html>

@@ -1,3 +1,9 @@
+---
+title: Compose File
+description: The holos.yaml format for defining KVM VM stacks.
+permalink: /compose/
+---
+
 # Compose File
 
 `holos.yaml` is intentionally close to docker-compose, but the unit of work is a
