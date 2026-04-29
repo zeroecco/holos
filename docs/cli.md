@@ -17,6 +17,7 @@ holos run -p 8080:80 --pkg nginx \
   --runcmd 'systemctl enable --now nginx' alpine
 holos run -v ./code:/srv:ro ubuntu:noble
 holos run --device 0000:01:00.0 ubuntu:noble
+holos run --image-os openrc ./custom-alpine.qcow2
 holos run alpine -- echo hello world
 ```
 
@@ -54,6 +55,22 @@ resolved `cloud_init.user`, then the image convention (`debian`, `alpine`,
 
 On a fresh VM, `holos exec` waits up to 60s for sshd to be ready. Use `-w 0` to
 disable that wait or `-w 5m` for slow first boots.
+
+## Image Verification
+
+Built-in images carry checksum metadata. `holos pull`, `holos up`, and
+`holos run` verify downloads before promoting them into the cache and re-check a
+cached file before reuse. To audit the cache explicitly:
+
+```bash
+holos verify alpine
+holos verify --all
+```
+
+`holos images` shows the guest OS metadata and hash algorithm used for each
+built-in entry. Local image paths are not trusted by name; set `image_format`
+and `image_os` in compose, or `--image-os` with `holos run`, when a custom image
+does not match the defaults.
 
 ## Reboot Survival
 

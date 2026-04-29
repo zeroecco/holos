@@ -54,6 +54,11 @@
           "enum": ["qcow2", "raw"],
           "description": "Optional override when the image format cannot be inferred."
         },
+        "image_os": {
+          "type": "string",
+          "enum": ["systemd", "openrc"],
+          "description": "Guest OS family metadata used for cloud-init rendering. Built-in images set this automatically; local images may need an explicit value."
+        },
         "dockerfile": {
           "type": "string",
           "description": "Dockerfile to translate into cloud-init provisioning."

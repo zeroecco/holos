@@ -180,7 +180,7 @@ func TestPull_ChecksumVerification(t *testing.T) {
 
 	t.Run("correct hash succeeds", func(t *testing.T) {
 		dest := filepath.Join(cacheDir, "ok.qcow2")
-		if err := download(srv.URL+"/ok", dest, correctHex); err != nil {
+		if err := download(srv.URL+"/ok", dest, imageHash{Algorithm: "sha256", Value: correctHex}); err != nil {
 			t.Fatalf("download with correct hash: %v", err)
 		}
 		got, err := os.ReadFile(dest)
@@ -194,7 +194,7 @@ func TestPull_ChecksumVerification(t *testing.T) {
 
 	t.Run("empty hash skips verification", func(t *testing.T) {
 		dest := filepath.Join(cacheDir, "skip.qcow2")
-		if err := download(srv.URL+"/skip", dest, ""); err != nil {
+		if err := download(srv.URL+"/skip", dest, imageHash{}); err != nil {
 			t.Fatalf("download without expected hash: %v", err)
 		}
 		if _, err := os.Stat(dest); err != nil {
@@ -205,7 +205,7 @@ func TestPull_ChecksumVerification(t *testing.T) {
 	t.Run("wrong hash fails and leaves no file", func(t *testing.T) {
 		dest := filepath.Join(cacheDir, "bad.qcow2")
 		bogus := strings.Repeat("0", 64)
-		err := download(srv.URL+"/bad", dest, bogus)
+		err := download(srv.URL+"/bad", dest, imageHash{Algorithm: "sha256", Value: bogus})
 		if err == nil {
 			t.Fatal("expected mismatch error")
 		}
@@ -255,7 +255,7 @@ func TestDownload_HeaderTimeout(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- download(srv.URL+"/slow", filepath.Join(t.TempDir(), "out"), "")
+		done <- download(srv.URL+"/slow", filepath.Join(t.TempDir(), "out"), imageHash{})
 	}()
 
 	select {
@@ -298,7 +298,7 @@ func TestDownload_BodyIdleTimeout(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- download(srv.URL+"/stall", filepath.Join(t.TempDir(), "out"), "")
+		done <- download(srv.URL+"/stall", filepath.Join(t.TempDir(), "out"), imageHash{})
 	}()
 
 	select {
@@ -342,7 +342,7 @@ func TestDownload_CloseErrorVoidsCache(t *testing.T) {
 	}
 
 	dest := filepath.Join(t.TempDir(), "image.qcow2")
-	err := download(srv.URL, dest, "")
+	err := download(srv.URL, dest, imageHash{})
 	if err == nil {
 		t.Fatal("expected Close error to fail the download")
 	}
@@ -418,7 +418,7 @@ func TestDownload_ConcurrentSafeTempPaths(t *testing.T) {
 	for i := 0; i < workers; i++ {
 		i := i
 		go func() {
-			errs <- download(fmt.Sprintf("%s/img-%d", srv.URL, i), dest, hashes[i])
+			errs <- download(fmt.Sprintf("%s/img-%d", srv.URL, i), dest, imageHash{Algorithm: "sha256", Value: hashes[i]})
 		}()
 	}
 	for i := 0; i < workers; i++ {

@@ -28,6 +28,7 @@ func runRun(args []string) error {
 	vcpu := flags.Int("vcpu", 0, "vCPU count (default 1)")
 	memory := flags.String("memory", "", "memory size, e.g. \"512M\", \"2G\" (default 512M)")
 	user := flags.String("user", "", "cloud-init user (default: ubuntu)")
+	imageOS := flags.String("image-os", "", "guest OS family for local/custom images (systemd or openrc)")
 	dockerfile := flags.String("dockerfile", "", "use a Dockerfile to provision the VM (image arg becomes optional)")
 	uefi := flags.Bool("uefi", false, "boot via OVMF (auto-enabled when --device is set)")
 	detach := flags.Bool("detach", true, "start in background (kept for symmetry; foreground is not supported)")
@@ -108,6 +109,7 @@ func runRun(args []string) error {
 		Services: map[string]compose.Service{
 			serviceName: {
 				Image:      image,
+				ImageOS:    *imageOS,
 				Dockerfile: *dockerfile,
 				VM: compose.VM{
 					VCPU:     *vcpu,

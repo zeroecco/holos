@@ -27,6 +27,8 @@ const (
 	// a failed QMP attempt and as a safety net for VMs that don't honour
 	// ACPI powerdown.
 	sigtermGrace = 10 * time.Second
+
+	portRetryAttempts = 5
 )
 
 func (m *Manager) startInstance(project string, manifest config.Manifest, index int) (InstanceRecord, error) {
@@ -53,16 +55,6 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		return InstanceRecord{}, err
 	}
 
-	ports, err := allocatePorts(manifest, index)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-
-	sshPort, err := allocateEphemeralTCPPort()
-	if err != nil {
-		return InstanceRecord{}, fmt.Errorf("allocate ssh port: %w", err)
-	}
-
 	logPath := filepath.Join(workDir, "console.log")
 	serialPath := filepath.Join(workDir, "serial.sock")
 	qmpPath := filepath.Join(workDir, "qmp.sock")
@@ -73,7 +65,7 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		return InstanceRecord{}, err
 	}
 
-	spec := qemu.LaunchSpec{
+	baseSpec := qemu.LaunchSpec{
 		Name:        instanceName,
 		Index:       index,
 		OverlayPath: overlayPath,
@@ -81,50 +73,36 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		LogPath:     logPath,
 		SerialPath:  serialPath,
 		QMPPath:     qmpPath,
-		Ports:       ports,
 		Volumes:     volumes,
-		SSHPort:     sshPort,
 	}
-
 	if manifest.VM.UEFI {
 		ovmfCode, ovmfVars, err := m.prepareUEFI(workDir)
 		if err != nil {
 			return InstanceRecord{}, err
 		}
-		spec.OVMFCode = ovmfCode
-		spec.OVMFVars = ovmfVars
+		baseSpec.OVMFCode = ovmfCode
+		baseSpec.OVMFVars = ovmfVars
 	}
 
-	args, err := qemu.BuildArgs(manifest, spec)
+	var ports []qemu.PortMapping
+	var sshPort int
+	pid, err := m.launchWithPortRetry(manifest, baseSpec, qemuLogPath, func() (qemu.LaunchSpec, error) {
+		var err error
+		ports, err = allocatePorts(manifest, index)
+		if err != nil {
+			return qemu.LaunchSpec{}, err
+		}
+		sshPort, err = allocateEphemeralTCPPort()
+		if err != nil {
+			return qemu.LaunchSpec{}, fmt.Errorf("allocate ssh port: %w", err)
+		}
+		spec := baseSpec
+		spec.Ports = ports
+		spec.SSHPort = sshPort
+		return spec, nil
+	})
 	if err != nil {
 		return InstanceRecord{}, err
-	}
-
-	qemuLog, err := os.OpenFile(qemuLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return InstanceRecord{}, fmt.Errorf("open qemu log: %w", err)
-	}
-	defer qemuLog.Close()
-
-	command, err := m.qemuSystemCommand(args...)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-	command.Stdout = qemuLog
-	command.Stderr = qemuLog
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	if err := command.Start(); err != nil {
-		return InstanceRecord{}, fmt.Errorf("start qemu: %w", err)
-	}
-
-	pid := command.Process.Pid
-	_ = command.Process.Release()
-
-	time.Sleep(300 * time.Millisecond)
-	if !processAlive(pid) {
-		content, _ := os.ReadFile(qemuLogPath)
-		return InstanceRecord{}, fmt.Errorf("qemu exited early for %s: %s", instanceName, strings.TrimSpace(string(content)))
 	}
 
 	return InstanceRecord{
@@ -150,11 +128,6 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 func (m *Manager) restartInstance(project string, manifest config.Manifest, prev InstanceRecord) (InstanceRecord, error) {
 	qemuLogPath := filepath.Join(prev.WorkDir, "qemu.log")
 
-	ports, err := allocatePorts(manifest, prev.Index)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-
 	// Volume symlinks may have been removed manually or by a partial
 	// cleanup; recreate them idempotently before boot.
 	volumes, err := materializeInstanceVolumes(m.stateDir, project, prev.WorkDir, manifest.Mounts)
@@ -167,15 +140,7 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 	// firewall rules keep working. If that port got grabbed by
 	// another process between stop and start, fall back to a fresh
 	// allocation rather than failing the boot.
-	sshPort := prev.SSHPort
-	if sshPort == 0 || ensureTCPPortAvailable(sshPort) != nil {
-		sshPort, err = allocateEphemeralTCPPort()
-		if err != nil {
-			return InstanceRecord{}, fmt.Errorf("allocate ssh port: %w", err)
-		}
-	}
-
-	spec := qemu.LaunchSpec{
+	baseSpec := qemu.LaunchSpec{
 		Name:        prev.Name,
 		Index:       prev.Index,
 		OverlayPath: prev.OverlayPath,
@@ -183,9 +148,7 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 		LogPath:     prev.LogPath,
 		SerialPath:  prev.SerialPath,
 		QMPPath:     prev.QMPPath,
-		Ports:       ports,
 		Volumes:     volumes,
-		SSHPort:     sshPort,
 	}
 
 	if manifest.VM.UEFI {
@@ -193,40 +156,34 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 		if err != nil {
 			return InstanceRecord{}, err
 		}
-		spec.OVMFCode = firmware.CodePath
-		spec.OVMFVars = filepath.Join(prev.WorkDir, "OVMF_VARS.fd")
+		baseSpec.OVMFCode = firmware.CodePath
+		baseSpec.OVMFVars = filepath.Join(prev.WorkDir, "OVMF_VARS.fd")
 	}
 
-	args, err := qemu.BuildArgs(manifest, spec)
+	var ports []qemu.PortMapping
+	var sshPort int
+	first := true
+	pid, err := m.launchWithPortRetry(manifest, baseSpec, qemuLogPath, func() (qemu.LaunchSpec, error) {
+		var err error
+		ports, err = allocatePorts(manifest, prev.Index)
+		if err != nil {
+			return qemu.LaunchSpec{}, err
+		}
+		sshPort = prev.SSHPort
+		if !first || sshPort == 0 || ensureTCPPortAvailable(sshPort) != nil {
+			sshPort, err = allocateEphemeralTCPPort()
+			if err != nil {
+				return qemu.LaunchSpec{}, fmt.Errorf("allocate ssh port: %w", err)
+			}
+		}
+		first = false
+		spec := baseSpec
+		spec.Ports = ports
+		spec.SSHPort = sshPort
+		return spec, nil
+	})
 	if err != nil {
 		return InstanceRecord{}, err
-	}
-
-	qemuLog, err := os.OpenFile(qemuLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return InstanceRecord{}, fmt.Errorf("open qemu log: %w", err)
-	}
-	defer qemuLog.Close()
-
-	command, err := m.qemuSystemCommand(args...)
-	if err != nil {
-		return InstanceRecord{}, err
-	}
-	command.Stdout = qemuLog
-	command.Stderr = qemuLog
-	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
-	if err := command.Start(); err != nil {
-		return InstanceRecord{}, fmt.Errorf("start qemu: %w", err)
-	}
-
-	pid := command.Process.Pid
-	_ = command.Process.Release()
-
-	time.Sleep(300 * time.Millisecond)
-	if !processAlive(pid) {
-		content, _ := os.ReadFile(qemuLogPath)
-		return InstanceRecord{}, fmt.Errorf("qemu exited early for %s: %s", prev.Name, strings.TrimSpace(string(content)))
 	}
 
 	return InstanceRecord{
@@ -245,6 +202,70 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 		SSHPort:            sshPort,
 		LastStarted:        time.Now().UTC(),
 	}, nil
+}
+
+func (m *Manager) launchWithPortRetry(manifest config.Manifest, base qemu.LaunchSpec, qemuLogPath string, nextSpec func() (qemu.LaunchSpec, error)) (int, error) {
+	var lastErr error
+	for attempt := 1; attempt <= portRetryAttempts; attempt++ {
+		spec, err := nextSpec()
+		if err != nil {
+			return 0, err
+		}
+		args, err := qemu.BuildArgs(manifest, spec)
+		if err != nil {
+			return 0, err
+		}
+		pid, logText, err := m.launchQEMU(args, qemuLogPath, base.Name)
+		if err == nil {
+			return pid, nil
+		}
+		lastErr = err
+		if !isQEMUHostPortConflict(logText) {
+			return 0, err
+		}
+		fmt.Fprintf(os.Stderr, "warning: qemu reported a host port conflict for %s; retrying with fresh ephemeral ports (%d/%d)\n",
+			base.Name, attempt, portRetryAttempts)
+	}
+	return 0, lastErr
+}
+
+func (m *Manager) launchQEMU(args []string, qemuLogPath, instanceName string) (pid int, logText string, err error) {
+	qemuLog, err := os.OpenFile(qemuLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return 0, "", fmt.Errorf("open qemu log: %w", err)
+	}
+	defer qemuLog.Close()
+
+	command, err := m.qemuSystemCommand(args...)
+	if err != nil {
+		return 0, "", err
+	}
+	command.Stdout = qemuLog
+	command.Stderr = qemuLog
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := command.Start(); err != nil {
+		return 0, "", fmt.Errorf("start qemu: %w", err)
+	}
+
+	pid = command.Process.Pid
+	_ = command.Process.Release()
+
+	time.Sleep(300 * time.Millisecond)
+	if processAlive(pid) {
+		return pid, "", nil
+	}
+	content, _ := os.ReadFile(qemuLogPath)
+	logText = strings.TrimSpace(string(content))
+	return 0, logText, fmt.Errorf("qemu exited early for %s: %s", instanceName, logText)
+}
+
+func isQEMUHostPortConflict(logText string) bool {
+	lower := strings.ToLower(logText)
+	return strings.Contains(lower, "hostfwd") &&
+		(strings.Contains(lower, "address already in use") ||
+			strings.Contains(lower, "could not set up host forwarding") ||
+			strings.Contains(lower, "failed to set up host forwarding"))
 }
 
 func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) error {

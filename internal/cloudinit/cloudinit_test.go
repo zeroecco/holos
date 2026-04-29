@@ -90,8 +90,8 @@ func TestRenderAlpineSkipsSystemdBits(t *testing.T) {
 	t.Parallel()
 
 	manifest := config.Manifest{
-		Name:  "web",
-		Image: "/var/cache/holos/images/alpine-3.21-abcd.qcow2",
+		Name:    "web",
+		ImageOS: config.ImageOSOpenRC,
 		CloudInit: config.CloudInit{
 			User:     "ubuntu",
 			Packages: []string{"nginx"},
@@ -149,6 +149,12 @@ func TestVolumeMountRunCmd_ReadWrite(t *testing.T) {
 	if strings.Contains(s, "ext4 ro,nofail") {
 		t.Fatalf("writable volume should not be marked ro in fstab: %s", s)
 	}
+	if strings.Contains(s, "mount '/var/lib/data' || true") {
+		t.Fatalf("volume mount failures should be visible, got swallowed command: %s", s)
+	}
+	if !strings.Contains(s, "holos: failed to mount volume data") {
+		t.Fatalf("volume mount command should emit a clear holos error: %s", s)
+	}
 }
 
 // TestVolumeMountRunCmd_ReadOnly pins the ro contract end-to-end on
@@ -187,8 +193,8 @@ func TestRenderSystemdIncludesSerialGetty(t *testing.T) {
 	t.Parallel()
 
 	manifest := config.Manifest{
-		Name:  "web",
-		Image: "/var/cache/holos/images/ubuntu-noble-abcd.qcow2",
+		Name:    "web",
+		ImageOS: config.ImageOSSystemd,
 		CloudInit: config.CloudInit{
 			User: "ubuntu",
 		},

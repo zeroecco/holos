@@ -103,14 +103,23 @@ release:
 
     ### Install
 
-    Pick the archive for your platform from the **Assets** below, untar,
-    and put `holos` on your `PATH`:
+    Pick the archive for your platform from the **Assets** below, verify it
+    against `checksums.txt`, then untar and put `holos` on your `PATH`:
 
     ```bash
-    curl -L https://github.com/zeroecco/holos/releases/download/{{ .Tag }}/holos_{{ trimprefix .Tag "v" }}_Linux_x86_64.tar.gz \
-      | sudo tar -xz -C /usr/local/bin holos
+    ASSET=holos_{{ trimprefix .Tag "v" }}_Linux_x86_64.tar.gz
+    BASE=https://github.com/zeroecco/holos/releases/download/{{ .Tag }}
+    curl -LO $BASE/$ASSET
+    curl -LO $BASE/checksums.txt
+    grep " $ASSET$" checksums.txt | sha256sum -c -
+    gh attestation verify $ASSET --repo zeroecco/holos
+    sudo tar -xz -C /usr/local/bin -f $ASSET holos
     holos version
     ```
+
+    The `checksums.txt` asset is SHA-256. GitHub artifact attestations provide
+    signed provenance for the release artifacts; use `gh attestation verify`
+    before installing on hosts you care about.
 
     Linux requires `/dev/kvm` and `qemu-system-x86_64` for `up` and `run`.
     macOS builds are intended for compose-file authoring and offline-ish

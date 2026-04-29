@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"net"
 	"net/http"
@@ -70,6 +72,12 @@ type Image struct {
 	// mismatch. Empty means verification is skipped (registry entries
 	// that track a mutable "latest" URL can't pin a hash).
 	SHA256 string
+	// SHA512 is the expected hex-encoded sha512 of the artifact at URL.
+	SHA512 string
+	// SHA256URL/SHA512URL point at upstream checksum manifests for
+	// mutable aliases such as Ubuntu "current" or Debian "latest".
+	SHA256URL string
+	SHA512URL string
 	// User is the conventional cloud-init user for this distro
 	// (alpine, debian, fedora, …). cloud-init will *create* whatever
 	// user we ask for, but matching the convention means tools that
@@ -78,6 +86,9 @@ type Image struct {
 	// because a user named "ubuntu" failed to materialise on Debian.
 	// Empty falls back to compose's global default.
 	User string
+	// OSFamily is explicit guest metadata consumed by cloud-init
+	// rendering. Supported values are "systemd" and "openrc".
+	OSFamily string
 }
 
 // Registry maps short names like "alpine" or "ubuntu:noble" to download URLs.
@@ -90,13 +101,11 @@ type Image struct {
 // strict verification against such distros should populate a local entry
 // with the exact versioned URL plus its SHA256.
 var Registry = []Image{
-	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS). Pinned artifact,
-	// but we ship no SHA256 by default (upstream publishes .sha256 alongside
-	// the image; see docs for how to pin locally).
-	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true, User: "alpine"},
+	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS).
+	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: "qcow2", Default: true, User: "alpine", OSFamily: "openrc", SHA512URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2.sha512"},
 
 	// Arch Linux (cloud-init, official arch-boxes). Rolling release, URL tracks "latest".
-	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch"},
+	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch", OSFamily: "systemd", SHA256URL: "https://fastly.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2.SHA256"},
 
 	// Debian (generic variant, cloud-init). URL uses "latest" symlink.
 	//
@@ -111,17 +120,17 @@ var Registry = []Image{
 	// The "generic" variant ships sshd enabled, still supports the
 	// NoCloud datasource we feed via the cloud-localds ISO, and is
 	// only ~25 MB larger.
-	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian"},
-	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian"},
+	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
+	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
 
 	// Ubuntu (cloud images, NoCloud compatible). The "current" alias rotates on rebuild.
-	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu"},
-	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
-	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
-	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu"},
+	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"},
+	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"},
+	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"},
+	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"},
 
 	// Fedora Cloud Base. Point release URL but still versioned.
-	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora"},
+	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora", OSFamily: "systemd", SHA256URL: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM"},
 }
 
 // Resolve looks up an image reference. Accepts:
@@ -156,7 +165,8 @@ func Resolve(ref string) (*Image, error) {
 }
 
 // Pull downloads an image to the cache directory, returning the local path.
-// If already cached, returns immediately.
+// If already cached, re-verifies the bytes when the registry entry has
+// checksum metadata before returning.
 //
 // When the resolved registry entry carries a non-empty SHA256, the newly
 // downloaded bytes are verified against it; a mismatch deletes the partial
@@ -179,19 +189,77 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 	filename := cacheFilename(img)
 	cached := filepath.Join(cacheDir, filename)
 
+	expected, err := expectedHash(img)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve checksum for %s: %w", ref, err)
+	}
+
 	if _, err := os.Stat(cached); err == nil {
-		return cached, img.Format, nil
+		if expected.Algorithm != "" {
+			if err := verifyFile(cached, expected); err != nil {
+				_ = os.Remove(cached)
+				fmt.Printf("cached image failed verification; re-pulling %s:%s\n", img.Name, img.Tag)
+			} else {
+				fmt.Printf("verified cached %s (%s:%s)\n", cached, expected.Algorithm, expected.Value[:16])
+				return cached, img.Format, nil
+			}
+		} else {
+			return cached, img.Format, nil
+		}
 	}
 
 	fmt.Printf("pulling %s:%s ...\n", img.Name, img.Tag)
 
-	if err := download(img.URL, cached, img.SHA256); err != nil {
+	if err := download(img.URL, cached, expected); err != nil {
 		_ = os.Remove(cached)
 		return "", "", fmt.Errorf("pull %s: %w", ref, err)
 	}
 
 	fmt.Printf("cached  %s\n", cached)
 	return cached, img.Format, nil
+}
+
+// Verification describes the result of checking an image cache entry.
+type Verification struct {
+	Ref       string
+	Path      string
+	Format    string
+	Algorithm string
+	Hash      string
+	Verified  bool
+	Skipped   bool
+	Reason    string
+}
+
+// Verify checks an already-cached registry image (or a local path when a
+// caller has no pinned hash). It never downloads missing images.
+func Verify(ref string, cacheDir string) (Verification, error) {
+	img, err := Resolve(ref)
+	if err != nil {
+		return Verification{}, err
+	}
+	if img == nil {
+		return Verification{Ref: ref, Path: ref, Format: inferFormat(ref), Skipped: true, Reason: "local image has no registry checksum metadata"}, nil
+	}
+	expected, err := expectedHash(img)
+	if err != nil {
+		return Verification{}, fmt.Errorf("resolve checksum for %s: %w", ref, err)
+	}
+	path := filepath.Join(cacheDir, cacheFilename(img))
+	v := Verification{Ref: ref, Path: path, Format: img.Format, Algorithm: expected.Algorithm, Hash: expected.Value}
+	if expected.Algorithm == "" {
+		v.Skipped = true
+		v.Reason = "registry entry has no checksum metadata"
+		return v, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		return v, err
+	}
+	if err := verifyFile(path, expected); err != nil {
+		return v, err
+	}
+	v.Verified = true
+	return v, nil
 }
 
 // DefaultCacheDir returns the image cache directory.
@@ -229,7 +297,7 @@ func ListAvailable() []Image {
 // moment bodyIdleTimeout elapses without a successful Read; the
 // Transport propagates the cancellation into the outstanding Read as
 // an error, so io.Copy unblocks promptly.
-func download(url, dest, expectSHA256 string) error {
+func download(url, dest string, expect imageHash) error {
 	// Concurrent `holos pull` or `holos up` invocations racing on
 	// the same uncached image must not share a partial-file path.
 	// Before this change both processes opened `dest + ".part"`,
@@ -270,7 +338,10 @@ func download(url, dest, expectSHA256 string) error {
 		return err
 	}
 
-	hasher := sha256.New()
+	hasher, err := newHasher(expect.Algorithm)
+	if err != nil {
+		return err
+	}
 	writer := io.MultiWriter(file, hasher)
 
 	body := newIdleTimeoutReader(resp.Body, bodyIdleTimeout, cancel)
@@ -300,26 +371,135 @@ func download(url, dest, expectSHA256 string) error {
 
 	gotHex := hex.EncodeToString(hasher.Sum(nil))
 
-	if expectSHA256 != "" && !strings.EqualFold(gotHex, expectSHA256) {
+	if expect.Value != "" && !strings.EqualFold(gotHex, expect.Value) {
 		_ = os.Remove(tmp)
 		return fmt.Errorf(
-			"sha256 mismatch for %s:\n  expected %s\n  got      %s",
-			url, strings.ToLower(expectSHA256), gotHex,
+			"%s mismatch for %s:\n  expected %s\n  got      %s",
+			expect.Algorithm, url, strings.ToLower(expect.Value), gotHex,
 		)
 	}
 
 	verified := "unverified"
-	if expectSHA256 != "" {
+	if expect.Value != "" {
 		verified = "verified"
 	}
-	fmt.Printf("  %s  %d MB  sha256:%s (%s)\n",
+	algo := expect.Algorithm
+	if algo == "" {
+		algo = "sha256"
+	}
+	fmt.Printf("  %s  %d MB  %s:%s (%s)\n",
 		filepath.Base(dest),
 		size/(1024*1024),
+		algo,
 		gotHex[:16],
 		verified,
 	)
 
 	return os.Rename(tmp, dest)
+}
+
+type imageHash struct {
+	Algorithm string
+	Value     string
+}
+
+func expectedHash(img *Image) (imageHash, error) {
+	switch {
+	case img.SHA256 != "":
+		return imageHash{Algorithm: "sha256", Value: strings.ToLower(img.SHA256)}, nil
+	case img.SHA512 != "":
+		return imageHash{Algorithm: "sha512", Value: strings.ToLower(img.SHA512)}, nil
+	case img.SHA256URL != "":
+		value, err := fetchChecksum(img.SHA256URL, filepath.Base(img.URL), 64)
+		return imageHash{Algorithm: "sha256", Value: value}, err
+	case img.SHA512URL != "":
+		value, err := fetchChecksum(img.SHA512URL, filepath.Base(img.URL), 128)
+		return imageHash{Algorithm: "sha512", Value: value}, err
+	default:
+		return imageHash{}, nil
+	}
+}
+
+func fetchChecksum(url, filename string, hexLen int) (string, error) {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	var onlyHash string
+	for _, line := range strings.Split(string(data), "\n") {
+		for _, field := range strings.Fields(line) {
+			field = strings.Trim(field, "()*=")
+			if len(field) == hexLen && isHex(field) {
+				if onlyHash == "" {
+					onlyHash = strings.ToLower(field)
+				} else if onlyHash != strings.ToLower(field) {
+					onlyHash = "-"
+				}
+			}
+		}
+		if !strings.Contains(line, filename) {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			field = strings.Trim(field, "()*=")
+			if len(field) == hexLen && isHex(field) {
+				return strings.ToLower(field), nil
+			}
+		}
+	}
+	if onlyHash != "" && onlyHash != "-" {
+		return onlyHash, nil
+	}
+	return "", fmt.Errorf("checksum for %s not found in %s", filename, url)
+}
+
+func isHex(s string) bool {
+	for _, r := range s {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func verifyFile(path string, expect imageHash) error {
+	hasher, err := newHasher(expect.Algorithm)
+	if err != nil {
+		return err
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(hasher.Sum(nil))
+	if !strings.EqualFold(got, expect.Value) {
+		return fmt.Errorf("%s mismatch for %s:\n  expected %s\n  got      %s",
+			expect.Algorithm, path, strings.ToLower(expect.Value), got)
+	}
+	return nil
+}
+
+func newHasher(algorithm string) (hash.Hash, error) {
+	switch algorithm {
+	case "", "sha256":
+		return sha256.New(), nil
+	case "sha512":
+		return sha512.New(), nil
+	default:
+		return nil, fmt.Errorf("unsupported hash algorithm %q", algorithm)
+	}
 }
 
 // randomHexSuffix returns a short hex string suitable for
@@ -433,4 +613,13 @@ func inferFormat(path string) string {
 	default:
 		return "qcow2"
 	}
+}
+
+// OSFamily returns the registry-provided guest OS family metadata for ref.
+func OSFamily(ref string) string {
+	img, err := Resolve(ref)
+	if err != nil || img == nil {
+		return ""
+	}
+	return img.OSFamily
 }

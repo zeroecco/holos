@@ -43,7 +43,10 @@ git push origin vX.Y.Z
 
 The workflow cross-compiles Linux and macOS binaries for amd64 and arm64,
 packages them with `LICENSE`, `NOTICE`, and `README.md`, computes SHA-256
-checksums, and publishes a GitHub release.
+checksums, publishes a GitHub release, and emits GitHub artifact attestations.
+Release notes keep the checksum file and signed provenance verification command
+visible near the install command so operators can verify downloads before
+extracting them.
 
 To rehearse locally without publishing:
 

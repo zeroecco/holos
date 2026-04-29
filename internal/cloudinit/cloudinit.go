@@ -2,7 +2,6 @@ package cloudinit
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -77,7 +76,7 @@ const serialGettySystemdCmd = "command -v systemctl >/dev/null 2>&1 && { systemc
 // Render produces cloud-init user-data, meta-data, and network-config.
 // networkConfig is empty when there is no internal network.
 func Render(manifest config.Manifest, instanceName string, instanceIndex int) (userData, metaData, networkConfig string) {
-	family := detectOSFamily(manifest.Image)
+	family := osFamilyFromMetadata(manifest.ImageOS)
 
 	cc := cloudConfig{
 		Hostname:       hostname(manifest, instanceName),
@@ -127,13 +126,11 @@ func Render(manifest config.Manifest, instanceName string, instanceIndex int) (u
 	return ud, md, nc
 }
 
-// detectOSFamily infers the init system from the image path. The compose
-// resolver uses either a short registry name ("alpine"), a registry URL
-// (whose cached filename contains "alpine-"), or a user-provided local path.
-// Anything that doesn't look like Alpine is assumed to be systemd-based.
-func detectOSFamily(image string) osFamily {
-	base := strings.ToLower(filepath.Base(image))
-	if strings.Contains(base, "alpine") {
+// osFamilyFromMetadata maps the explicit image metadata resolved from the
+// registry or compose file into cloud-init rendering behavior. Unknown or empty
+// metadata stays systemd for compatibility with existing local images.
+func osFamilyFromMetadata(imageOS string) osFamily {
+	if imageOS == config.ImageOSOpenRC {
 		return familyOpenRC
 	}
 	return familySystemd
@@ -276,7 +273,8 @@ func volumeMountRunCmd(manifest config.Manifest) []string {
 				shquote(" "+target+" "),
 				shquote(dev+" "+target+" ext4 "+fstabOpts+" 0 2"),
 			),
-			fmt.Sprintf("mountpoint -q %s || mount %s || true", shquote(target), shquote(target)),
+			fmt.Sprintf("mountpoint -q %s || mount %s || { echo %s >&2; exit 1; }",
+				shquote(target), shquote(target), shquote("holos: failed to mount volume "+m.VolumeName+" at "+target)),
 		)
 		cmds = append(cmds, strings.Join(steps, " && "))
 	}

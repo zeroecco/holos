@@ -105,6 +105,16 @@ func DefaultStateDir() string {
 // Up brings a compose project to the desired state, starting services
 // in topological order.
 func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
+	var record *ProjectRecord
+	err := m.withProjectLock(project.Name, func() error {
+		var err error
+		record, err = m.upLocked(project)
+		return err
+	})
+	return record, err
+}
+
+func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 	if err := m.ensureLayout(); err != nil {
 		return nil, err
 	}
@@ -308,20 +318,32 @@ func augmentServicesWithExecKey(services map[string]config.Manifest, pubKey stri
 
 // Down stops and removes all resources for a project.
 func (m *Manager) Down(projectName string) error {
-	record, err := m.loadProject(projectName)
-	if err != nil {
-		return err
-	}
+	return m.withProjectLock(projectName, func() error {
+		record, err := m.loadProject(projectName)
+		if err != nil {
+			return err
+		}
 
-	if err := m.tearDownProject(record); err != nil {
-		return err
-	}
+		if err := m.tearDownProject(record); err != nil {
+			return err
+		}
 
-	return os.Remove(projectFile(m.stateDir, projectName))
+		return os.Remove(projectFile(m.stateDir, projectName))
+	})
 }
 
 // StopProject stops all services without removing state.
 func (m *Manager) StopProject(projectName string) (*ProjectRecord, error) {
+	var record *ProjectRecord
+	err := m.withProjectLock(projectName, func() error {
+		var err error
+		record, err = m.stopProjectLocked(projectName)
+		return err
+	})
+	return record, err
+}
+
+func (m *Manager) stopProjectLocked(projectName string) (*ProjectRecord, error) {
 	record, err := m.loadProject(projectName)
 	if err != nil {
 		return nil, err
@@ -344,6 +366,16 @@ func (m *Manager) StopProject(projectName string) (*ProjectRecord, error) {
 
 // StopService stops a single service within a project.
 func (m *Manager) StopService(projectName, serviceName string) (*ProjectRecord, error) {
+	var record *ProjectRecord
+	err := m.withProjectLock(projectName, func() error {
+		var err error
+		record, err = m.stopServiceLocked(projectName, serviceName)
+		return err
+	})
+	return record, err
+}
+
+func (m *Manager) stopServiceLocked(projectName, serviceName string) (*ProjectRecord, error) {
 	record, err := m.loadProject(projectName)
 	if err != nil {
 		return nil, err
@@ -374,6 +406,16 @@ func (m *Manager) StopService(projectName, serviceName string) (*ProjectRecord, 
 
 // ProjectStatus returns the current state of a project, refreshing PID liveness.
 func (m *Manager) ProjectStatus(projectName string) (*ProjectRecord, error) {
+	var record *ProjectRecord
+	err := m.withProjectLock(projectName, func() error {
+		var err error
+		record, err = m.projectStatusLocked(projectName)
+		return err
+	})
+	return record, err
+}
+
+func (m *Manager) projectStatusLocked(projectName string) (*ProjectRecord, error) {
 	record, err := m.loadProject(projectName)
 	if err != nil {
 		return nil, err
@@ -620,7 +662,7 @@ func (m *Manager) refreshProject(record *ProjectRecord) {
 // is silent and idempotent. Failures here are surfaced because a
 // loose mode is a security regression worth refusing to paper over.
 func (m *Manager) ensureLayout() error {
-	for _, dir := range []string{m.stateDir, projectsDir(m.stateDir), instancesRoot(m.stateDir)} {
+	for _, dir := range []string{m.stateDir, projectsDir(m.stateDir), instancesRoot(m.stateDir), locksDir(m.stateDir)} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("ensure state dir %s: %w", dir, err)
 		}

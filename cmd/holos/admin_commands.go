@@ -88,15 +88,61 @@ func runPull(args []string) error {
 	return nil
 }
 
+func runVerify(args []string) error {
+	flags := flag.NewFlagSet("verify", flag.ContinueOnError)
+	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	all := flags.Bool("all", false, "verify every cached registry image with checksum metadata")
+	flags.SetOutput(os.Stderr)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	refs := flags.Args()
+	if *all {
+		if len(refs) != 0 {
+			return errors.New("verify --all does not accept image arguments")
+		}
+		for _, img := range images.ListAvailable() {
+			refs = append(refs, img.Name+":"+img.Tag)
+		}
+	} else if len(refs) == 0 {
+		return errors.New("verify requires an image name, local path, or --all")
+	}
+
+	cacheDir := images.DefaultCacheDir(*stateDir)
+	for _, ref := range refs {
+		res, err := images.Verify(ref, cacheDir)
+		if err != nil {
+			if *all && os.IsNotExist(err) {
+				fmt.Printf("%s: skipped (not cached)\n", ref)
+				continue
+			}
+			return fmt.Errorf("verify %s: %w", ref, err)
+		}
+		if res.Skipped {
+			fmt.Printf("%s: skipped (%s)\n", ref, res.Reason)
+			continue
+		}
+		fmt.Printf("%s: verified %s:%s %s\n", ref, res.Algorithm, res.Hash[:16], res.Path)
+	}
+	return nil
+}
+
 func runImages(_ []string) error {
 	writer := tabwriter.NewWriter(os.Stdout, 0, 8, 2, ' ', 0)
-	fmt.Fprintln(writer, "NAME\tTAG\tFORMAT")
+	fmt.Fprintln(writer, "NAME\tTAG\tFORMAT\tOS\tVERIFY")
 	for _, img := range images.ListAvailable() {
 		name := img.Name
 		if img.Default {
 			name += " *"
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\n", name, img.Tag, img.Format)
+		verify := "-"
+		switch {
+		case img.SHA256 != "" || img.SHA256URL != "":
+			verify = "sha256"
+		case img.SHA512 != "" || img.SHA512URL != "":
+			verify = "sha512"
+		}
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", name, img.Tag, img.Format, img.OSFamily, verify)
 	}
 	return writer.Flush()
 }
@@ -507,6 +553,7 @@ Usage:
   holos logs [-f holos.yaml] <svc|inst>  show logs for a service (all replicas) or one instance
   holos validate [-f holos.yaml]       validate compose file
   holos pull <image>                   pull a cloud image (e.g. alpine, ubuntu:noble)
+  holos verify <image>|--all           verify cached image checksums
   holos images                         list available images
   holos devices [--gpu]                list PCI devices and IOMMU groups
   holos doctor [--json]                check host dependencies and state dir access

@@ -1,0 +1,92 @@
+name: kvm smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/kvm-smoke.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'test/kvm/**'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  real-kvm:
+    name: Alpine and Ubuntu real KVM smoke
+    runs-on: [self-hosted, linux, kvm]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          check-latest: true
+
+      - name: Verify host
+        run: |
+          test -r /dev/kvm
+          qemu-system-x86_64 --version
+          qemu-img --version
+          cloud-localds --version || genisoimage --version || mkisofs --version || xorriso --version
+
+      - name: Build holos
+        run: go build -o bin/holos ./cmd/holos
+
+      - name: Smoke Alpine and Ubuntu
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOLOS_STATE_DIR="$RUNNER_TEMP/holos-kvm-state"
+          rm -rf "$HOLOS_STATE_DIR"
+          mkdir -p "$HOLOS_STATE_DIR"
+
+          cleanup() {
+            ./bin/holos down alpine-smoke || true
+            ./bin/holos down ubuntu-smoke || true
+            ./bin/holos down volume-smoke || true
+          }
+          trap cleanup EXIT
+
+          ./bin/holos doctor
+          ./bin/holos pull alpine
+          ./bin/holos pull ubuntu:noble
+          ./bin/holos verify alpine
+          ./bin/holos verify ubuntu:noble
+
+          ./bin/holos run --name alpine-smoke -p 18080:80 --pkg nginx \
+            --runcmd 'rc-service nginx start' alpine
+          ./bin/holos exec -w 5m alpine-smoke -- true
+          curl --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:18080/ >/dev/null
+          ./bin/holos stop alpine-smoke
+          ./bin/holos start alpine-smoke
+          ./bin/holos exec -w 5m alpine-smoke -- uname -a
+          ./bin/holos down alpine-smoke
+
+          ./bin/holos run --name ubuntu-smoke ubuntu:noble -- true
+          ./bin/holos exec -w 5m ubuntu-smoke -- true
+          ./bin/holos down ubuntu-smoke
+
+          cat > "$RUNNER_TEMP/holos-volume.yaml" <<'YAML'
+          name: volume-smoke
+          services:
+            vm:
+              image: alpine
+              volumes:
+                - data:/mnt/data
+          volumes:
+            data:
+              size: 1G
+          YAML
+          ./bin/holos up -f "$RUNNER_TEMP/holos-volume.yaml"
+          ./bin/holos exec -w 5m volume-smoke -- sh -lc 'mountpoint -q /mnt/data && echo ok > /mnt/data/probe'
+          ./bin/holos stop -f "$RUNNER_TEMP/holos-volume.yaml"
+          ./bin/holos start -f "$RUNNER_TEMP/holos-volume.yaml"
+          ./bin/holos exec -w 5m volume-smoke -- test -f /mnt/data/probe
+          ./bin/holos down volume-smoke

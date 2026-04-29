@@ -81,6 +81,7 @@ type File struct {
 type Service struct {
 	Image           string          `yaml:"image"`
 	ImageFormat     string          `yaml:"image_format,omitempty"`
+	ImageOS         string          `yaml:"image_os,omitempty"`
 	Dockerfile      string          `yaml:"dockerfile,omitempty"`
 	Replicas        int             `yaml:"replicas,omitempty"`
 	VM              VM              `yaml:"vm,omitempty"`
@@ -502,6 +503,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	if err != nil {
 		return config.Manifest{}, err
 	}
+	imageOS := svc.ImageOS
+	if imageOS == "" {
+		imageOS = images.OSFamily(svc.Image)
+	}
+	if imageOS == "" {
+		imageOS = config.ImageOSSystemd
+	}
 
 	vcpu := svc.VM.VCPU
 	if vcpu == 0 {
@@ -595,6 +603,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		Replicas:    replicas,
 		Image:       image,
 		ImageFormat: imageFormat,
+		ImageOS:     imageOS,
 		VM: config.VMConfig{
 			VCPU:      vcpu,
 			MemoryMB:  memMB,

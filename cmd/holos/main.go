@@ -51,6 +51,8 @@ func run(args []string) error {
 		return runValidate(args[1:])
 	case "pull":
 		return runPull(args[1:])
+	case "verify":
+		return runVerify(args[1:])
 	case "images":
 		return runImages(args[1:])
 	case "devices":

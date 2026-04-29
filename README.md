@@ -61,11 +61,19 @@ Pre-built binaries are attached to every
 
 ```bash
 TAG=v0.2.2
-curl -L https://github.com/zeroecco/holos/releases/download/$TAG/holos_${TAG#v}_Linux_x86_64.tar.gz \
-  | sudo tar -xz -C /usr/local/bin holos
+ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
+BASE=https://github.com/zeroecco/holos/releases/download/$TAG
+curl -LO $BASE/$ASSET
+curl -LO $BASE/checksums.txt
+grep " $ASSET$" checksums.txt | sha256sum -c -
+gh attestation verify $ASSET --repo zeroecco/holos
+sudo tar -xz -C /usr/local/bin -f $ASSET holos
 holos version
 holos doctor
 ```
+
+Release pages include SHA-256 checksums and GitHub artifact attestations for
+signed provenance. Verify both before installing binaries on production hosts.
 
 Or build from source:
 
@@ -90,6 +98,7 @@ holos exec <project> [<inst>] [-- cmd...]
 holos logs <project> [<svc|inst>]    show console logs
 holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image
+holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
 holos devices [--gpu]                list PCI devices and IOMMU groups
 holos doctor [--json]                check host dependencies
@@ -115,6 +124,8 @@ holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
 - [Development](./docs/development.md): build, test, host requirements, and
   release process.
 - [Security policy](./SECURITY.md): supported versions and private reporting.
+- [Threat model / hardening](./SECURITY.md#threat-model-and-hardening-guide):
+  image verification, state permissions, locks, and operational guidance.
 - [Contributing](./CONTRIBUTING.md): build, test, style, and PR conventions.
 
 ## Examples

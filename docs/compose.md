@@ -35,6 +35,8 @@ Core fields:
 
 - `services`: map of service name to VM definition.
 - `image`: image alias (`alpine`, `ubuntu:noble`) or local image path.
+- `image_os`: optional guest OS family for local/custom images (`systemd` or
+  `openrc`). Built-in images set this metadata automatically.
 - `dockerfile`: Dockerfile translated into cloud-init provisioning.
 - `replicas`: number of instances for the service. Host ports auto-increment by
   replica index.
@@ -90,7 +92,9 @@ volumes:
 Named volumes attach as virtio-blk devices with stable serials like
 `vol-pgdata`, so the guest sees `/dev/disk/by-id/virtio-vol-pgdata`. For
 read-write volumes, cloud-init creates an ext4 filesystem and fstab entry. For
-read-only volumes, holos skips formatting and writes `ro,nofail` to fstab.
+read-only volumes, holos skips formatting and writes `ro,nofail` to fstab. If a
+guest mount fails, the cloud-init command exits non-zero and writes a
+`holos: failed to mount volume ...` error to the instance console log.
 
 ## Healthchecks And `depends_on`
 

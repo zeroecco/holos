@@ -49,8 +49,13 @@ Runtime commands require Linux with `/dev/kvm`. macOS binaries are still useful 
 
 ```bash
 TAG=v0.2.2
-curl -L https://github.com/zeroecco/holos/releases/download/$TAG/holos_${TAG#v}_Linux_x86_64.tar.gz \
-  | sudo tar -xz -C /usr/local/bin holos
+ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
+BASE=https://github.com/zeroecco/holos/releases/download/$TAG
+curl -LO $BASE/$ASSET
+curl -LO $BASE/checksums.txt
+grep " $ASSET$" checksums.txt | sha256sum -c -
+gh attestation verify $ASSET --repo zeroecco/holos
+sudo tar -xz -C /usr/local/bin -f $ASSET holos
 holos doctor
 ```
 

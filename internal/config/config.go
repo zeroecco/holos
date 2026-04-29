@@ -36,6 +36,11 @@ const (
 	minVolumeSizeBytes = 1 << 20 // 1 MiB
 )
 
+const (
+	ImageOSSystemd = "systemd"
+	ImageOSOpenRC  = "openrc"
+)
+
 // Manifest is the fully resolved description of a single service, consumed
 // by the runtime and qemu packages to launch VM instances.
 type Manifest struct {
@@ -45,6 +50,7 @@ type Manifest struct {
 	Replicas           int                    `json:"replicas"`
 	Image              string                 `json:"image"`
 	ImageFormat        string                 `json:"image_format"`
+	ImageOS            string                 `json:"image_os,omitempty"`
 	VM                 VMConfig               `json:"vm"`
 	Network            NetworkConfig          `json:"network"`
 	Ports              []PortForward          `json:"ports"`
@@ -331,6 +337,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.ImageFormat != "qcow2" && m.ImageFormat != "raw" {
 		return fmt.Errorf("image_format must be one of qcow2 or raw")
+	}
+	if m.ImageOS != "" && m.ImageOS != ImageOSSystemd && m.ImageOS != ImageOSOpenRC {
+		return fmt.Errorf("image_os must be one of %s or %s", ImageOSSystemd, ImageOSOpenRC)
 	}
 	if m.VM.VCPU < 1 {
 		return fmt.Errorf("vm.vcpu must be >= 1")
