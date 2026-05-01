@@ -191,11 +191,15 @@ func (h *Healthcheck) UnmarshalYAML(node *yaml.Node) error {
 
 // VM configures the virtual hardware for a service.
 type VM struct {
-	VCPU      int      `yaml:"vcpu,omitempty"`
-	MemoryMB  int      `yaml:"memory_mb,omitempty"`
-	Machine   string   `yaml:"machine,omitempty"`
-	CPUModel  string   `yaml:"cpu_model,omitempty"`
-	UEFI      bool     `yaml:"uefi,omitempty"`
+	VCPU     int `yaml:"vcpu,omitempty"`
+	MemoryMB int `yaml:"memory_mb,omitempty"`
+	// DiskSize is the requested virtual size of the writable root overlay.
+	// Empty keeps qemu-img's default backing-image size.
+	DiskSize string `yaml:"disk_size,omitempty"`
+	Machine  string `yaml:"machine,omitempty"`
+	CPUModel string `yaml:"cpu_model,omitempty"`
+	UEFI     bool   `yaml:"uefi,omitempty"`
+
 	ExtraArgs []string `yaml:"extra_args,omitempty"`
 }
 
@@ -519,6 +523,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	if memMB == 0 {
 		memMB = config.DefaultMemoryMB
 	}
+	var diskSizeBytes int64
+	if strings.TrimSpace(svc.VM.DiskSize) != "" {
+		diskSizeBytes, err = parseVolumeSize(svc.VM.DiskSize)
+		if err != nil {
+			return config.Manifest{}, fmt.Errorf("vm.disk_size: %w", err)
+		}
+	}
 	machine := svc.VM.Machine
 	if machine == "" {
 		machine = config.DefaultMachine
@@ -605,12 +616,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		ImageFormat: imageFormat,
 		ImageOS:     imageOS,
 		VM: config.VMConfig{
-			VCPU:      vcpu,
-			MemoryMB:  memMB,
-			Machine:   machine,
-			CPUModel:  cpuModel,
-			UEFI:      uefi,
-			ExtraArgs: svc.VM.ExtraArgs,
+			VCPU:          vcpu,
+			MemoryMB:      memMB,
+			DiskSizeBytes: diskSizeBytes,
+			Machine:       machine,
+			CPUModel:      cpuModel,
+			UEFI:          uefi,
+			ExtraArgs:     svc.VM.ExtraArgs,
 		},
 		Devices: devices,
 		Network: config.NetworkConfig{Mode: "user"},
@@ -990,8 +1002,9 @@ func looksLikePath(s string) bool {
 }
 
 // parseVolumeSize accepts a human-friendly size string (case-insensitive):
-// plain bytes ("1048576"), or a decimal with a unit suffix: K/M/G/T (binary
-// multipliers, matching qemu-img convention). Empty returns the default.
+// plain bytes ("1048576"), or a decimal with a unit suffix: K/M/G/T with an
+// optional B ("2G", "2GB"). Multipliers are binary, matching qemu-img
+// convention. Empty returns the default.
 func parseVolumeSize(raw string) (int64, error) {
 	if raw == "" {
 		return defaultVolumeSizeBytes, nil
@@ -1000,6 +1013,12 @@ func parseVolumeSize(raw string) (int64, error) {
 	s := strings.TrimSpace(strings.ToUpper(raw))
 	if s == "" {
 		return defaultVolumeSizeBytes, nil
+	}
+	if strings.HasSuffix(s, "B") {
+		s = strings.TrimSuffix(s, "B")
+		if s == "" {
+			return 0, fmt.Errorf("invalid size %q (expected e.g. \"10GB\")", raw)
+		}
 	}
 
 	multiplier := int64(1)
@@ -1020,7 +1039,7 @@ func parseVolumeSize(raw string) (int64, error) {
 
 	value, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid size %q (expected e.g. \"10G\"): %w", raw, err)
+		return 0, fmt.Errorf("invalid size %q (expected e.g. \"10GB\"): %w", raw, err)
 	}
 	bytes := int64(value * float64(multiplier))
 	if bytes < minVolumeSizeBytes {

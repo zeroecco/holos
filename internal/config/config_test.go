@@ -106,6 +106,23 @@ func TestValidateRejectsInvalidPCIAddress(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsTinyDiskSize(t *testing.T) {
+	t.Parallel()
+
+	m := Manifest{
+		Name:        "api",
+		Replicas:    1,
+		Image:       "/tmp/base.qcow2",
+		ImageFormat: "qcow2",
+		VM:          VMConfig{VCPU: 1, MemoryMB: 512, DiskSizeBytes: 100},
+		Network:     NetworkConfig{Mode: "user"},
+		CloudInit:   CloudInit{User: "ubuntu"},
+	}
+	if err := m.Validate(); err == nil {
+		t.Fatal("expected invalid vm.disk_size_bytes error")
+	}
+}
+
 func TestValidateUserName(t *testing.T) {
 	t.Parallel()
 

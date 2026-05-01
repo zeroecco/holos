@@ -41,6 +41,10 @@
       "pattern": "^[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))*$",
       "examples": ["30s", "2m", "1h30m", "500ms"]
     },
+    "size": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+)?([KkMmGgTt][Bb]?|[Bb])?$"
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -126,6 +130,9 @@
         "memory_mb": {
           "type": "integer",
           "minimum": 128
+        },
+        "disk_size": {
+          "$ref": "#/$defs/size"
         },
         "machine": {
           "type": "string",
@@ -262,8 +269,7 @@
       "additionalProperties": false,
       "properties": {
         "size": {
-          "type": "string",
-          "pattern": "^[0-9]+(\\.[0-9]+)?([KkMmGgTt])?$",
+          "$ref": "#/$defs/size",
           "default": "10G"
         }
       }

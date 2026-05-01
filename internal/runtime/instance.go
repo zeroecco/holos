@@ -286,6 +286,9 @@ func (m *Manager) createOverlay(manifest config.Manifest, overlayPath string) er
 		"-b", manifest.Image,
 		overlayPath,
 	}
+	if manifest.VM.DiskSizeBytes > 0 {
+		args = append(args, fmt.Sprintf("%d", manifest.VM.DiskSizeBytes))
+	}
 	if output, err := exec.Command(qemuImg, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("create overlay: %w: %s", err, strings.TrimSpace(string(output)))
 	}

@@ -86,16 +86,17 @@ type HealthcheckConfig struct {
 	TimeoutSec     int `json:"timeout_sec,omitempty"`
 }
 
-// VMConfig specifies virtual hardware: CPU count, memory, machine type,
-// CPU model, UEFI boot, and arbitrary extra QEMU arguments.
+// VMConfig specifies virtual hardware: CPU count, memory, root disk size,
+// machine type, CPU model, UEFI boot, and arbitrary extra QEMU arguments.
 type VMConfig struct {
-	VCPU      int      `json:"vcpu"`
-	MemoryMB  int      `json:"memory_mb"`
-	Machine   string   `json:"machine"`
-	CPUModel  string   `json:"cpu_model"`
-	Features  []string `json:"features"`
-	UEFI      bool     `json:"uefi,omitempty"`
-	ExtraArgs []string `json:"extra_args,omitempty"`
+	VCPU          int      `json:"vcpu"`
+	MemoryMB      int      `json:"memory_mb"`
+	DiskSizeBytes int64    `json:"disk_size_bytes,omitempty"`
+	Machine       string   `json:"machine"`
+	CPUModel      string   `json:"cpu_model"`
+	Features      []string `json:"features"`
+	UEFI          bool     `json:"uefi,omitempty"`
+	ExtraArgs     []string `json:"extra_args,omitempty"`
 }
 
 // Device is a PCI device for VFIO passthrough.
@@ -346,6 +347,9 @@ func (m Manifest) Validate() error {
 	}
 	if m.VM.MemoryMB < 128 {
 		return fmt.Errorf("vm.memory_mb must be >= 128")
+	}
+	if m.VM.DiskSizeBytes != 0 && m.VM.DiskSizeBytes < minVolumeSizeBytes {
+		return fmt.Errorf("vm.disk_size_bytes must be 0 or >= %d", minVolumeSizeBytes)
 	}
 	if m.Network.Mode != "user" {
 		return fmt.Errorf("network.mode %q is unsupported; only user is implemented", m.Network.Mode)

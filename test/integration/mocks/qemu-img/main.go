@@ -2,7 +2,7 @@
 //
 // Supports the "create" subcommand as invoked by holos in two flavours:
 //
-//   - overlay:        qemu-img create -f qcow2 -F <format> -b <backing> <overlay>
+//   - overlay:        qemu-img create -f qcow2 -F <format> -b <backing> <overlay> [sizeBytes]
 //   - blank volume:   qemu-img create -f qcow2 <path> <sizeBytes>
 //
 // In both cases the mock creates a tiny sentinel file at the output path.

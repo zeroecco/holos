@@ -22,6 +22,7 @@ services:
     vm:
       vcpu: 2
       memory_mb: 1024
+      disk_size: 2GB
     cloud_init:
       packages:
         - postgresql
@@ -90,6 +91,9 @@ func TestLoadAndResolve(t *testing.T) {
 	// db has no dependencies, should come first.
 	if project.ServiceOrder[0] != "db" {
 		t.Fatalf("expected db first in order, got %v", project.ServiceOrder)
+	}
+	if got := project.Services["db"].VM.DiskSizeBytes; got != 2*(1<<30) {
+		t.Fatalf("expected db disk size 2GiB, got %d", got)
 	}
 
 	// web depends on api which depends on db, so web must be last.
@@ -564,7 +568,9 @@ func TestParseVolumeSize(t *testing.T) {
 	}{
 		{"", defaultVolumeSizeBytes},
 		{"10G", 10 * (1 << 30)},
+		{"2GB", 2 * (1 << 30)},
 		{"500M", 500 * (1 << 20)},
+		{"512MB", 512 * (1 << 20)},
 		{"1T", 1 << 40},
 		{"2048K", 2048 << 10},
 		{"1048576", 1 << 20},
@@ -650,6 +656,14 @@ services:
     image: ./base.qcow2
     vm:
       memory_mb: -1
+`,
+		"tiny disk": `
+name: bad
+services:
+  vm:
+    image: ./base.qcow2
+    vm:
+      disk_size: 100
 `,
 		"host port out of range": `
 name: bad
