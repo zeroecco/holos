@@ -173,6 +173,13 @@ services:
 Available aliases include `alpine`, `arch`, `debian`, `ubuntu`, and `fedora`.
 Run `holos images` to see tags and defaults.
 
+For local or private qcow2 images, holos treats the file as an
+operator-supplied artifact. Set `image_format` and `image_os` explicitly, verify
+the image checksum before `holos up`, and consider keeping an
+`images/SHA256SUMS` or `holos.images.lock` file next to `holos.yaml` so teams
+can review exactly which private image build a project was tested against. See
+the [threat model](./threat-model.md) for verification and lockfile guidance.
+
 ## Dockerfile Provisioning
 
 A Dockerfile can provision a VM when you want familiar build steps without

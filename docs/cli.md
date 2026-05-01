@@ -56,6 +56,22 @@ resolved `cloud_init.user`, then the image convention (`debian`, `alpine`,
 On a fresh VM, `holos exec` waits up to 60s for sshd to be ready. Use `-w 0` to
 disable that wait or `-w 5m` for slow first boots.
 
+## Project Locks
+
+Lifecycle commands take a per-project lock before reading or writing runtime
+state. `holos up`, `run`, `down`, `start`, `stop`, and `ps -f` wait up to
+`--lock-timeout` (default `5m`) when another holos process is already operating
+on the same project. Use `--no-wait` when automation should fail fast instead
+of waiting:
+
+```bash
+holos up --lock-timeout 30s
+holos down --no-wait demo
+```
+
+Lock errors include the lock path and last recorded holder metadata when
+available.
+
 ## Image Verification
 
 Built-in images carry checksum metadata. `holos pull`, `holos up`, and
@@ -70,7 +86,9 @@ holos verify --all
 `holos images` shows the guest OS metadata and hash algorithm used for each
 built-in entry. Local image paths are not trusted by name; set `image_format`
 and `image_os` in compose, or `--image-os` with `holos run`, when a custom image
-does not match the defaults.
+does not match the defaults. For private qcow2 images, keep a project checksum
+manifest such as `images/SHA256SUMS` or `holos.images.lock` and verify it before
+launching; the [threat model](./threat-model.md) has a fuller checklist.
 
 ## Reboot Survival
 

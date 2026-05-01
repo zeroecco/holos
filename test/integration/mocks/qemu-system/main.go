@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,9 @@ func main() {
 	if logPath := os.Getenv("HOLOS_MOCK_QEMU_LOG"); logPath != "" {
 		appendArgs(logPath, args)
 	}
+
+	hostForwards := bindHostForwards(args)
+	defer closeListeners(hostForwards)
 
 	powerdown := make(chan struct{}, 1)
 	createSocketsFromChardevs(args, powerdown)
@@ -66,6 +70,52 @@ func main() {
 		// Simulate a short shutdown latency so tests observe the guest
 		// halting after the ACK rather than instantly.
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func bindHostForwards(args []string) []net.Listener {
+	if os.Getenv("HOLOS_MOCK_BIND_HOSTFWD") == "" {
+		return nil
+	}
+	ports := hostForwardPorts(args)
+	listeners := make([]net.Listener, 0, len(ports))
+	for _, port := range ports {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "qemu-system-x86_64: -netdev user: hostfwd: address already in use for 127.0.0.1:%d\n", port)
+			closeListeners(listeners)
+			os.Exit(1)
+		}
+		listeners = append(listeners, ln)
+	}
+	return listeners
+}
+
+func hostForwardPorts(args []string) []int {
+	var ports []int
+	const prefix = "hostfwd=tcp:127.0.0.1:"
+	for _, arg := range args {
+		for _, part := range strings.Split(arg, ",") {
+			if !strings.HasPrefix(part, prefix) {
+				continue
+			}
+			rest := strings.TrimPrefix(part, prefix)
+			end := strings.Index(rest, "-:")
+			if end == -1 {
+				continue
+			}
+			port, err := strconv.Atoi(rest[:end])
+			if err == nil {
+				ports = append(ports, port)
+			}
+		}
+	}
+	return ports
+}
+
+func closeListeners(listeners []net.Listener) {
+	for _, ln := range listeners {
+		_ = ln.Close()
 	}
 }
 

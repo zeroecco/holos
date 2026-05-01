@@ -19,7 +19,8 @@ import (
 
 // Manager coordinates project lifecycle and state persistence.
 type Manager struct {
-	stateDir string
+	stateDir    string
+	lockOptions LockOptions
 }
 
 // Record types persisted to disk.
@@ -81,7 +82,7 @@ type InstanceRecord struct {
 
 // NewManager creates a Manager that stores state under the given directory.
 func NewManager(stateDir string) *Manager {
-	return &Manager{stateDir: stateDir}
+	return &Manager{stateDir: stateDir, lockOptions: DefaultLockOptions()}
 }
 
 // DefaultStateDir returns the state directory: HOLOS_STATE_DIR if set,

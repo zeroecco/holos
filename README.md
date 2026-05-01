@@ -60,7 +60,7 @@ Pre-built binaries are attached to every
 [GitHub release](https://github.com/zeroecco/holos/releases):
 
 ```bash
-TAG=v0.2.2
+TAG=v0.2.3
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
 curl -LO $BASE/$ASSET
@@ -86,7 +86,8 @@ bin/holos doctor
 ## CLI
 
 ```text
-holos up [-f holos.yaml]             start all services
+holos up [-f holos.yaml] [--lock-timeout 5m|--no-wait]
+                                     start all services
 holos run [flags] <image> [-- cmd...] launch a one-off VM
 holos down <project>                 stop and remove a project
 holos ps [-f holos.yaml]             list running projects
@@ -124,7 +125,7 @@ holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
 - [Development](./docs/development.md): build, test, host requirements, and
   release process.
 - [Security policy](./SECURITY.md): supported versions and private reporting.
-- [Threat model / hardening](./SECURITY.md#threat-model-and-hardening-guide):
+- [Threat model / hardening](./docs/threat-model.md):
   image verification, state permissions, locks, and operational guidance.
 - [Contributing](./CONTRIBUTING.md): build, test, style, and PR conventions.
 

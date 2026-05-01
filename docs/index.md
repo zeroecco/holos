@@ -48,7 +48,7 @@ hello from holos</code></pre>
 Runtime commands require Linux with `/dev/kvm`. macOS binaries are still useful for authoring and offline commands such as `validate`, `images`, `pull`, and `import`.
 
 ```bash
-TAG=v0.2.2
+TAG=v0.2.3
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
 curl -LO $BASE/$ASSET
@@ -101,5 +101,9 @@ holos down hello
   <div class="card">
     <h3><a href="{{ '/examples/' | relative_url }}">Examples</a></h3>
     <p>Small runnable stacks and templates for nginx, Dockerfile provisioning, GPU passthrough, and multi-service demos.</p>
+  </div>
+  <div class="card">
+    <h3><a href="{{ '/threat-model/' | relative_url }}">Threat Model</a></h3>
+    <p>Security boundaries, lock behavior, image verification, private qcow2 guidance, and hardening checklists.</p>
   </div>
 </div>

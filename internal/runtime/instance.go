@@ -249,15 +249,20 @@ func (m *Manager) launchQEMU(args []string, qemuLogPath, instanceName string) (p
 	}
 
 	pid = command.Process.Pid
-	_ = command.Process.Release()
 
-	time.Sleep(300 * time.Millisecond)
-	if processAlive(pid) {
+	exited := make(chan error, 1)
+	go func() {
+		exited <- command.Wait()
+	}()
+
+	select {
+	case <-exited:
+		content, _ := os.ReadFile(qemuLogPath)
+		logText = strings.TrimSpace(string(content))
+		return 0, logText, fmt.Errorf("qemu exited early for %s: %s", instanceName, logText)
+	case <-time.After(300 * time.Millisecond):
 		return pid, "", nil
 	}
-	content, _ := os.ReadFile(qemuLogPath)
-	logText = strings.TrimSpace(string(content))
-	return 0, logText, fmt.Errorf("qemu exited early for %s: %s", instanceName, logText)
 }
 
 func isQEMUHostPortConflict(logText string) bool {

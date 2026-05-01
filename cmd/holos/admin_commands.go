@@ -541,7 +541,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `holos - docker compose for KVM
 
 Usage:
-  holos up [-f holos.yaml]             start all services
+  holos up [-f holos.yaml] [--lock-timeout 5m|--no-wait]
+                                       start all services
   holos run [flags] <image> [-- cmd...]
                                        launch a one-off VM from an image (no compose file)
   holos down [-f holos.yaml]           stop and remove all services

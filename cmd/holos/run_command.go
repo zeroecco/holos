@@ -24,6 +24,7 @@ import (
 func runRun(args []string) error {
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	stateDir := flags.String("state-dir", runtime.DefaultStateDir(), "state directory")
+	lock := addLockFlags(flags)
 	name := flags.String("name", "", "project name (default: derived from image with random suffix)")
 	vcpu := flags.Int("vcpu", 0, "vCPU count (default 1)")
 	memory := flags.String("memory", "", "memory size, e.g. \"512M\", \"2G\" (default 512M)")
@@ -139,6 +140,7 @@ func runRun(args []string) error {
 	}
 
 	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
 	record, err := manager.Up(project)
 	if err != nil {
 		return err

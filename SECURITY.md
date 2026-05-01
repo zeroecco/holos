@@ -47,48 +47,6 @@ created with restrictive permissions. Treat any compose file containing
 `cloud_init.write_files`, `cloud_init.runcmd`, private image URLs, or custom SSH
 keys as sensitive operational material.
 
-## Threat Model And Hardening Guide
-
-holos is a single-host VM launcher. It assumes the host user running holos is
-trusted to start QEMU processes, read the project state directory, and access any
-bind-mounted host paths. It does not try to sandbox a malicious local user who
-already controls the holos state tree, the QEMU binary, or root on the host.
-
-Primary boundaries:
-
-- Guest isolation comes from KVM/QEMU and the guest kernel boundary. Keep the
-  host kernel, QEMU, OVMF, and guest packages patched.
-- Compose files are trusted configuration. Review `vm.extra_args`,
-  `cloud_init.runcmd`, `cloud_init.write_files`, bind mounts, and private image
-  URLs before running a project from another person.
-- Built-in images are downloaded over HTTPS and verified against upstream
-  checksum metadata before entering the cache. Re-run `holos verify --all` to
-  audit cached images, and prefer pinned local images for highly controlled
-  environments.
-- Project lifecycle operations take a per-project lock so concurrent `up`,
-  `down`, `start`, `stop`, and state refreshes cannot interleave their state
-  writes for the same project.
-- State, generated SSH keys, cloud-init seeds, volume qcow2 files, and run
-  compose files are intended to be owner-only. Do not put `HOLOS_STATE_DIR` on a
-  shared writable filesystem.
-- Bind mounts deliberately expose host files to the guest. Use `:ro` where
-  possible and mount only the minimum directory needed by the workload.
-- Named volumes are persistent qcow2 disks. Treat them like guest disks: scan or
-  inspect them before attaching data produced by an untrusted VM to another VM.
-- Port forwards bind on `127.0.0.1`. Expose them beyond localhost only through a
-  deliberate reverse proxy, firewall rule, or SSH tunnel.
-- VFIO passthrough gives a guest direct device access. Use IOMMU isolation,
-  understand the device reset behavior, and do not pass through devices that
-  share an unsafe IOMMU group.
-
-Operational hardening checklist:
-
-- Run `holos doctor` before first use and after host upgrades.
-- Keep holos updated to the latest release and verify release checksums before
-  installing binaries.
-- Run `holos verify --all` after pulling images and before important rebuilds.
-- Use explicit `image_os` metadata for local/custom images so cloud-init does
-  not infer behavior from a filename.
-- Prefer `holos exec` over password login; holos does not add guest passwords.
-- Review `console.log` after first boot, especially when using named volumes:
-  mount failures are emitted there and fail the cloud-init command.
+The full [threat model and hardening guide](./docs/threat-model.md) documents
+security boundaries, lifecycle locking, image verification, private qcow2 image
+handling, and project image lockfile guidance for reproducible environments.
