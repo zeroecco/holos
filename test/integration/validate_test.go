@@ -188,9 +188,9 @@ func TestValidate_UsesCWDCompose(t *testing.T) {
 	assertContains(t, stdout, "project: implicit", "validate cwd output")
 }
 
-// TestValidate_AllExamples exercises the compose files shipped under
-// examples/ except gpu-passthrough and the netboot sample (which require
-// dockerfiles/remote images).
+// TestValidate_AllExamples exercises runnable compose files shipped under
+// examples/ except the netboot sample (Dockerfile-backed) and gpu-passthrough
+// (host-specific devices).
 func TestValidate_AllExamples(t *testing.T) {
 	h := newHarness(t)
 	root, err := repoRoot()
@@ -198,23 +198,37 @@ func TestValidate_AllExamples(t *testing.T) {
 		t.Fatalf("repoRoot: %v", err)
 	}
 
-	// examples/alpine-nginx uses registry image "alpine" which would
-	// trigger a network download. Copy the example into a tmp dir and
-	// swap in a local fake image so we cover the real YAML structure
-	// without any HTTP.
-	original := root + "/examples/alpine-nginx/holos.yaml"
-	data, err := readFile(original)
-	if err != nil {
-		t.Fatalf("read example: %v", err)
-	}
-	dir := h.writeProject("alpine-nginx-copy", "", nil)
-	img := h.fakeImage(dir, "base.qcow2")
-	rewritten := strings.Replace(data, "image: alpine", "image: "+img, 1)
-	if _, err := writeFile(dir, "holos.yaml", rewritten); err != nil {
-		t.Fatalf("write compose: %v", err)
-	}
+	for _, tc := range []struct {
+		name     string
+		path     string
+		imageRef string
+	}{
+		{name: "alpine-nginx", path: "examples/alpine-nginx/holos.yaml", imageRef: "alpine"},
+		{name: "minecraft-server", path: "examples/minecraft-server/holos.yaml", imageRef: "ubuntu:noble"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Registry images would trigger network downloads during
+			// validation. Copy the example into a tmp dir and swap in a
+			// local fake image so we cover the real YAML structure without
+			// any HTTP.
+			original := root + "/" + tc.path
+			data, err := readFile(original)
+			if err != nil {
+				t.Fatalf("read example: %v", err)
+			}
+			dir := h.writeProject(tc.name+"-copy", "", nil)
+			img := h.fakeImage(dir, "base.qcow2")
+			rewritten := strings.Replace(data, "image: "+tc.imageRef, "image: "+img, 1)
+			if rewritten == data {
+				t.Fatalf("example %s did not contain image ref %q", tc.path, tc.imageRef)
+			}
+			if _, err := writeFile(dir, "holos.yaml", rewritten); err != nil {
+				t.Fatalf("write compose: %v", err)
+			}
 
-	stdout, _ := h.mustRun("validate", "-f", dir+"/holos.yaml")
-	assertContains(t, stdout, "project: alpine-nginx", "example validation")
-	assertContains(t, stdout, "services: 1", "example service count")
+			stdout, _ := h.mustRun("validate", "-f", dir+"/holos.yaml")
+			assertContains(t, stdout, "project: "+tc.name, "example validation")
+			assertContains(t, stdout, "services: 1", "example service count")
+		})
+	}
 }

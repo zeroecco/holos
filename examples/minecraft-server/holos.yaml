@@ -1,0 +1,136 @@
+name: minecraft-server
+
+services:
+  server:
+    image: ubuntu:noble
+    vm:
+      vcpu: 2
+      memory_mb: 4096
+      disk_size: 20G
+      uefi: true
+    ports:
+      - "25565:25565"
+    volumes:
+      - world:/srv/minecraft
+    stop_grace_period: 2m
+    healthcheck:
+      test: systemctl is-active --quiet minecraft
+      interval: 10s
+      retries: 60
+      start_period: 1m
+      timeout: 5s
+    cloud_init:
+      packages:
+        - ca-certificates
+        - curl
+        - e2fsprogs
+        - openjdk-21-jre-headless
+        - python3
+      write_files:
+        - path: /usr/local/bin/minecraft-install-server
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            set -eu
+
+            useradd -r -d /srv/minecraft -s /usr/sbin/nologin minecraft 2>/dev/null || true
+            install -d -o minecraft -g minecraft /opt/minecraft /srv/minecraft
+
+            if [ ! -s /opt/minecraft/server.jar ]; then
+              tmp="$(mktemp)"
+              python3 - "$tmp" <<'PY'
+            import json
+            import os
+            import sys
+            import urllib.request
+
+            dest = sys.argv[1]
+            manifest_url = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+
+            with urllib.request.urlopen(manifest_url, timeout=30) as response:
+                manifest = json.load(response)
+
+            latest = manifest["latest"]["release"]
+            version_url = next(v["url"] for v in manifest["versions"] if v["id"] == latest)
+
+            with urllib.request.urlopen(version_url, timeout=30) as response:
+                version = json.load(response)
+
+            server_url = version["downloads"]["server"]["url"]
+            urllib.request.urlretrieve(server_url, dest)
+
+            with open("/opt/minecraft/version.txt", "w", encoding="utf-8") as version_file:
+                version_file.write(latest + "\n")
+            PY
+              mv "$tmp" /opt/minecraft/server.jar
+            fi
+
+            chown -R minecraft:minecraft /opt/minecraft
+
+        - path: /usr/local/bin/minecraft-prepare
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            set -eu
+
+            dev=/dev/disk/by-id/virtio-vol-world
+            target=/srv/minecraft
+
+            udevadm settle --exit-if-exists="$dev" || true
+            if [ -b "$dev" ] && ! blkid "$dev" >/dev/null 2>&1; then
+              mkfs.ext4 -F -L vol-world "$dev"
+            fi
+
+            mkdir -p "$target"
+            if ! grep -qE " $target " /etc/fstab; then
+              echo "$dev $target ext4 defaults,nofail 0 2" >> /etc/fstab
+            fi
+            mountpoint -q "$target" || mount "$target"
+
+            cat > "$target/eula.txt" <<'EOF'
+            eula=true
+            EOF
+
+            if [ ! -f "$target/server.properties" ]; then
+              cat > "$target/server.properties" <<'EOF'
+            server-port=25565
+            motd=holos Minecraft server
+            enable-rcon=false
+            view-distance=8
+            simulation-distance=6
+            EOF
+            fi
+
+            chown minecraft:minecraft "$target"
+            chown minecraft:minecraft "$target/eula.txt" "$target/server.properties"
+
+        - path: /etc/systemd/system/minecraft.service
+          content: |
+            [Unit]
+            Description=Minecraft Server
+            After=network-online.target
+            Wants=network-online.target
+
+            [Service]
+            User=minecraft
+            Group=minecraft
+            WorkingDirectory=/srv/minecraft
+            ExecStartPre=/usr/local/bin/minecraft-prepare
+            ExecStart=/usr/bin/java -Xms1G -Xmx3G -jar /opt/minecraft/server.jar nogui
+            Restart=on-failure
+            RestartSec=10
+            StandardOutput=journal+console
+            StandardError=journal+console
+            TimeoutStopSec=90
+            SuccessExitStatus=0 143
+
+            [Install]
+            WantedBy=multi-user.target
+      runcmd:
+        - /usr/local/bin/minecraft-install-server
+        - systemctl daemon-reload
+        - systemctl enable --now minecraft
+
+volumes:
+  world:
+    size: 10G

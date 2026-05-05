@@ -37,6 +37,20 @@ holos down netboot-xyz
 Use this when you want Dockerfile-shaped provisioning without building a
 container image.
 
+## `examples/minecraft-server`
+
+A vanilla Minecraft Java server in an Ubuntu VM. It downloads the latest
+official server jar on first boot, runs it under systemd, publishes port 25565,
+and stores the world on a named volume.
+
+```bash
+holos up -f examples/minecraft-server/holos.yaml
+holos logs minecraft-server
+holos down minecraft-server
+```
+
+Use this when you want a stateful game-server example with a healthcheck.
+
 ## `examples/gpu-passthrough`
 
 A template for passing PCI devices through with VFIO. You must edit the PCI
