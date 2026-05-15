@@ -48,7 +48,7 @@ func TestCLI_Images(t *testing.T) {
 	h := newHarness(t)
 
 	stdout, _ := h.mustRun("images")
-	for _, name := range []string{"alpine", "arch", "debian", "ubuntu", "fedora"} {
+	for _, name := range []string{"alpine", "arch", "debian", "ubuntu", "fedora", "almalinux", "rocky", "centos-stream"} {
 		assertContains(t, stdout, name, "images output should list "+name)
 	}
 	assertContains(t, stdout, "NAME", "images output should have header")

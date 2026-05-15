@@ -50,8 +50,9 @@ holos exec my-project -- uname -a
 ```
 
 `-u <user>` overrides the login user. Otherwise holos uses the service's
-resolved `cloud_init.user`, then the image convention (`debian`, `alpine`,
-`fedora`, `arch`, `ubuntu`), then `ubuntu`.
+resolved `cloud_init.user`, then the image convention (`alpine`, `arch`,
+`debian`, `fedora`, `ubuntu`, `almalinux`, `rocky`, `cloud-user`), then
+`ubuntu`.
 
 On a fresh VM, `holos exec` waits up to 60s for sshd to be ready. Use `-w 0` to
 disable that wait or `-w 5m` for slow first boots.

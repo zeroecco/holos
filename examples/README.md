@@ -31,6 +31,24 @@ holos down netboot-xyz
 Use this when you want Dockerfile-shaped provisioning without building a
 container image.
 
+## `examples/simple-inference`
+
+A GPU-passthrough DeepSeek inference template in an Ubuntu VM. It installs
+Ollama, pulls `deepseek-r1:7b`, publishes Ollama's API on host port 11434, and
+stores model files on a named volume. Replace the PCI addresses and install the
+guest GPU driver for your card before running it.
+
+```bash
+holos devices --gpu
+holos up -f examples/simple-inference/holos.yaml
+curl http://localhost:11434/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"deepseek-r1:7b","prompt":"Explain KVM in one sentence.","stream":false}'
+holos down simple-inference
+```
+
+Use this when you want a useful local model-serving VM backed by a physical GPU.
+
 ## `examples/minecraft-server`
 
 A vanilla Minecraft Java server in an Ubuntu VM. It downloads the latest

@@ -170,8 +170,9 @@ services:
     image_format: qcow2
 ```
 
-Available aliases include `alpine`, `arch`, `debian`, `ubuntu`, and `fedora`.
-Run `holos images` to see tags and defaults.
+Available aliases include `alpine`, `arch`, `debian`, `ubuntu`, `fedora`,
+`almalinux`, `rocky`, and `centos-stream`. Run `holos images` to see tags and
+defaults.
 
 For local or private qcow2 images, holos treats the file as an
 operator-supplied artifact. Set `image_format` and `image_os` explicitly, verify

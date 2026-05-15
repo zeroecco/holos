@@ -79,7 +79,7 @@ type Image struct {
 	SHA256URL string
 	SHA512URL string
 	// User is the conventional cloud-init user for this distro
-	// (alpine, debian, fedora, …). cloud-init will *create* whatever
+	// (alpine, debian, fedora, rocky, …). cloud-init will *create* whatever
 	// user we ask for, but matching the convention means tools that
 	// expect "$distro@vm" find the account, console autologin works
 	// without surprises, and operators don't get a Password: prompt
@@ -107,7 +107,7 @@ var Registry = []Image{
 	// Arch Linux (cloud-init, official arch-boxes). Rolling release, URL tracks "latest".
 	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2", Format: "qcow2", Default: true, User: "arch", OSFamily: "systemd", SHA256URL: "https://fastly.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2.SHA256"},
 
-	// Debian (generic variant, cloud-init). URL uses "latest" symlink.
+	// Debian (generic variant, cloud-init). URLs use "latest" symlinks.
 	//
 	// Why "generic" and not "nocloud":
 	// Debian publishes two flavours of the bookworm cloud image. The
@@ -122,15 +122,27 @@ var Registry = []Image{
 	// only ~25 MB larger.
 	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
 	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
+	{Name: "debian", Tag: "13", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"},
+	{Name: "debian", Tag: "trixie", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"},
 
 	// Ubuntu (cloud images, NoCloud compatible). The "current" alias rotates on rebuild.
 	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"},
 	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"},
+	{Name: "ubuntu", Tag: "resolute", URL: "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/resolute/current/SHA256SUMS"},
+	{Name: "ubuntu", Tag: "26.04", URL: "https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/resolute/current/SHA256SUMS"},
 	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"},
 	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img", Format: "qcow2", User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/jammy/current/SHA256SUMS"},
 
 	// Fedora Cloud Base. Point release URL but still versioned.
-	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora", OSFamily: "systemd", SHA256URL: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM"},
+	{Name: "fedora", Tag: "44", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2", Format: "qcow2", Default: true, User: "fedora", OSFamily: "systemd", SHA256URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-44-1.7-x86_64-CHECKSUM"},
+	{Name: "fedora", Tag: "43", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2", Format: "qcow2", User: "fedora", OSFamily: "systemd", SHA256URL: "https://dl.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM"},
+
+	// Red Hat-family cloud images.
+	{Name: "almalinux", Tag: "10", URL: "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2", Format: "qcow2", Default: true, User: "almalinux", OSFamily: "systemd", SHA256URL: "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/CHECKSUM"},
+	{Name: "almalinux", Tag: "9", URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2", Format: "qcow2", User: "almalinux", OSFamily: "systemd", SHA256URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM"},
+	{Name: "rocky", Tag: "10", URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2", Format: "qcow2", Default: true, User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/CHECKSUM"},
+	{Name: "rocky", Tag: "9", URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2", Format: "qcow2", User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/CHECKSUM"},
+	{Name: "centos-stream", Tag: "10", URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-20260513.0.x86_64.qcow2", Format: "qcow2", Default: true, User: "cloud-user", OSFamily: "systemd", SHA256URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CHECKSUM"},
 }
 
 // Resolve looks up an image reference. Accepts:

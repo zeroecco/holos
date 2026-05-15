@@ -1,0 +1,78 @@
+name: simple-inference
+
+services:
+  api:
+    image: ubuntu:noble
+    vm:
+      vcpu: 8
+      memory_mb: 16384
+      disk_size: 32G
+      # uefi: true is inferred automatically when devices are present
+    devices:
+      - pci: "01:00.0"       # GPU
+      - pci: "01:00.1"       # GPU audio / companion function, if present
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/var/lib/ollama
+    healthcheck:
+      test: curl -fsS http://127.0.0.1:11434/api/tags | grep -q '"name":"deepseek-r1:7b"'
+      interval: 10s
+      retries: 120
+      start_period: 20m
+      timeout: 5s
+    cloud_init:
+      packages:
+        - ca-certificates
+        - curl
+      write_files:
+        - path: /usr/local/bin/install-deepseek-ollama
+          permissions: "0755"
+          content: |
+            #!/bin/sh
+            set -eu
+
+            model="${OLLAMA_MODEL:-deepseek-r1:7b}"
+            dev=/dev/disk/by-id/virtio-vol-ollama
+            target=/var/lib/ollama
+
+            udevadm settle --exit-if-exists="$dev" || true
+            if [ -b "$dev" ] && ! blkid "$dev" >/dev/null 2>&1; then
+              mkfs.ext4 -F -L vol-ollama "$dev"
+            fi
+            mkdir -p "$target"
+            if ! grep -qE " $target " /etc/fstab; then
+              echo "$dev $target ext4 defaults,nofail 0 2" >> /etc/fstab
+            fi
+            mountpoint -q "$target" || mount "$target"
+
+            curl -fsSL https://ollama.com/install.sh | sh
+
+            install -d /etc/systemd/system/ollama.service.d
+            cat > /etc/systemd/system/ollama.service.d/holos.conf <<'EOF'
+            [Service]
+            Environment=OLLAMA_HOST=0.0.0.0:11434
+            Environment=OLLAMA_MODELS=/var/lib/ollama/models
+            StandardOutput=journal+console
+            StandardError=journal+console
+            EOF
+
+            install -d -o ollama -g ollama /var/lib/ollama /var/lib/ollama/models
+            systemctl daemon-reload
+            systemctl enable --now ollama
+            systemctl restart ollama
+
+            for _ in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; then
+                break
+              fi
+              sleep 2
+            done
+
+            ollama pull "$model"
+      runcmd:
+        - /usr/local/bin/install-deepseek-ollama
+
+volumes:
+  ollama:
+    size: 20G

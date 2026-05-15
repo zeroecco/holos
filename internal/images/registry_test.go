@@ -18,17 +18,23 @@ func TestDefaultUser(t *testing.T) {
 	t.Parallel()
 
 	cases := map[string]string{
-		"alpine":          "alpine",
-		"alpine:3.21":     "alpine",
-		"ubuntu":          "ubuntu",
-		"ubuntu:noble":    "ubuntu",
-		"ubuntu:jammy":    "ubuntu",
-		"debian":          "debian",
-		"debian:bookworm": "debian",
-		"arch":            "arch",
-		"fedora":          "fedora",
-		"./local.qcow2":   "", // local file → no inferred user
-		"/abs/path.raw":   "",
+		"alpine":           "alpine",
+		"alpine:3.21":      "alpine",
+		"ubuntu":           "ubuntu",
+		"ubuntu:noble":     "ubuntu",
+		"ubuntu:jammy":     "ubuntu",
+		"ubuntu:resolute":  "ubuntu",
+		"debian":           "debian",
+		"debian:bookworm":  "debian",
+		"debian:trixie":    "debian",
+		"arch":             "arch",
+		"fedora":           "fedora",
+		"almalinux":        "almalinux",
+		"rocky":            "rocky",
+		"centos-stream":    "cloud-user",
+		"centos-stream:10": "cloud-user",
+		"./local.qcow2":    "", // local file → no inferred user
+		"/abs/path.raw":    "",
 	}
 	for ref, want := range cases {
 		if got := DefaultUser(ref); got != want {
@@ -72,11 +78,19 @@ func TestResolveKnownImages(t *testing.T) {
 	}{
 		{"alpine", "alpine", "3.21"},
 		{"ubuntu:noble", "ubuntu", "noble"},
+		{"ubuntu:26.04", "ubuntu", "26.04"},
 		{"ubuntu:jammy", "ubuntu", "jammy"},
 		{"debian", "debian", "12"},
 		{"debian:bookworm", "debian", "bookworm"},
+		{"debian:13", "debian", "13"},
 		{"arch", "arch", "latest"},
-		{"fedora", "fedora", "43"},
+		{"fedora", "fedora", "44"},
+		{"fedora:43", "fedora", "43"},
+		{"almalinux", "almalinux", "10"},
+		{"almalinux:9", "almalinux", "9"},
+		{"rocky", "rocky", "10"},
+		{"rocky:9", "rocky", "9"},
+		{"centos-stream", "centos-stream", "10"},
 	}
 
 	for _, tt := range tests {
