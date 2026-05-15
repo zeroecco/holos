@@ -77,12 +77,12 @@ func bindHostForwards(args []string) []net.Listener {
 	if os.Getenv("HOLOS_MOCK_BIND_HOSTFWD") == "" {
 		return nil
 	}
-	ports := hostForwardPorts(args)
-	listeners := make([]net.Listener, 0, len(ports))
-	for _, port := range ports {
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	bindings := hostForwardBindings(args)
+	listeners := make([]net.Listener, 0, len(bindings))
+	for _, binding := range bindings {
+		ln, err := net.Listen("tcp", net.JoinHostPort(binding.addr, strconv.Itoa(binding.port)))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "qemu-system-x86_64: -netdev user: hostfwd: address already in use for 127.0.0.1:%d\n", port)
+			fmt.Fprintf(os.Stderr, "qemu-system-x86_64: -netdev user: hostfwd: address already in use for %s:%d\n", binding.addr, binding.port)
 			closeListeners(listeners)
 			os.Exit(1)
 		}
@@ -91,26 +91,37 @@ func bindHostForwards(args []string) []net.Listener {
 	return listeners
 }
 
-func hostForwardPorts(args []string) []int {
-	var ports []int
-	const prefix = "hostfwd=tcp:127.0.0.1:"
+type hostForwardBinding struct {
+	addr string
+	port int
+}
+
+func hostForwardBindings(args []string) []hostForwardBinding {
+	var bindings []hostForwardBinding
+	const prefix = "hostfwd=tcp:"
 	for _, arg := range args {
 		for _, part := range strings.Split(arg, ",") {
 			if !strings.HasPrefix(part, prefix) {
 				continue
 			}
 			rest := strings.TrimPrefix(part, prefix)
-			end := strings.Index(rest, "-:")
+			end := strings.Index(rest, "-")
 			if end == -1 {
 				continue
 			}
-			port, err := strconv.Atoi(rest[:end])
+			host := rest[:end]
+			colon := strings.LastIndex(host, ":")
+			if colon == -1 {
+				continue
+			}
+			addr := host[:colon]
+			port, err := strconv.Atoi(host[colon+1:])
 			if err == nil {
-				ports = append(ports, port)
+				bindings = append(bindings, hostForwardBinding{addr: addr, port: port})
 			}
 		}
 	}
-	return ports
+	return bindings
 }
 
 func closeListeners(listeners []net.Listener) {

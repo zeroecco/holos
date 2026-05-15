@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -873,7 +874,7 @@ func parsePort(spec string) (config.PortForward, error) {
 		return config.PortForward{}, fmt.Errorf("protocol %q is unsupported; only tcp is implemented", protocol)
 	}
 
-	parts := strings.SplitN(spec, ":", 2)
+	parts := strings.Split(spec, ":")
 	switch len(parts) {
 	case 1:
 		guest, err := strconv.Atoi(parts[0])
@@ -891,9 +892,38 @@ func parsePort(spec string) (config.PortForward, error) {
 			return config.PortForward{}, fmt.Errorf("invalid guest port: %w", err)
 		}
 		return config.PortForward{HostPort: host, GuestPort: guest, Protocol: protocol}, nil
+	case 4:
+		hostAddr, err := parsePortAddress("host", parts[0])
+		if err != nil {
+			return config.PortForward{}, err
+		}
+		host, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return config.PortForward{}, fmt.Errorf("invalid host port: %w", err)
+		}
+		guestAddr, err := parsePortAddress("guest", parts[2])
+		if err != nil {
+			return config.PortForward{}, err
+		}
+		guest, err := strconv.Atoi(parts[3])
+		if err != nil {
+			return config.PortForward{}, fmt.Errorf("invalid guest port: %w", err)
+		}
+		return config.PortForward{HostAddr: hostAddr, HostPort: host, GuestAddr: guestAddr, GuestPort: guest, Protocol: protocol}, nil
 	default:
 		return config.PortForward{}, fmt.Errorf("invalid port spec")
 	}
+}
+
+func parsePortAddress(kind, raw string) (string, error) {
+	addr, err := netip.ParseAddr(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid %s address: %w", kind, err)
+	}
+	if !addr.Is4() {
+		return "", fmt.Errorf("invalid %s address %q: only IPv4 addresses are supported", kind, raw)
+	}
+	return addr.String(), nil
 }
 
 func parseVolumes(specs []string, baseDir string, declared map[string]Volume) ([]config.Mount, error) {

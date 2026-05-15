@@ -170,7 +170,7 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 			return qemu.LaunchSpec{}, err
 		}
 		sshPort = prev.SSHPort
-		if !first || sshPort == 0 || ensureTCPPortAvailable(sshPort) != nil {
+		if !first || sshPort == 0 || ensureTCPPortAvailable("127.0.0.1", sshPort) != nil {
 			sshPort, err = allocateEphemeralTCPPort()
 			if err != nil {
 				return qemu.LaunchSpec{}, fmt.Errorf("allocate ssh port: %w", err)

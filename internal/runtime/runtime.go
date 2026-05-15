@@ -534,8 +534,8 @@ func (s *ServiceRecord) RunningCount() int {
 	return count
 }
 
-// PortSummary returns a human-readable string like "8080->80/tcp" for display
-// in status tables, or "-" if no ports are mapped.
+// PortSummary returns a human-readable string like "127.0.0.1:8080->80/tcp"
+// for display in status tables, or "-" if no ports are mapped.
 func (i InstanceRecord) PortSummary() string {
 	if len(i.Ports) == 0 {
 		return "-"
@@ -543,7 +543,15 @@ func (i InstanceRecord) PortSummary() string {
 
 	parts := make([]string, 0, len(i.Ports))
 	for _, port := range i.Ports {
-		parts = append(parts, fmt.Sprintf("%d->%d/%s", port.HostPort, port.GuestPort, port.Protocol))
+		hostAddr := port.HostAddr
+		if hostAddr == "" {
+			hostAddr = "127.0.0.1"
+		}
+		guestAddr := ""
+		if port.GuestAddr != "" {
+			guestAddr = port.GuestAddr + ":"
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d->%s%d/%s", hostAddr, port.HostPort, guestAddr, port.GuestPort, port.Protocol))
 	}
 	return strings.Join(parts, ",")
 }

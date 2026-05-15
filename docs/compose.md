@@ -43,8 +43,10 @@ Core fields:
 - `vm`: virtual hardware (`vcpu`, `memory_mb`, `machine`, `cpu_model`, `uefi`,
   `extra_args`).
 - `ports`: TCP forwards. Use `"host:guest"` for a fixed host port,
-  `"guest"` to have holos allocate an ephemeral host port, or append
-  `"/tcp"` explicitly (`"8080:80/tcp"`).
+  `"guest"` to have holos allocate an ephemeral host port, or
+  `"host_ip:host:guest_ip:guest"` to bind explicit IPv4 addresses. Append
+  `"/tcp"` explicitly when desired (`"8080:80/tcp"`). Host ports bind to
+  `127.0.0.1` unless a host IP is provided.
 - `volumes`: bind mounts or top-level named volumes with `SRC:TGT[:ro|rw]`.
 - `depends_on`: service startup ordering. If the dependency has a healthcheck,
   dependents wait until it is healthy.

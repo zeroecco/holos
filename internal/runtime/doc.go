@@ -41,8 +41,8 @@
 // # Port allocation
 //
 // Explicit host ports are incremented by the replica index and verified
-// available on 127.0.0.1. When the host port is 0, an ephemeral port is
-// allocated by binding to :0.
+// available on the requested host bind address (127.0.0.1 by default). When the
+// host port is 0, an ephemeral port is allocated by binding to address:0.
 //
 // # UEFI
 //

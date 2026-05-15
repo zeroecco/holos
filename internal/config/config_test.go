@@ -123,6 +123,70 @@ func TestValidateRejectsTinyDiskSize(t *testing.T) {
 	}
 }
 
+func TestValidatePortAddresses(t *testing.T) {
+	t.Parallel()
+
+	base := Manifest{
+		Name:        "api",
+		Replicas:    1,
+		Image:       "/tmp/base.qcow2",
+		ImageFormat: "qcow2",
+		VM:          VMConfig{VCPU: 1, MemoryMB: 512},
+		Network:     NetworkConfig{Mode: "user"},
+		CloudInit:   CloudInit{User: "ubuntu"},
+		Ports: []PortForward{
+			{HostAddr: "127.0.0.1", HostPort: 8080, GuestAddr: "10.0.2.15", GuestPort: 80, Protocol: "tcp"},
+		},
+	}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("Validate() with explicit addresses: %v", err)
+	}
+
+	invalidHost := base
+	invalidHost.Ports = []PortForward{{HostAddr: "localhost", HostPort: 8080, GuestPort: 80, Protocol: "tcp"}}
+	if err := invalidHost.Validate(); err == nil {
+		t.Fatal("expected invalid host address error")
+	}
+
+	invalidGuest := base
+	invalidGuest.Ports = []PortForward{{HostAddr: "127.0.0.1", HostPort: 8080, GuestAddr: "::1", GuestPort: 80, Protocol: "tcp"}}
+	if err := invalidGuest.Validate(); err == nil {
+		t.Fatal("expected invalid guest address error")
+	}
+}
+
+func TestValidatePortAddressConflicts(t *testing.T) {
+	t.Parallel()
+
+	base := Manifest{
+		Name:        "api",
+		Replicas:    1,
+		Image:       "/tmp/base.qcow2",
+		ImageFormat: "qcow2",
+		VM:          VMConfig{VCPU: 1, MemoryMB: 512},
+		Network:     NetworkConfig{Mode: "user"},
+		CloudInit:   CloudInit{User: "ubuntu"},
+	}
+
+	samePortDifferentLoopback := base
+	samePortDifferentLoopback.Ports = []PortForward{
+		{HostAddr: "127.0.0.1", HostPort: 8080, GuestPort: 80, Protocol: "tcp"},
+		{HostAddr: "127.0.0.2", HostPort: 8080, GuestPort: 81, Protocol: "tcp"},
+	}
+	if err := samePortDifferentLoopback.Validate(); err != nil {
+		t.Fatalf("different host addresses should not conflict: %v", err)
+	}
+
+	wildcardConflict := base
+	wildcardConflict.Ports = []PortForward{
+		{HostAddr: "0.0.0.0", HostPort: 8080, GuestPort: 80, Protocol: "tcp"},
+		{HostAddr: "127.0.0.1", HostPort: 8080, GuestPort: 81, Protocol: "tcp"},
+	}
+	if err := wildcardConflict.Validate(); err == nil {
+		t.Fatal("expected wildcard host address conflict")
+	}
+}
+
 func TestValidateUserName(t *testing.T) {
 	t.Parallel()
 

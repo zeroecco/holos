@@ -24,6 +24,7 @@ func TestDefaultUser(t *testing.T) {
 		"ubuntu:noble":     "ubuntu",
 		"ubuntu:jammy":     "ubuntu",
 		"ubuntu:resolute":  "ubuntu",
+		"ubuntu:26":        "ubuntu",
 		"debian":           "debian",
 		"debian:bookworm":  "debian",
 		"debian:trixie":    "debian",
@@ -78,6 +79,7 @@ func TestResolveKnownImages(t *testing.T) {
 	}{
 		{"alpine", "alpine", "3.21"},
 		{"ubuntu:noble", "ubuntu", "noble"},
+		{"ubuntu:26", "ubuntu", "26"},
 		{"ubuntu:26.04", "ubuntu", "26.04"},
 		{"ubuntu:jammy", "ubuntu", "jammy"},
 		{"debian", "debian", "12"},

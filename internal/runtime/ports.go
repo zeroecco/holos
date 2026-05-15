@@ -22,14 +22,15 @@ var (
 func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, error) {
 	mappings := make([]qemu.PortMapping, 0, len(manifest.Ports))
 	for _, port := range manifest.Ports {
+		hostAddr := effectiveHostAddr(port.HostAddr)
 		hostPort := port.HostPort
 		if hostPort > 0 {
 			hostPort += index
-			if err := ensureTCPPortAvailable(hostPort); err != nil {
+			if err := ensureTCPPortAvailable(hostAddr, hostPort); err != nil {
 				return nil, err
 			}
 		} else {
-			allocated, err := allocateEphemeralTCPPort()
+			allocated, err := allocateEphemeralTCPPortOn(hostAddr)
 			if err != nil {
 				return nil, err
 			}
@@ -38,7 +39,9 @@ func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, err
 
 		mappings = append(mappings, qemu.PortMapping{
 			Name:      port.Name,
+			HostAddr:  hostAddr,
 			HostPort:  hostPort,
+			GuestAddr: port.GuestAddr,
 			GuestPort: port.GuestPort,
 			Protocol:  port.Protocol,
 		})
@@ -46,20 +49,24 @@ func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, err
 	return mappings, nil
 }
 
-func ensureTCPPortAvailable(port int) error {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+func ensureTCPPortAvailable(addr string, port int) error {
+	listener, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
 	if err != nil {
-		return fmt.Errorf("host port %d is unavailable: %w", port, err)
+		return fmt.Errorf("host port %s:%d is unavailable: %w", addr, port, err)
 	}
 	return listener.Close()
 }
 
 func allocateEphemeralTCPPort() (int, error) {
+	return allocateEphemeralTCPPortOn("127.0.0.1")
+}
+
+func allocateEphemeralTCPPortOn(addr string) (int, error) {
 	if port, ok, err := nextTestEphemeralTCPPort(); ok || err != nil {
 		return port, err
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp", net.JoinHostPort(addr, "0"))
 	if err != nil {
 		return 0, fmt.Errorf("allocate ephemeral port: %w", err)
 	}
@@ -70,6 +77,13 @@ func allocateEphemeralTCPPort() (int, error) {
 		return 0, errors.New("unexpected tcp listener address type")
 	}
 	return address.Port, nil
+}
+
+func effectiveHostAddr(addr string) string {
+	if addr == "" {
+		return "127.0.0.1"
+	}
+	return addr
 }
 
 func nextTestEphemeralTCPPort() (int, bool, error) {

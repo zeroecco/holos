@@ -321,14 +321,18 @@ func TestParsePort(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		spec     string
-		host     int
-		guest    int
-		protocol string
+		spec      string
+		hostAddr  string
+		host      int
+		guestAddr string
+		guest     int
+		protocol  string
 	}{
-		{"8080:80", 8080, 80, "tcp"},
-		{"443:443/tcp", 443, 443, "tcp"},
-		{"80", 0, 80, "tcp"},
+		{"8080:80", "", 8080, "", 80, "tcp"},
+		{"443:443/tcp", "", 443, "", 443, "tcp"},
+		{"80", "", 0, "", 80, "tcp"},
+		{"127.0.0.1:8080:10.0.2.15:80", "127.0.0.1", 8080, "10.0.2.15", 80, "tcp"},
+		{"0.0.0.0:8443:10.0.2.15:443/tcp", "0.0.0.0", 8443, "10.0.2.15", 443, "tcp"},
 	}
 
 	for _, tt := range tests {
@@ -336,8 +340,23 @@ func TestParsePort(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parsePort(%q): %v", tt.spec, err)
 		}
-		if pf.HostPort != tt.host || pf.GuestPort != tt.guest || pf.Protocol != tt.protocol {
-			t.Fatalf("parsePort(%q) = %+v, want host=%d guest=%d proto=%s", tt.spec, pf, tt.host, tt.guest, tt.protocol)
+		if pf.HostAddr != tt.hostAddr || pf.HostPort != tt.host || pf.GuestAddr != tt.guestAddr || pf.GuestPort != tt.guest || pf.Protocol != tt.protocol {
+			t.Fatalf("parsePort(%q) = %+v, want host=%s:%d guest=%s:%d proto=%s",
+				tt.spec, pf, tt.hostAddr, tt.host, tt.guestAddr, tt.guest, tt.protocol)
+		}
+	}
+}
+
+func TestParsePortRejectsInvalidAddresses(t *testing.T) {
+	t.Parallel()
+
+	for _, spec := range []string{
+		"localhost:8080:10.0.2.15:80",
+		"127.0.0.1:8080:localhost:80",
+		"::1:8080:10.0.2.15:80",
+	} {
+		if _, err := parsePort(spec); err == nil {
+			t.Fatalf("parsePort(%q): expected address error", spec)
 		}
 	}
 }

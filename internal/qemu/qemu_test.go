@@ -34,6 +34,7 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		QMPPath:     "/state/api-0/qmp.sock",
 		Ports: []PortMapping{
 			{Name: "http", HostPort: 8080, GuestPort: 80, Protocol: "tcp"},
+			{Name: "admin", HostAddr: "0.0.0.0", HostPort: 9000, GuestAddr: "10.0.2.15", GuestPort: 9000, Protocol: "tcp"},
 		},
 	}
 
@@ -47,6 +48,7 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		"-enable-kvm",
 		"q35,accel=kvm",
 		"hostfwd=tcp:127.0.0.1:8080-:80",
+		"hostfwd=tcp:0.0.0.0:9000-10.0.2.15:9000",
 		"-virtfs local,path=/srv/api,mount_tag=share0-var-lib-api,security_model=none,readonly=on",
 		"file=/state/api-0/root.qcow2",
 		"file=/state/api-0/seed.iso",

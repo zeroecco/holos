@@ -32,8 +32,10 @@ already controls the holos state tree, the QEMU binary, or root on the host.
   possible and mount only the minimum directory needed by the workload.
 - Named volumes are persistent qcow2 disks. Treat them like guest disks: scan or
   inspect data produced by an untrusted VM before attaching it to another VM.
-- Port forwards bind on `127.0.0.1`. Expose them beyond localhost only through a
-  deliberate reverse proxy, firewall rule, or SSH tunnel.
+- Port forwards bind on `127.0.0.1` unless the compose file explicitly sets a
+  host bind address. Expose them beyond localhost only deliberately, for example
+  through a reverse proxy, firewall rule, SSH tunnel, or an explicit
+  `0.0.0.0:host:guest_ip:guest` mapping.
 - VFIO passthrough gives a guest direct device access. Use IOMMU isolation,
   understand device reset behavior, and do not pass through devices that share
   an unsafe IOMMU group.

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -151,10 +152,12 @@ func (n *InternalNetworkConfig) InstanceIP(index int) string {
 	return ""
 }
 
-// PortForward maps a host TCP port to a guest TCP port.
+// PortForward maps a host TCP port/address to a guest TCP port/address.
 type PortForward struct {
 	Name      string `json:"name"`
+	HostAddr  string `json:"host_addr,omitempty"`
 	HostPort  int    `json:"host_port"`
+	GuestAddr string `json:"guest_addr,omitempty"`
 	GuestPort int    `json:"guest_port"`
 	Protocol  string `json:"protocol"`
 }
@@ -393,14 +396,25 @@ func (m Manifest) Validate() error {
 	//
 	// Ephemeral ports (HostPort == 0) are allocated uniquely per
 	// replica by the runtime and cannot collide, so we skip them.
-	type claim struct{ baseHost, guest int }
-	claimed := make(map[int]claim, len(m.Ports)*m.Replicas)
+	type claim struct {
+		hostAddr string
+		host     int
+		baseHost int
+		guest    int
+	}
+	var claimed []claim
 	for _, port := range m.Ports {
 		if port.GuestPort < 1 || port.GuestPort > 65535 {
 			return fmt.Errorf("guest port %d is out of range", port.GuestPort)
 		}
 		if port.HostPort < 0 || port.HostPort > 65535 {
 			return fmt.Errorf("host port %d is out of range", port.HostPort)
+		}
+		if err := validatePortAddress("host", port.HostAddr); err != nil {
+			return err
+		}
+		if err := validatePortAddress("guest", port.GuestAddr); err != nil {
+			return err
 		}
 		if port.HostPort > 0 {
 			top := port.HostPort + m.Replicas - 1
@@ -411,12 +425,16 @@ func (m Manifest) Validate() error {
 			}
 			for r := 0; r < m.Replicas; r++ {
 				host := port.HostPort + r
-				if prev, dup := claimed[host]; dup {
+				hostAddr := effectiveHostAddr(port.HostAddr)
+				for _, prev := range claimed {
+					if prev.host != host || !hostAddressesConflict(prev.hostAddr, hostAddr) {
+						continue
+					}
 					return fmt.Errorf(
-						"host port %d is claimed by both mapping %d:%d and %d:%d at replica %d",
-						host, prev.baseHost, prev.guest, port.HostPort, port.GuestPort, r)
+						"host port %s:%d is claimed by both mapping %s:%d:%d and %s:%d:%d at replica %d",
+						hostAddr, host, prev.hostAddr, prev.baseHost, prev.guest, hostAddr, port.HostPort, port.GuestPort, r)
 				}
-				claimed[host] = claim{baseHost: port.HostPort, guest: port.GuestPort}
+				claimed = append(claimed, claim{hostAddr: hostAddr, host: host, baseHost: port.HostPort, guest: port.GuestPort})
 			}
 		}
 		if port.Protocol != "tcp" {
@@ -450,6 +468,31 @@ func (m Manifest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validatePortAddress(kind, addr string) error {
+	if addr == "" {
+		return nil
+	}
+	parsed, err := netip.ParseAddr(addr)
+	if err != nil {
+		return fmt.Errorf("%s address %q is invalid: %w", kind, addr, err)
+	}
+	if !parsed.Is4() {
+		return fmt.Errorf("%s address %q must be IPv4", kind, addr)
+	}
+	return nil
+}
+
+func effectiveHostAddr(addr string) string {
+	if addr == "" {
+		return "127.0.0.1"
+	}
+	return addr
+}
+
+func hostAddressesConflict(a, b string) bool {
+	return a == b || a == "0.0.0.0" || b == "0.0.0.0"
 }
 
 // ValidateUserName checks the guest account name holos asks cloud-init to

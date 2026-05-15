@@ -26,7 +26,9 @@ func qemuOptEscape(s string) string {
 // running instance.
 type PortMapping struct {
 	Name      string `json:"name"`
+	HostAddr  string `json:"host_addr,omitempty"`
 	HostPort  int    `json:"host_port"`
+	GuestAddr string `json:"guest_addr,omitempty"`
 	GuestPort int    `json:"guest_port"`
 	Protocol  string `json:"protocol"`
 }
@@ -210,7 +212,15 @@ func buildNetdev(ports []PortMapping, sshPort int) (string, error) {
 		if port.Protocol != "tcp" {
 			return "", fmt.Errorf("unsupported port mapping protocol %q", port.Protocol)
 		}
-		options = append(options, fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:%d", port.HostPort, port.GuestPort))
+		hostAddr := port.HostAddr
+		if hostAddr == "" {
+			hostAddr = "127.0.0.1"
+		}
+		guestTarget := fmt.Sprintf(":%d", port.GuestPort)
+		if port.GuestAddr != "" {
+			guestTarget = fmt.Sprintf("%s:%d", port.GuestAddr, port.GuestPort)
+		}
+		options = append(options, fmt.Sprintf("hostfwd=tcp:%s:%d-%s", hostAddr, port.HostPort, guestTarget))
 	}
 	if sshPort > 0 {
 		options = append(options, fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:22", sshPort))
