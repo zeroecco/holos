@@ -95,6 +95,10 @@ type Image struct {
 	// OSFamily is explicit guest metadata consumed by cloud-init
 	// rendering. Supported values are "systemd" and "openrc".
 	OSFamily string
+	// RequiresVGA asks compose to add an explicit VGA device for BIOS boots.
+	// Some images' GRUB configs assume a graphics terminal exists even when
+	// holos runs headless with -display none.
+	RequiresVGA bool
 }
 
 // Registry maps short names like "alpine" or "ubuntu:noble" to download URLs.
@@ -128,8 +132,8 @@ var Registry = []Image{
 	// only ~25 MB larger.
 	{Name: "debian", Tag: "12", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", Default: true, User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
 	{Name: "debian", Tag: "bookworm", URL: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"},
-	{Name: "debian", Tag: "13", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"},
-	{Name: "debian", Tag: "trixie", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"},
+	{Name: "debian", Tag: "13", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS", RequiresVGA: true},
+	{Name: "debian", Tag: "trixie", URL: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2", Format: "qcow2", User: "debian", OSFamily: "systemd", SHA512URL: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS", RequiresVGA: true},
 
 	// Ubuntu (cloud images, NoCloud compatible). The "current" alias rotates on rebuild.
 	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img", Format: "qcow2", Default: true, User: "ubuntu", OSFamily: "systemd", SHA256URL: "https://cloud-images.ubuntu.com/noble/current/SHA256SUMS"},
@@ -298,6 +302,18 @@ func DefaultUser(ref string) string {
 		return ""
 	}
 	return img.User
+}
+
+// RequiresVGA reports whether an image should get an explicit VGA device when
+// booted through BIOS. The Debian 13 generic image's GRUB config can stall with
+// holos' otherwise headless -nodefaults serial layout unless a graphics
+// terminal device exists.
+func RequiresVGA(ref string) bool {
+	img, err := Resolve(ref)
+	if err != nil || img == nil {
+		return false
+	}
+	return img.RequiresVGA
 }
 
 // ListAvailable returns all registered images.

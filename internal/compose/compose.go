@@ -597,6 +597,14 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	if !uefi && len(devices) > 0 {
 		uefi = true
 	}
+	extraArgs := append([]string(nil), svc.VM.ExtraArgs...)
+	if !uefi && images.RequiresVGA(svc.Image) {
+		// Debian 13's BIOS GRUB path can stall at "Booting Debian GNU/Linux"
+		// with holos' -nodefaults serial-only device layout. Supplying a
+		// headless VGA device satisfies GRUB's gfxterm setup while keeping the
+		// serial console and QEMU display disabled.
+		extraArgs = append([]string{"-device", "VGA"}, extraArgs...)
+	}
 
 	gracePeriodSec, err := parseStopGracePeriod(svc.StopGracePeriod)
 	if err != nil {
@@ -623,7 +631,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			Machine:       machine,
 			CPUModel:      cpuModel,
 			UEFI:          uefi,
-			ExtraArgs:     svc.VM.ExtraArgs,
+			ExtraArgs:     extraArgs,
 		},
 		Devices: devices,
 		Network: config.NetworkConfig{Mode: "user"},

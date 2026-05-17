@@ -292,12 +292,62 @@ func TestUserResolutionChain(t *testing.T) {
 	}
 }
 
+func TestDebian13AddsVGABootWorkaround(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	prewarmImageCache(t, stateDir, "debian:13")
+
+	file := &File{
+		Name: "debian13",
+		Services: map[string]Service{
+			"vm": {Image: "debian:13"},
+		},
+	}
+	project, err := file.Resolve(dir, stateDir)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	got := project.Services["vm"].VM.ExtraArgs
+	if len(got) < 2 || got[0] != "-device" || got[1] != "VGA" {
+		t.Fatalf("debian:13 extra args = %v, want leading -device VGA", got)
+	}
+
+	file.Services["vm"] = Service{Image: "debian:13", VM: VM{UEFI: true}}
+	project, err = file.Resolve(dir, stateDir)
+	if err != nil {
+		t.Fatalf("resolve uefi: %v", err)
+	}
+	if got := project.Services["vm"].VM.ExtraArgs; len(got) != 0 {
+		t.Fatalf("uefi debian:13 extra args = %v, want none", got)
+	}
+}
+
 // sha256Prefix mirrors images.cacheFilename's URL-hash suffix without
 // exporting it; tests only need the first 4 bytes (8 hex chars) of the
 // URL's SHA-256 digest.
 func sha256Prefix(url string) string {
 	h := sha256.Sum256([]byte(url))
 	return hex.EncodeToString(h[:4])
+}
+
+func prewarmImageCache(t *testing.T, stateDir, ref string) {
+	t.Helper()
+
+	img, err := images.Resolve(ref)
+	if err != nil || img == nil {
+		t.Fatalf("pre-warm resolve(%q): img=%v err=%v", ref, img, err)
+	}
+	cacheDir := filepath.Join(stateDir, "images")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stub := filepath.Join(cacheDir, fmt.Sprintf("%s-%s-%s.qcow2",
+		img.Name, img.Tag, sha256Prefix(img.URL)))
+	if err := os.WriteFile(stub, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTopoSortDetectsCycle(t *testing.T) {

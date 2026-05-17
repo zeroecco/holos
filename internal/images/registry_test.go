@@ -69,6 +69,24 @@ func TestDebianUsesGenericVariant(t *testing.T) {
 	}
 }
 
+func TestRequiresVGA(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]bool{
+		"debian:13":       true,
+		"debian:trixie":   true,
+		"debian":          false,
+		"debian:bookworm": false,
+		"ubuntu:noble":    false,
+		"./local.qcow2":   false,
+	}
+	for ref, want := range cases {
+		if got := RequiresVGA(ref); got != want {
+			t.Errorf("RequiresVGA(%q) = %v, want %v", ref, got, want)
+		}
+	}
+}
+
 func TestResolveKnownImages(t *testing.T) {
 	t.Parallel()
 
