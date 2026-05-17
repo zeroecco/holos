@@ -55,6 +55,7 @@ jobs:
 
           cleanup() {
             ./bin/holos down alpine-smoke || true
+            ./bin/holos down port-bind-smoke || true
             ./bin/holos down ubuntu-smoke || true
             ./bin/holos down volume-smoke || true
           }
@@ -74,6 +75,16 @@ jobs:
           ./bin/holos start alpine-smoke
           ./bin/holos exec -w 5m alpine-smoke -- uname -a
           ./bin/holos down alpine-smoke
+
+          ./bin/holos run --name port-bind-smoke \
+            -p 127.0.0.1:18081:80 \
+            -p 127.0.0.1:18082:10.0.2.15:80 \
+            --pkg nginx \
+            --runcmd 'rc-service nginx start' alpine
+          ./bin/holos exec -w 5m port-bind-smoke -- true
+          curl --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:18081/ >/dev/null
+          curl --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:18082/ >/dev/null
+          ./bin/holos down port-bind-smoke
 
           ./bin/holos run --name ubuntu-smoke ubuntu:noble -- true
           ./bin/holos exec -w 5m ubuntu-smoke -- true

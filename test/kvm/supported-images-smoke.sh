@@ -91,6 +91,17 @@ raise SystemExit(f"console attach did not reach connected state for {project}")
 PY
 }
 
+stop_from_without_compose() {
+  local project=$1
+  local dir
+  dir=$(mktemp -d)
+  (
+    cd "$dir"
+    "$HOLOS_BIN" stop "$project"
+  )
+  rm -rf "$dir"
+}
+
 PYTHON_BIN=${PYTHON_BIN:-python3}
 
 cleanup() {
@@ -116,6 +127,7 @@ for image in "${IMAGES[@]}"; do
   "$HOLOS_BIN" run --name "$project" "$image" -- true
   "$HOLOS_BIN" exec -w 10m "$project" -- true
   console_smoke "$project"
+  stop_from_without_compose "$project"
   "$HOLOS_BIN" down "$project"
 
   echo "::endgroup::"

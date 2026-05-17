@@ -188,6 +188,39 @@ services:
 	}
 }
 
+func TestLifecycle_StopProjectByNameWithoutComposeFile(t *testing.T) {
+	h := newHarness(t)
+
+	dir := h.writeProject("stopbyname", "", nil)
+	img := h.fakeImage(dir, "base.qcow2")
+	compose := fmt.Sprintf(`
+name: stopbyname
+services:
+  web:
+    image: %s
+`, img)
+	_, _ = writeFile(dir, "holos.yaml", compose)
+	h.mustRun("up", "-f", dir+"/holos.yaml")
+
+	outside := filepath.Join(h.workDir, "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := h.runIn(outside, "stop", "stopbyname")
+	if err != nil {
+		t.Fatalf("stop by project name failed:\nstdout:\n%s\nstderr:\n%s\nerr: %v", stdout, stderr, err)
+	}
+
+	proj := findProject(t, psList(t, h), "stopbyname")
+	for _, svc := range proj.Services {
+		for _, inst := range svc.Instances {
+			if inst.Status != "stopped" {
+				t.Fatalf("expected %s stopped; got %q", inst.Name, inst.Status)
+			}
+		}
+	}
+}
+
 // TestLifecycle_Idempotent_Up checks that a second `up` against an unchanged
 // spec does not double-start or leak state.
 func TestLifecycle_Idempotent_Up(t *testing.T) {

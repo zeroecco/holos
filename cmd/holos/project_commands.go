@@ -197,18 +197,39 @@ func runStop(args []string) error {
 		return err
 	}
 
-	project, err := loadProject(*filePath, *stateDir)
-	if err != nil {
-		return err
-	}
-
 	manager := runtime.NewManager(*stateDir)
 	applyLockFlags(manager, lock)
+
+	var projectName, svcName string
+	if *filePath == "" && flags.NArg() > 0 {
+		candidate := flags.Arg(0)
+		if err := compose.ValidateName(candidate); err != nil {
+			return fmt.Errorf("invalid project name: %w", err)
+		}
+		if _, ok := lookupProjectRecord(manager, candidate); ok {
+			projectName = candidate
+			if flags.NArg() > 1 {
+				svcName = flags.Arg(1)
+			}
+		}
+	}
+	if projectName == "" {
+		project, err := loadProject(*filePath, *stateDir)
+		if err != nil {
+			return err
+		}
+		projectName = project.Name
+		if flags.NArg() > 0 {
+			svcName = flags.Arg(0)
+		}
+	}
+
 	var record *runtime.ProjectRecord
-	if flags.NArg() > 0 {
-		record, err = manager.StopService(project.Name, flags.Arg(0))
+	var err error
+	if svcName != "" {
+		record, err = manager.StopService(projectName, svcName)
 	} else {
-		record, err = manager.StopProject(project.Name)
+		record, err = manager.StopProject(projectName)
 	}
 	if err != nil {
 		return err
