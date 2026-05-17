@@ -7,6 +7,8 @@ on:
         description: 'Space-separated image refs for the supported-image smoke test'
         required: false
         default: 'alpine arch debian:bookworm debian:trixie ubuntu:noble ubuntu:resolute fedora almalinux rocky centos-stream'
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
     paths:
