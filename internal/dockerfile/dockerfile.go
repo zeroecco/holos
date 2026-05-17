@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,11 +30,24 @@ func Parse(path string, contextDir string) (*Result, error) {
 	}
 	defer f.Close()
 
-	lines, err := joinContinuations(bufio.NewScanner(f))
+	result, err := parse(f, contextDir)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ParseContent converts an inline Dockerfile body into cloud-init artifacts.
+// COPY sources are resolved relative to contextDir.
+func ParseContent(content string, contextDir string) (*Result, error) {
+	return parse(strings.NewReader(content), contextDir)
+}
+
+func parse(r io.Reader, contextDir string) (*Result, error) {
+	lines, err := joinContinuations(bufio.NewScanner(r))
 	if err != nil {
 		return nil, fmt.Errorf("read dockerfile: %w", err)
 	}
-
 	result := &Result{}
 	var script strings.Builder
 	script.WriteString("#!/bin/bash\nset -e\n")

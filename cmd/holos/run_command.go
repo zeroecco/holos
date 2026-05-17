@@ -117,8 +117,8 @@ func runRun(args []string) error {
 					MemoryMB: memMB,
 					UEFI:     resolvedUEFI,
 				},
-				Ports:   ports,
-				Volumes: volumes,
+				Ports:   composePorts(ports),
+				Volumes: composeVolumes(volumes),
 				Devices: devList,
 				CloudInit: compose.CloudInit{
 					User:     resolvedUser,
@@ -157,6 +157,22 @@ func runRun(args []string) error {
 	fmt.Printf("  holos logs    %s     # console.log tail\n", projectName)
 	fmt.Printf("  holos down    %s\n", projectName)
 	return nil
+}
+
+func composePorts(ports []string) []compose.ComposePort {
+	out := make([]compose.ComposePort, len(ports))
+	for i, port := range ports {
+		out[i] = compose.ComposePort{Short: port}
+	}
+	return out
+}
+
+func composeVolumes(volumes []string) []compose.ComposeVolume {
+	out := make([]compose.ComposeVolume, len(volumes))
+	for i, volume := range volumes {
+		out[i] = compose.ComposeVolume{Short: volume}
+	}
+	return out
 }
 
 func writeRunComposeFile(stateDir, projectName string, file compose.File) (string, error) {

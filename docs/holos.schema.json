@@ -5,11 +5,20 @@
   "description": "Compose-style VM stack definition for holos.",
   "type": "object",
   "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {}
+  },
   "required": ["services"],
   "properties": {
+    "version": {
+      "type": "string"
+    },
     "name": {
       "$ref": "#/$defs/dnsLabel",
       "description": "Project name. Defaults to the compose directory name when omitted."
+    },
+    "include": {
+      "$ref": "#/$defs/include"
     },
     "services": {
       "type": "object",
@@ -29,6 +38,42 @@
           "$ref": "#/$defs/namedVolume"
         }
       }
+    },
+    "networks": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$": {
+          "$ref": "#/$defs/network"
+        }
+      }
+    },
+    "configs": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_.-]+$": {
+          "$ref": "#/$defs/configResource"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_.-]+$": {
+          "$ref": "#/$defs/secretResource"
+        }
+      }
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_.-]+$": {
+          "$ref": "#/$defs/model"
+        }
+      }
     }
   },
   "$defs": {
@@ -45,9 +90,15 @@
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+)?([KkMmGgTt][Bb]?|[Bb])?$"
     },
+    "scalar": {
+      "type": ["string", "number", "boolean"]
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      },
       "properties": {
         "image": {
           "type": "string",
@@ -63,9 +114,57 @@
           "enum": ["systemd", "openrc"],
           "description": "Guest OS family metadata used for cloud-init rendering. Built-in images set this automatically; local images may need an explicit value."
         },
+        "build": {
+          "$ref": "#/$defs/build"
+        },
         "dockerfile": {
           "type": "string",
           "description": "Dockerfile to translate into cloud-init provisioning."
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "entrypoint": {
+          "$ref": "#/$defs/command"
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+        },
+        "container_name": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "pull_policy": {
+          "type": "string",
+          "pattern": "^(always|never|build|if_not_present|missing|refresh|daily|weekly|every_([0-9]+[wdhms])+)$"
+        },
+        "pull_refresh_after": {
+          "type": "string"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "attach": {
+          "type": ["boolean", "string"]
+        },
+        "restart": {
+          "type": "string",
+          "enum": ["no", "always", "on-failure", "unless-stopped"]
+        },
+        "stop_signal": {
+          "type": "string"
+        },
+        "deploy": {
+          "$ref": "#/$defs/deploy"
         },
         "replicas": {
           "type": "integer",
@@ -73,23 +172,169 @@
           "maximum": 256,
           "default": 1
         },
+        "scale": {
+          "type": ["integer", "string"],
+          "minimum": 1,
+          "maximum": 256
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "domainname": {
+          "type": "string"
+        },
+        "cpus": {
+          "type": ["number", "string"],
+          "exclusiveMinimum": 0
+        },
+        "mem_limit": {
+          "$ref": "#/$defs/size"
+        },
+        "mem_reservation": {
+          "$ref": "#/$defs/size"
+        },
+        "mem_swappiness": {
+          "$ref": "#/$defs/scalar"
+        },
+        "memswap_limit": {
+          "$ref": "#/$defs/scalar"
+        },
+        "shm_size": {
+          "$ref": "#/$defs/scalar"
+        },
+        "init": {
+          "type": ["boolean", "string"]
+        },
+        "oom_kill_disable": {
+          "type": ["boolean", "string"]
+        },
+        "oom_score_adj": {
+          "$ref": "#/$defs/scalar"
+        },
+        "pids_limit": {
+          "$ref": "#/$defs/scalar"
+        },
+        "privileged": {
+          "type": ["boolean", "string"]
+        },
+        "read_only": {
+          "type": ["boolean", "string"]
+        },
+        "tty": {
+          "type": ["boolean", "string"]
+        },
+        "stdin_open": {
+          "type": ["boolean", "string"]
+        },
+        "cap_add": {
+          "$ref": "#/$defs/stringList"
+        },
+        "cap_drop": {
+          "$ref": "#/$defs/stringList"
+        },
+        "cgroup": {
+          "type": "string"
+        },
+        "cgroup_parent": {
+          "type": "string"
+        },
+        "cpu_count": {
+          "type": "integer"
+        },
+        "cpu_percent": {
+          "type": "integer"
+        },
+        "cpu_period": {
+          "$ref": "#/$defs/scalar"
+        },
+        "cpu_quota": {
+          "$ref": "#/$defs/scalar"
+        },
+        "cpu_rt_period": {
+          "$ref": "#/$defs/scalar"
+        },
+        "cpu_rt_runtime": {
+          "$ref": "#/$defs/scalar"
+        },
+        "cpu_shares": {
+          "$ref": "#/$defs/scalar"
+        },
+        "cpuset": {
+          "type": "string"
+        },
+        "credential_spec": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "isolation": {
+          "type": "string"
+        },
+        "ipc": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "security_opt": {
+          "$ref": "#/$defs/stringList"
+        },
+        "storage_opt": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "sysctls": {
+          "$ref": "#/$defs/labels"
+        },
+        "tmpfs": {
+          "$ref": "#/$defs/stringList"
+        },
+        "ulimits": {
+          "$ref": "#/$defs/ulimits"
+        },
+        "uts": {
+          "type": "string"
+        },
+        "userns_mode": {
+          "type": "string"
+        },
+        "blkio_config": {
+          "$ref": "#/$defs/blkioConfig"
+        },
+        "device_cgroup_rules": {
+          "$ref": "#/$defs/stringList"
+        },
+        "device_read_bps": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_read_iops": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_write_bps": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_write_iops": {
+          "$ref": "#/$defs/throttleDevices"
+        },
         "vm": {
           "$ref": "#/$defs/vm"
         },
         "ports": {
           "type": "array",
           "items": {
-            "type": "string",
-            "pattern": "^(([0-9]{1,5}:)?[0-9]{1,5}|([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{1,5}:([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{1,5})(/tcp)?$",
-            "examples": ["80", "8080:80", "8080:80/tcp", "0.0.0.0:8080:10.0.2.15:80"]
+            "$ref": "#/$defs/port"
           }
         },
         "volumes": {
           "type": "array",
           "items": {
-            "type": "string",
-            "pattern": "^[^:]+:[^:]+(:ro|:rw)?$",
-            "description": "SRC:TARGET[:ro|rw]. SRC can be a bind path or a top-level named volume."
+            "$ref": "#/$defs/serviceVolume"
           }
         },
         "devices": {
@@ -99,10 +344,91 @@
           }
         },
         "depends_on": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/dnsLabel"
-          }
+          "$ref": "#/$defs/dependsOn"
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
+        },
+        "label_file": {
+          "$ref": "#/$defs/stringList"
+        },
+        "annotations": {
+          "$ref": "#/$defs/labels"
+        },
+        "extra_hosts": {
+          "$ref": "#/$defs/extraHosts"
+        },
+        "dns": {
+          "$ref": "#/$defs/stringList"
+        },
+        "dns_opt": {
+          "$ref": "#/$defs/stringList"
+        },
+        "dns_search": {
+          "$ref": "#/$defs/stringList"
+        },
+        "env_file": {
+          "$ref": "#/$defs/envFile"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "expose": {
+          "$ref": "#/$defs/stringList"
+        },
+        "external_links": {
+          "$ref": "#/$defs/stringList"
+        },
+        "group_add": {
+          "$ref": "#/$defs/stringList"
+        },
+        "links": {
+          "$ref": "#/$defs/stringList"
+        },
+        "network_mode": {
+          "type": "string"
+        },
+        "networks": {
+          "$ref": "#/$defs/serviceNetworks"
+        },
+        "configs": {
+          "$ref": "#/$defs/serviceResources"
+        },
+        "secrets": {
+          "$ref": "#/$defs/serviceResources"
+        },
+        "models": {
+          "$ref": "#/$defs/serviceModels"
+        },
+        "develop": {
+          "$ref": "#/$defs/develop"
+        },
+        "extends": {
+          "$ref": "#/$defs/extends"
+        },
+        "gpus": {
+          "$ref": "#/$defs/gpus"
+        },
+        "logging": {
+          "$ref": "#/$defs/logging"
+        },
+        "mac_address": {
+          "type": "string"
+        },
+        "post_start": {
+          "$ref": "#/$defs/lifecycleHooks"
+        },
+        "pre_stop": {
+          "$ref": "#/$defs/lifecycleHooks"
+        },
+        "provider": {
+          "$ref": "#/$defs/provider"
+        },
+        "use_api_socket": {
+          "type": "boolean"
+        },
+        "volumes_from": {
+          "$ref": "#/$defs/stringList"
         },
         "cloud_init": {
           "$ref": "#/$defs/cloudInit"
@@ -116,7 +442,8 @@
       },
       "anyOf": [
         { "required": ["image"] },
-        { "required": ["dockerfile"] }
+        { "required": ["dockerfile"] },
+        { "required": ["build"] }
       ]
     },
     "vm": {
@@ -153,25 +480,1140 @@
         }
       }
     },
-    "device": {
+    "command": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "deploy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pci"],
+      "patternProperties": {
+        "^x-": {}
+      },
       "properties": {
-        "pci": {
+        "mode": {
           "type": "string",
-          "pattern": "^([0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-7]$",
-          "examples": ["0000:01:00.0", "01:00.0"]
+          "enum": ["global", "replicated", "replicated-job", "global-job"]
         },
-        "rom_file": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "endpoint_mode": {
+          "type": "string",
+          "enum": ["vip", "dnsrr"]
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limits": {
+              "$ref": "#/$defs/deployResource"
+            },
+            "reservations": {
+              "$ref": "#/$defs/deployResource"
+            }
+          }
+        },
+        "restart_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "condition": {
+              "type": "string",
+              "enum": ["none", "on-failure", "any"]
+            },
+            "delay": {
+              "$ref": "#/$defs/duration"
+            },
+            "max_attempts": {
+              "type": "integer"
+            },
+            "window": {
+              "$ref": "#/$defs/duration"
+            }
+          }
+        },
+        "placement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "preferences": {
+              "type": "array"
+            },
+            "max_replicas_per_node": {
+              "type": "integer"
+            }
+          }
+        },
+        "update_config": {
+          "$ref": "#/$defs/deployUpdateConfig"
+        },
+        "rollback_config": {
+          "$ref": "#/$defs/deployUpdateConfig"
+        }
+      }
+    },
+    "deployResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpus": {
+          "$ref": "#/$defs/scalar"
+        },
+        "memory": {
+          "$ref": "#/$defs/size"
+        },
+        "pids": {
+          "$ref": "#/$defs/scalar"
+        },
+        "generic_resources": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deviceRequest"
+          }
+        }
+      }
+    },
+    "deviceRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/stringList"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "count": {
+          "$ref": "#/$defs/scalar"
+        },
+        "device_ids": {
+          "$ref": "#/$defs/stringList"
+        },
+        "options": {
+          "$ref": "#/$defs/listOrDict"
+        }
+      }
+    },
+    "deployUpdateConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "parallelism": {
+          "type": "integer"
+        },
+        "delay": {
+          "$ref": "#/$defs/duration"
+        },
+        "failure_action": {
+          "type": "string",
+          "enum": ["continue", "rollback", "pause"]
+        },
+        "monitor": {
+          "$ref": "#/$defs/duration"
+        },
+        "max_failure_ratio": {
+          "type": "number"
+        },
+        "order": {
+          "type": "string",
+          "enum": ["stop-first", "start-first"]
+        }
+      }
+    },
+    "build": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "context": {
+              "type": "string"
+            },
+            "dockerfile": {
+              "type": "string"
+            },
+            "dockerfile_inline": {
+              "type": "string"
+            },
+            "args": {
+              "$ref": "#/$defs/environment"
+            },
+            "additional_contexts": {
+              "$ref": "#/$defs/stringMap"
+            },
+            "cache_from": {
+              "$ref": "#/$defs/stringList"
+            },
+            "cache_to": {
+              "$ref": "#/$defs/stringList"
+            },
+            "entitlements": {
+              "$ref": "#/$defs/stringList"
+            },
+            "extra_hosts": {
+              "$ref": "#/$defs/extraHosts"
+            },
+            "isolation": {
+              "type": "string"
+            },
+            "labels": {
+              "$ref": "#/$defs/labels"
+            },
+            "network": {
+              "type": "string"
+            },
+            "no_cache": {
+              "type": ["boolean", "string"]
+            },
+            "pull": {
+              "type": ["boolean", "string"]
+            },
+            "provenance": {
+              "$ref": "#/$defs/scalar"
+            },
+            "sbom": {
+              "$ref": "#/$defs/scalar"
+            },
+            "secrets": {
+              "$ref": "#/$defs/serviceResources"
+            },
+            "shm_size": {
+              "$ref": "#/$defs/scalar"
+            },
+            "ssh": {
+              "$ref": "#/$defs/stringMap"
+            },
+            "tags": {
+              "$ref": "#/$defs/stringList"
+            },
+            "target": {
+              "type": "string"
+            },
+            "ulimits": {
+              "$ref": "#/$defs/ulimits"
+            },
+            "platforms": {
+              "$ref": "#/$defs/stringList"
+            },
+            "privileged": {
+              "type": ["boolean", "string"]
+            }
+          }
+        }
+      ]
+    },
+    "stringList": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": ["string", "number"]
+          }
+        }
+      ]
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "patternProperties": {
+              "^x-": {}
+            },
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/stringList"
+              },
+              "project_directory": {
+                "type": "string"
+              },
+              "env_file": {
+                "$ref": "#/$defs/stringList"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "scalarOrList": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/scalar"
+        },
+        {
+          "type": "array"
+        }
+      ]
+    },
+    "gpus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["all"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deviceRequest"
+          }
+        }
+      ]
+    },
+    "throttleDevices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "rate": {
+            "$ref": "#/$defs/scalar"
+          }
+        }
+      }
+    },
+    "blkioConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "weight": {
+          "$ref": "#/$defs/scalar"
+        },
+        "weight_device": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "weight": {
+                "$ref": "#/$defs/scalar"
+              }
+            }
+          }
+        },
+        "device_read_bps": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_read_iops": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_write_bps": {
+          "$ref": "#/$defs/throttleDevices"
+        },
+        "device_write_iops": {
+          "$ref": "#/$defs/throttleDevices"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      },
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "driver_opts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "attachable": {
+          "type": "boolean"
+        },
+        "internal": {
+          "type": "boolean"
+        },
+        "external": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
+        },
+        "enable_ipv4": {
+          "type": "boolean"
+        },
+        "enable_ipv6": {
+          "type": "boolean"
+        },
+        "ipam": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "driver": {
+              "type": "string"
+            },
+            "config": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "subnet": {
+                    "type": "string"
+                  },
+                  "ip_range": {
+                    "type": "string"
+                  },
+                  "gateway": {
+                    "type": "string"
+                  },
+                  "aux_addresses": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "options": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "serviceNetworks": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "aliases": {
+                "$ref": "#/$defs/stringList"
+              },
+              "ipv4_address": {
+                "type": "string"
+              },
+              "ipv6_address": {
+                "type": "string"
+              },
+              "link_local_ips": {
+                "$ref": "#/$defs/stringList"
+              },
+              "mac_address": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "number"
+              },
+              "gw_priority": {
+                "type": "number"
+              },
+              "interface_name": {
+                "type": "string"
+              },
+              "driver_opts": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": ["string", "number"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "develop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "watch": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "ignore": {
+                "$ref": "#/$defs/stringList"
+              },
+              "include": {
+                "$ref": "#/$defs/stringList"
+              },
+              "initial_sync": {
+                "type": "boolean"
+              },
+              "exec": {
+                "$ref": "#/$defs/hook"
+              }
+            }
+          }
+        }
+      }
+    },
+    "extends": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "service": {
           "type": "string"
         }
       }
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "driver": {
+          "type": "string"
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "null"]
+          }
+        }
+      }
+    },
+    "hook": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "user": {
+          "type": "string"
+        },
+        "privileged": {
+          "type": ["boolean", "string"]
+        },
+        "working_dir": {
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "lifecycleHooks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hook"
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": ["string", "number", "boolean"]
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": ["string", "number", "boolean"]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "context_size": {
+          "$ref": "#/$defs/scalar"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "runtime_flags": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "serviceModels": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "endpoint_var": {
+                "type": "string"
+              },
+              "model_var": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "externalResource": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "configResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "template_driver": {
+          "type": "string"
+        },
+        "external": {
+          "$ref": "#/$defs/externalResource"
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
+        }
+      }
+    },
+    "secretResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "file": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        },
+        "external": {
+          "$ref": "#/$defs/externalResource"
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "driver_opts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number"]
+          }
+        },
+        "template_driver": {
+          "type": "string"
+        }
+      }
+    },
+    "serviceResources": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "gid": {
+                "type": "string"
+              },
+              "mode": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "ulimits": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "soft": {
+                "type": "integer"
+              },
+              "hard": {
+                "type": "integer"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "serviceVolume": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[^:]+:[^:]+(:ro|:rw)?$",
+          "description": "SRC:TARGET[:ro|rw]. SRC can be a bind path or a top-level named volume."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["bind", "volume", "tmpfs", "image", "npipe", "cluster"]
+            },
+            "source": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "read_only": {
+              "type": "boolean"
+            },
+            "consistency": {
+              "type": "string"
+            },
+            "bind": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "propagation": {
+                  "type": "string"
+                },
+                "create_host_path": {
+                  "type": "boolean"
+                },
+                "selinux": {
+                  "type": "string"
+                }
+              }
+            },
+            "volume": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "nocopy": {
+                  "type": "boolean"
+                },
+                "subpath": {
+                  "type": "string"
+                },
+                "labels": {
+                  "$ref": "#/$defs/labels"
+                },
+                "driver_opts": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "tmpfs": {
+              "type": "object"
+            },
+            "image": {
+              "type": "object"
+            }
+          }
+        }
+      ]
+    },
+    "port": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^(([0-9]{1,5}:)?[0-9]{1,5}|([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{1,5}:[0-9]{1,5}|([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{1,5}:([0-9]{1,3}\\.){3}[0-9]{1,3}:[0-9]{1,5})(/tcp)?$",
+          "examples": ["80", "8080:80", "127.0.0.1:8080:80", "8080:80/tcp", "0.0.0.0:8080:10.0.2.15:80"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target"],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "target": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "published": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                }
+              ]
+            },
+            "host_ip": {
+              "type": "string",
+              "pattern": "^([0-9]{1,3}\\.){3}[0-9]{1,3}$"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": ["tcp"]
+            },
+            "app_protocol": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["host", "ingress"]
+            }
+          }
+        }
+      ]
+    },
+    "dependsOn": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dnsLabel"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "condition": {
+                "type": "string",
+                "enum": ["service_started", "service_healthy", "service_completed_successfully"]
+              },
+              "restart": {
+                "type": "boolean"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/dnsLabel"
+          }
+        }
+      ]
+    },
+    "labels": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "stringMap": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^=]+=.*$"
+          }
+        }
+      ]
+    },
+    "listOrDict": {
+      "oneOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "extraHosts": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "environment": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "envFile": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["path"],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": ["boolean", "string"]
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": ["raw"]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "device": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pci"],
+          "properties": {
+            "pci": {
+              "type": "string",
+              "pattern": "^([0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\\.[0-7]$",
+              "examples": ["0000:01:00.0", "01:00.0"]
+            },
+            "rom_file": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "permissions": {
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "cloudInit": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "hostname": {
+          "type": "string"
+        },
         "user": {
           "type": "string",
           "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
@@ -233,7 +1675,10 @@
     "healthcheck": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["test"],
+      "anyOf": [
+        { "required": ["test"] },
+        { "required": ["disable"] }
+      ],
       "properties": {
         "test": {
           "oneOf": [
@@ -261,16 +1706,43 @@
         },
         "timeout": {
           "$ref": "#/$defs/duration"
+        },
+        "start_interval": {
+          "$ref": "#/$defs/duration"
+        },
+        "disable": {
+          "type": "boolean"
         }
       }
     },
     "namedVolume": {
       "type": "object",
       "additionalProperties": false,
+      "patternProperties": {
+        "^x-": {}
+      },
       "properties": {
         "size": {
           "$ref": "#/$defs/size",
           "default": "10G"
+        },
+        "name": {
+          "type": "string"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "driver_opts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "external": {
+          "$ref": "#/$defs/externalResource"
+        },
+        "labels": {
+          "$ref": "#/$defs/labels"
         }
       }
     }

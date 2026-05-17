@@ -240,6 +240,34 @@ func TestWriteRunComposeFilePermissions(t *testing.T) {
 	}
 }
 
+func TestWriteRunComposeFilePreservesShortPorts(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	projectName := "port-test"
+	composePath, err := writeRunComposeFile(stateDir, projectName, compose.File{
+		Name: projectName,
+		Services: map[string]compose.Service{
+			"vm": {
+				Image: "alpine",
+				Ports: []compose.ComposePort{
+					{Short: "127.0.0.1:8080:80"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeRunComposeFile failed: %v", err)
+	}
+	body, err := os.ReadFile(composePath)
+	if err != nil {
+		t.Fatalf("read compose: %v", err)
+	}
+	if !strings.Contains(string(body), "- 127.0.0.1:8080:80") {
+		t.Fatalf("compose file did not preserve short port syntax:\n%s", body)
+	}
+}
+
 func TestRunRejectsInvalidUserBeforeWritingCompose(t *testing.T) {
 	t.Parallel()
 

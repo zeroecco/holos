@@ -33,23 +33,102 @@ services:
 
 Core fields:
 
+- Top-level `version` and `include`: accepted for Docker Compose compatibility.
+  `include` accepts short and long syntax. Existing include files are loaded
+  and merged before the main file is resolved; definitions in the main file
+  take precedence. Included service paths resolve relative to the included
+  file's `project_directory` when set, otherwise the included file directory.
+- `x-*` extension fields: accepted and ignored anywhere in the Compose file
+  while preserving strict typo checks for non-extension fields.
+- Compose merge-control tags `!reset` and `!override`: accepted during load.
+  Holos normalizes them before strict decoding.
 - `services`: map of service name to VM definition.
 - `image`: image alias (`alpine`, `ubuntu:noble`) or local image path.
 - `image_os`: optional guest OS family for local/custom images (`systemd` or
   `openrc`). Built-in images set this metadata automatically.
-- `dockerfile`: Dockerfile translated into cloud-init provisioning.
-- `replicas`: number of instances for the service. Host ports auto-increment by
-  replica index.
+- `build`, `dockerfile`: Docker Compose build syntax and Holos Dockerfile
+  syntax translated into cloud-init provisioning.
+- `command`, `entrypoint`: Docker Compose command fields. In Holos these are
+  translated into first-boot `cloud_init.runcmd` entries after Dockerfile
+  provisioning and before explicit `cloud_init.runcmd`.
+- `working_dir`: applies to the generated `command`/`entrypoint` runcmd by
+  prefixing it with `cd`.
+- `user`: Docker Compose user field. Holos treats this as the cloud-init user;
+  `cloud_init.user` takes precedence when set.
+- `container_name`, `platform`, `pull_policy`, `pull_refresh_after`,
+  `profiles`, `restart`, `stop_signal`, `oom_kill_disable`, `pids_limit`:
+  accepted for Docker Compose compatibility. They are currently metadata/no-op
+  fields in Holos VM execution.
+- `deploy`: accepts Docker Compose deploy syntax. `deploy.replicas` maps to
+  Holos replicas, and `deploy.resources.limits` can provide vCPU/memory
+  fallbacks. Deploy device reservations and other Swarm-specific deploy fields
+  are accepted as compatibility metadata.
+- `replicas`: number of instances for the service. Docker Compose `scale` is
+  also accepted as an alias, as is `deploy.replicas`. Host ports auto-increment
+  by replica index.
+- `hostname`, `domainname`: Docker Compose naming fields. Holos writes these
+  into cloud-init as the guest hostname; `cloud_init.hostname` takes precedence
+  when set.
+- `cpus`, `mem_limit`: Docker Compose resource fields mapped to Holos
+  `vm.vcpu` and `vm.memory_mb` when those VM fields are omitted. Compose
+  `deploy.resources.limits.cpus` and `deploy.resources.limits.memory` are also
+  used as fallbacks. Fractional CPU values round up to whole vCPUs.
+- `init`, `privileged`, `read_only`, `tty`, `stdin_open`: accepted for Docker
+  Compose compatibility. They are no-ops in Holos because each service is a VM
+  with its own init process, isolation boundary, disk policy, and console.
+- `cap_add`, `cap_drop`, `cgroup`, `cgroup_parent`, `cpu_count`,
+  `cpu_percent`, `cpu_period`, `cpu_quota`, `cpu_rt_period`,
+  `cpu_rt_runtime`, `cpu_shares`, `cpuset`, `credential_spec`, `isolation`,
+  `ipc`, `pid`,
+  `mem_reservation`, `mem_swappiness`, `memswap_limit`, `oom_score_adj`,
+  `runtime`, `security_opt`, `shm_size`, `storage_opt`, `sysctls`, `tmpfs`,
+  `ulimits`, `uts`, `userns_mode`, `blkio_config`, `device_cgroup_rules`,
+  `device_read_bps`, `device_read_iops`, `device_write_bps`,
+  `device_write_iops`: accepted for Docker Compose compatibility. They are
+  currently metadata/no-op fields in Holos VM execution.
 - `vm`: virtual hardware (`vcpu`, `memory_mb`, `machine`, `cpu_model`, `uefi`,
   `extra_args`).
-- `ports`: TCP forwards. Use `"host:guest"` for a fixed host port,
-  `"guest"` to have holos allocate an ephemeral host port, or
-  `"host_ip:host:guest_ip:guest"` to bind explicit IPv4 addresses. Append
-  `"/tcp"` explicitly when desired (`"8080:80/tcp"`). Host ports bind to
-  `127.0.0.1` unless a host IP is provided.
+- `ports`: TCP forwards. Use Docker Compose short syntax like
+  `"host:guest"`, `"guest"`, `"host_ip:host:guest"`, or
+  `"host_ip:host:guest_ip:guest"`. Append `"/tcp"` explicitly when desired
+  (`"8080:80/tcp"`). Docker Compose long syntax is also accepted with
+  `target`, `published`, `host_ip`, `protocol`, `app_protocol`, `mode`, and
+  `name`. Equal-length short-form ranges such as `"8080-8081:80-81"` expand
+  to multiple forwards; long-form `published` ranges map each host port to the
+  same target. Holos supports TCP and IPv4 bind/guest addresses only. Host
+  ports bind to `127.0.0.1` unless a host IP is provided.
 - `volumes`: bind mounts or top-level named volumes with `SRC:TGT[:ro|rw]`.
-- `depends_on`: service startup ordering. If the dependency has a healthcheck,
-  dependents wait until it is healthy.
+  Docker Compose long syntax is also accepted for `type: bind` and
+  `type: volume`; `tmpfs`, `image`, `npipe`, and `cluster` entries are accepted
+  as compatibility no-ops.
+- `devices`: Holos PCI passthrough objects continue to map to VM devices.
+  Docker Compose string/CDI device entries are accepted as compatibility
+  metadata.
+- `depends_on`: service startup ordering. Accepts Docker Compose list syntax
+  (`[db]`) and long mapping syntax with `condition`, `restart`, and
+  `required`. If the dependency has a healthcheck, dependents wait until it is
+  healthy.
+- `labels`: metadata copied into the resolved service manifest. Accepts Docker
+  Compose map syntax and list syntax (`key=value` or `key` for an empty value).
+- `annotations`, `attach`, `dns`, `dns_opt`, `dns_search`, `develop`,
+  `extends`, `expose`, `external_links`, `gpus`, `group_add`, `links`,
+  `logging`, `mac_address`, `network_mode`, `post_start`, `pre_stop`,
+  `provider`, `use_api_socket`, `volumes_from`: accepted for Docker Compose
+  compatibility. `post_start` commands are translated into first-boot
+  `cloud_init.runcmd`; `pre_stop` is accepted and also rendered as best-effort
+  first-boot command metadata because Holos does not currently have a VM
+  shutdown hook. The remaining fields in this list are currently
+  metadata/no-op fields in Holos VM execution.
+- `label_file`: loads label files relative to the compose file. Inline
+  `labels` override file-provided labels.
+- `extra_hosts`: additional guest host mappings. Accepts Docker Compose map
+  syntax and list syntax (`host=ip` or `host:ip`).
+- `environment`: guest-wide environment variables written to `/etc/environment`.
+  Accepts Docker Compose map syntax and list syntax; unset entries are omitted.
+- `env_file`: environment files loaded relative to the compose file. Accepts a
+  string, a list of strings, and Docker Compose mapping entries with `path`,
+  `required`, and `format`; inline `environment` values take precedence.
+  `format: raw` is supported, and other formats are rejected.
 - `cloud_init`: user, packages, write files, boot commands, and run commands.
 - `stop_grace_period`: ACPI shutdown wait before SIGTERM/SIGKILL.
 - `healthcheck`: SSH-based readiness probe.
@@ -72,7 +151,9 @@ services:
 
 Top-level `volumes:` declares named data stores under
 `state_dir/volumes/<project>/<name>.qcow2`. They survive `holos down`; teardown
-only removes per-instance symlinks.
+only removes per-instance symlinks. Docker Compose volume metadata fields such
+as `name`, `driver`, `driver_opts`, `external`, and `labels` are accepted for
+compatibility; Holos uses `size` for the qcow2 backing file.
 
 ```yaml
 name: demo
@@ -90,6 +171,19 @@ volumes:
   snapshots:
     size: 50G
 ```
+
+Top-level `networks` and per-service `networks` are accepted for Docker
+Compose compatibility. Holos currently uses its own internal VM network plan,
+so these declarations do not alter runtime networking.
+
+Top-level `configs`/`secrets` and per-service references are also accepted for
+Docker Compose compatibility. Holos does not currently distribute these
+resources into guests; use `cloud_init.write_files` for files that must be
+created inside the VM. Config `template_driver` is accepted as metadata.
+
+Top-level `models` and per-service `models` references are accepted for Docker
+Compose compatibility, including `model`, `context_size`, and `runtime_flags`.
+They are metadata only in Holos today.
 
 Named volumes attach as virtio-blk devices with stable serials like
 `vol-pgdata`, so the guest sees `/dev/disk/by-id/virtio-vol-pgdata`. For
@@ -119,8 +213,10 @@ services:
     depends_on: [db]
 ```
 
-`test` accepts a list (exec form) or a string (wrapped as `sh -c`). Failures
-during `start_period` do not consume retry budget. Set
+`test` accepts a list (exec form) or a string (wrapped as `sh -c`). Docker
+Compose's `test: ["NONE"]` and `disable: true` forms disable the healthcheck.
+`start_interval` is accepted for Compose compatibility; Holos currently probes
+using `interval`. Failures during `start_period` do not consume retry budget. Set
 `HOLOS_HEALTH_BYPASS=1` to skip the actual probe in CI environments that cannot
 SSH into guests.
 
@@ -192,10 +288,20 @@ cloud-init:
 ```yaml
 services:
   api:
-    dockerfile: ./Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
 ```
+
+`build` accepts Docker Compose string syntax (`build: ./app`) and mapping
+syntax with `context` and `dockerfile`. Holos accepts common Compose build
+metadata such as `args`, `cache_from`, `extra_hosts`, `isolation`, `labels`,
+`no_cache`, `pull`, `provenance`, `sbom`, `shm_size`, `ssh`, `tags`, `target`,
+`ulimits`, and `platforms`, but only `context`, `dockerfile`, and
+`dockerfile_inline` affect provisioning today. `additional_contexts` accepts
+both map syntax and `NAME=VALUE` list syntax.
 
 Supported instructions are `FROM`, `RUN`, `COPY`, `ENV`, and `WORKDIR`.
 Unsupported instructions fail loudly. For example, use `services.<name>.ports`
@@ -205,8 +311,9 @@ guest systemd units or `cloud_init.runcmd` instead of `CMD` / `ENTRYPOINT`.
 When `image` is omitted, the base image is taken from the Dockerfile's `FROM`
 line. Dockerfile instructions run before `cloud_init.runcmd`.
 
-`COPY` sources are resolved relative to the Dockerfile directory, must stay
-inside the build context, and must be files. Use volumes for directories.
+`COPY` sources are resolved relative to the build context for `build`, or the
+Dockerfile directory for `dockerfile`. They must stay inside the context and
+must be files. Use volumes for directories.
 
 ## Extra QEMU Arguments
 
