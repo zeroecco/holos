@@ -2,6 +2,11 @@ name: kvm smoke
 
 on:
   workflow_dispatch:
+    inputs:
+      images:
+        description: 'Space-separated image refs for the supported-image smoke test'
+        required: false
+        default: 'alpine arch debian:bookworm debian:trixie ubuntu:noble ubuntu:resolute fedora almalinux rocky centos-stream'
   pull_request:
     branches: [main]
     paths:
@@ -17,9 +22,9 @@ permissions:
 
 jobs:
   real-kvm:
-    name: Alpine and Ubuntu real KVM smoke
+    name: Real KVM smoke
     runs-on: [self-hosted, linux, kvm]
-    timeout-minutes: 45
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +37,7 @@ jobs:
       - name: Verify host
         run: |
           test -r /dev/kvm
+          python3 --version
           qemu-system-x86_64 --version
           qemu-img --version
           cloud-localds --version || genisoimage --version || mkisofs --version || xorriso --version
@@ -90,3 +96,14 @@ jobs:
           ./bin/holos start -f "$RUNNER_TEMP/holos-volume.yaml"
           ./bin/holos exec -w 5m volume-smoke -- test -f /mnt/data/probe
           ./bin/holos down volume-smoke
+
+      - name: Smoke supported images
+        shell: bash
+        env:
+          HOLOS_STATE_DIR: ${{ runner.temp }}/holos-supported-images-state
+          HOLOS_BIN: ./bin/holos
+          HOLOS_KVM_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
+        run: |
+          rm -rf "$HOLOS_STATE_DIR"
+          mkdir -p "$HOLOS_STATE_DIR"
+          test/kvm/supported-images-smoke.sh
