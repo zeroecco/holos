@@ -26,6 +26,12 @@ import (
 // broken mirror notices and Ctrl-Cs within a minute.
 var bodyIdleTimeout = 60 * time.Second
 
+// responseHeaderTimeout bounds the time spent waiting for a mirror to produce
+// HTTP headers after the connection is established. Debian's cloud image host
+// can be slow to begin large qcow2 responses, so keep this roomier than the
+// connect/TLS phase while still failing dead mirrors in minutes, not forever.
+var responseHeaderTimeout = 2 * time.Minute
+
 // tempFileFactory is the indirection that lets tests replace the
 // partial-file sink so they can exercise failure modes (e.g. Close
 // returning ENOSPC) without needing a real quota-capped filesystem.
@@ -53,7 +59,7 @@ var httpClient = &http.Client{
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: 30 * time.Second,
+		ResponseHeaderTimeout: responseHeaderTimeout,
 		ExpectContinueTimeout: 1 * time.Second,
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
