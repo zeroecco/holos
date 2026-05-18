@@ -221,6 +221,36 @@ services:
 	}
 }
 
+func TestLifecycle_RunProjectStartByNameWithoutComposeFile(t *testing.T) {
+	h := newHarness(t)
+
+	dir := h.writeProject("runstart", "", nil)
+	h.fakeImage(dir, "base.qcow2")
+	if stdout, stderr, err := h.runIn(dir, "run", "--name", "runstart", "--user", "root", filepath.Join(dir, "base.qcow2"), "--", "true"); err != nil {
+		t.Fatalf("run project failed:\nstdout:\n%s\nstderr:\n%s\nerr: %v", stdout, stderr, err)
+	}
+
+	outside := filepath.Join(h.workDir, "outside-runstart")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if stdout, stderr, err := h.runIn(outside, "stop", "runstart"); err != nil {
+		t.Fatalf("stop run project by name failed:\nstdout:\n%s\nstderr:\n%s\nerr: %v", stdout, stderr, err)
+	}
+	if stdout, stderr, err := h.runIn(outside, "start", "runstart"); err != nil {
+		t.Fatalf("start run project by name failed:\nstdout:\n%s\nstderr:\n%s\nerr: %v", stdout, stderr, err)
+	}
+
+	proj := findProject(t, psList(t, h), "runstart")
+	for _, svc := range proj.Services {
+		for _, inst := range svc.Instances {
+			if inst.Status != "running" {
+				t.Fatalf("expected %s running; got %q", inst.Name, inst.Status)
+			}
+		}
+	}
+}
+
 // TestLifecycle_Idempotent_Up checks that a second `up` against an unchanged
 // spec does not double-start or leak state.
 func TestLifecycle_Idempotent_Up(t *testing.T) {

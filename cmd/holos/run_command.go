@@ -185,7 +185,7 @@ func writeRunComposeFile(stateDir, projectName string, file compose.File) (strin
 			return "", fmt.Errorf("tighten run dir %s: %w", dir, err)
 		}
 	}
-	composePath := filepath.Join(runsRoot, projectName, "holos.yaml")
+	composePath := runComposeFilePath(stateDir, projectName)
 	yamlBytes, err := yaml.Marshal(file)
 	if err != nil {
 		return "", fmt.Errorf("marshal compose: %w", err)
@@ -197,6 +197,10 @@ func writeRunComposeFile(stateDir, projectName string, file compose.File) (strin
 		return "", fmt.Errorf("tighten compose file: %w", err)
 	}
 	return composePath, nil
+}
+
+func runComposeFilePath(stateDir, projectName string) string {
+	return filepath.Join(stateDir, "runs", projectName, "holos.yaml")
 }
 
 type stringList []string

@@ -158,13 +158,33 @@ func runStart(args []string) error {
 		return err
 	}
 
-	project, err := loadProject(*filePath, *stateDir)
+	projectFile := *filePath
+	var svcName string
+	resolvedProjectArg := false
+	if projectFile == "" && flags.NArg() > 0 {
+		candidate := flags.Arg(0)
+		if err := compose.ValidateName(candidate); err != nil {
+			return fmt.Errorf("invalid project name: %w", err)
+		}
+		manager := runtime.NewManager(*stateDir)
+		if _, ok := lookupProjectRecord(manager, candidate); ok {
+			projectFile = runComposeFilePath(*stateDir, candidate)
+			resolvedProjectArg = true
+			if flags.NArg() > 1 {
+				svcName = flags.Arg(1)
+			}
+		}
+	}
+
+	project, err := loadProject(projectFile, *stateDir)
 	if err != nil {
 		return err
 	}
 
-	if flags.NArg() > 0 {
-		svcName := flags.Arg(0)
+	if svcName == "" && !resolvedProjectArg && flags.NArg() > 0 {
+		svcName = flags.Arg(0)
+	}
+	if svcName != "" {
 		if _, ok := project.Services[svcName]; !ok {
 			return fmt.Errorf("service %q not found in project %q", svcName, project.Name)
 		}
