@@ -50,7 +50,8 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		"hostfwd=tcp:127.0.0.1:8080-:80",
 		"hostfwd=tcp:0.0.0.0:9000-10.0.2.15:9000",
 		"-virtfs local,path=/srv/api,mount_tag=share0-var-lib-api,security_model=none,readonly=on",
-		"bootindex=1,file=/state/api-0/root.qcow2",
+		"id=root,if=none,cache=writeback,discard=unmap,format=qcow2,file=/state/api-0/root.qcow2",
+		"virtio-blk-pci,drive=root,bootindex=1",
 		"file=/state/api-0/seed.iso",
 	} {
 		if !strings.Contains(joined, needle) {
@@ -220,8 +221,11 @@ func TestBuildArgs_RootDiskHasBootIndexWithNamedVolume(t *testing.T) {
 	}
 	joined := strings.Join(args, " ")
 
-	if !strings.Contains(joined, "if=virtio,cache=writeback,discard=unmap,format=qcow2,bootindex=1,file=/state/api-0/root.qcow2") {
-		t.Fatalf("root disk is not pinned as boot target: %s", joined)
+	if !strings.Contains(joined, "id=root,if=none,cache=writeback,discard=unmap,format=qcow2,file=/state/api-0/root.qcow2") {
+		t.Fatalf("root disk is not declared as an if=none drive: %s", joined)
+	}
+	if !strings.Contains(joined, "virtio-blk-pci,drive=root,bootindex=1") {
+		t.Fatalf("root disk device is not pinned as boot target: %s", joined)
 	}
 	if strings.Contains(joined, "drive=vol-data,serial=vol-data,bootindex=") {
 		t.Fatalf("named volume should not advertise a firmware boot index: %s", joined)
