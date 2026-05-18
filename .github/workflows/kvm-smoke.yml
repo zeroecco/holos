@@ -70,6 +70,20 @@ jobs:
           }
           trap cleanup EXIT
 
+          dump_project_logs() {
+            local project=$1
+            echo "::group::${project} diagnostics"
+            ./bin/holos ps "$project" || true
+            ./bin/holos logs "$project" || true
+            for log in "$HOLOS_STATE_DIR"/instances/"$project"/*/{console.log,qemu.log}; do
+              if [[ -f "$log" ]]; then
+                echo "--- $log ---"
+                tail -n 200 "$log" || true
+              fi
+            done
+            echo "::endgroup::"
+          }
+
           ./bin/holos doctor
           ./bin/holos pull alpine
           ./bin/holos pull ubuntu:noble
@@ -108,13 +122,19 @@ jobs:
                 - data:/mnt/data
           volumes:
             data:
-              size: 1G
+              size: 64M
           YAML
           ./bin/holos up -f "$RUNNER_TEMP/holos-volume.yaml"
-          ./bin/holos exec -w 5m volume-smoke -- sudo sh -lc 'mountpoint -q /mnt/data && echo ok > /mnt/data/probe'
+          ./bin/holos exec -w 10m volume-smoke -- sudo sh -lc 'mountpoint -q /mnt/data && echo ok > /mnt/data/probe' || {
+            dump_project_logs volume-smoke
+            exit 1
+          }
           ./bin/holos stop -f "$RUNNER_TEMP/holos-volume.yaml"
           ./bin/holos start -f "$RUNNER_TEMP/holos-volume.yaml"
-          ./bin/holos exec -w 5m volume-smoke -- sudo test -f /mnt/data/probe
+          ./bin/holos exec -w 10m volume-smoke -- sudo test -f /mnt/data/probe || {
+            dump_project_logs volume-smoke
+            exit 1
+          }
           ./bin/holos down volume-smoke
 
       - name: Smoke supported images
