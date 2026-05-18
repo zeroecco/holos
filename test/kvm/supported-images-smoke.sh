@@ -106,6 +106,29 @@ stop_from_without_compose() {
   rm -rf "$dir"
 }
 
+dump_project_logs() {
+  local project=$1
+  echo "::group::${project} diagnostics"
+  "$HOLOS_BIN" ps "$project" || true
+  "$HOLOS_BIN" logs "$project" || true
+  for log in "$STATE_DIR"/instances/"$project"/*/{console.log,qemu.log}; do
+    if [[ -f "$log" ]]; then
+      echo "--- $log ---"
+      tail -n 200 "$log" || true
+    fi
+  done
+  echo "::endgroup::"
+}
+
+run_with_diagnostics() {
+  local project=$1
+  shift
+  "$@" || {
+    dump_project_logs "$project"
+    return 1
+  }
+}
+
 PYTHON_BIN=${PYTHON_BIN:-python3}
 
 cleanup() {
@@ -128,11 +151,11 @@ for image in "${IMAGES[@]}"; do
   "$HOLOS_BIN" pull "$image"
   "$HOLOS_BIN" verify "$image"
 
-  "$HOLOS_BIN" run --name "$project" "$image" -- true
-  "$HOLOS_BIN" exec -w 10m "$project" -- true
-  console_smoke "$project"
-  stop_from_without_compose "$project"
-  "$HOLOS_BIN" down "$project"
+  run_with_diagnostics "$project" "$HOLOS_BIN" run --name "$project" "$image" -- true
+  run_with_diagnostics "$project" "$HOLOS_BIN" exec -w 10m "$project" -- true
+  run_with_diagnostics "$project" console_smoke "$project"
+  run_with_diagnostics "$project" stop_from_without_compose "$project"
+  run_with_diagnostics "$project" "$HOLOS_BIN" down "$project"
 
   echo "::endgroup::"
 done
