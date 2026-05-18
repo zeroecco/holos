@@ -77,6 +77,9 @@ func TestRequiresVGA(t *testing.T) {
 		"debian:trixie":   true,
 		"debian":          false,
 		"debian:bookworm": false,
+		"rocky":           true,
+		"rocky:10":        true,
+		"rocky:9":         false,
 		"ubuntu:noble":    false,
 		"./local.qcow2":   false,
 	}

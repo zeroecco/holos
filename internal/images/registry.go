@@ -151,7 +151,7 @@ var Registry = []Image{
 	// Red Hat-family cloud images.
 	{Name: "almalinux", Tag: "10", URL: "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/AlmaLinux-10-GenericCloud-latest.x86_64.qcow2", Format: "qcow2", Default: true, User: "almalinux", OSFamily: "systemd", SHA256URL: "https://repo.almalinux.org/almalinux/10/cloud/x86_64/images/CHECKSUM"},
 	{Name: "almalinux", Tag: "9", URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2", Format: "qcow2", User: "almalinux", OSFamily: "systemd", SHA256URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM"},
-	{Name: "rocky", Tag: "10", URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2", Format: "qcow2", Default: true, User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/CHECKSUM"},
+	{Name: "rocky", Tag: "10", URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base.latest.x86_64.qcow2", Format: "qcow2", Default: true, User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/CHECKSUM", RequiresVGA: true},
 	{Name: "rocky", Tag: "9", URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2", Format: "qcow2", User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/CHECKSUM"},
 	{Name: "centos-stream", Tag: "10", URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-20260513.0.x86_64.qcow2", Format: "qcow2", Default: true, User: "cloud-user", OSFamily: "systemd", SHA256URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CHECKSUM"},
 }
@@ -305,9 +305,9 @@ func DefaultUser(ref string) string {
 }
 
 // RequiresVGA reports whether an image should get an explicit VGA device when
-// booted through BIOS. The Debian 13 generic image's GRUB config can stall with
-// holos' otherwise headless -nodefaults serial layout unless a graphics
-// terminal device exists.
+// booted through BIOS. Some images' GRUB configs can stall with holos'
+// otherwise headless -nodefaults serial layout unless a graphics terminal
+// device exists.
 func RequiresVGA(ref string) bool {
 	img, err := Resolve(ref)
 	if err != nil || img == nil {

@@ -366,6 +366,29 @@ func TestDebian13AddsVGABootWorkaround(t *testing.T) {
 	}
 }
 
+func TestRocky10AddsVGABootWorkaround(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	prewarmImageCache(t, stateDir, "rocky:10")
+
+	file := &File{
+		Name: "rocky10",
+		Services: map[string]Service{
+			"vm": {Image: "rocky:10"},
+		},
+	}
+	project, err := file.Resolve(dir, stateDir)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	got := project.Services["vm"].VM.ExtraArgs
+	if len(got) < 2 || got[0] != "-device" || got[1] != "VGA" {
+		t.Fatalf("rocky:10 extra args = %v, want leading -device VGA", got)
+	}
+}
+
 // sha256Prefix mirrors images.cacheFilename's URL-hash suffix without
 // exporting it; tests only need the first 4 bytes (8 hex chars) of the
 // URL's SHA-256 digest.
