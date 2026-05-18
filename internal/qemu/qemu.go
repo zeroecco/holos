@@ -112,7 +112,7 @@ func BuildArgs(manifest config.Manifest, spec LaunchSpec) ([]string, error) {
 	}
 
 	args = append(args,
-		"-drive", fmt.Sprintf("if=virtio,cache=writeback,discard=unmap,format=qcow2,file=%s", qemuOptEscape(spec.OverlayPath)),
+		"-drive", fmt.Sprintf("if=virtio,cache=writeback,discard=unmap,format=qcow2,bootindex=1,file=%s", qemuOptEscape(spec.OverlayPath)),
 	)
 
 	// User-mode NIC for host connectivity and port forwarding.

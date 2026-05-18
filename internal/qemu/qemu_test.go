@@ -50,7 +50,7 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		"hostfwd=tcp:127.0.0.1:8080-:80",
 		"hostfwd=tcp:0.0.0.0:9000-10.0.2.15:9000",
 		"-virtfs local,path=/srv/api,mount_tag=share0-var-lib-api,security_model=none,readonly=on",
-		"file=/state/api-0/root.qcow2",
+		"bootindex=1,file=/state/api-0/root.qcow2",
 		"file=/state/api-0/seed.iso",
 	} {
 		if !strings.Contains(joined, needle) {
@@ -186,6 +186,45 @@ func TestBuildArgs_NamedVolumeReadOnly(t *testing.T) {
 	}
 	if strings.Contains(joined, "file=/state/vols/api-cache.qcow2,cache=writeback,discard=unmap,readonly=on") {
 		t.Fatalf("writable volume unexpectedly got readonly=on: %s", joined)
+	}
+}
+
+func TestBuildArgs_RootDiskHasBootIndexWithNamedVolume(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:        "api",
+		Image:       "/images/base.qcow2",
+		ImageFormat: "qcow2",
+		VM: config.VMConfig{
+			VCPU:     1,
+			MemoryMB: 256,
+			Machine:  "q35",
+			CPUModel: "host",
+		},
+	}
+	spec := LaunchSpec{
+		Name:        "api-0",
+		Index:       0,
+		OverlayPath: "/state/api-0/root.qcow2",
+		LogPath:     "/state/api-0/console.log",
+		QMPPath:     "/state/api-0/qmp.sock",
+		Volumes: []VolumeAttachment{
+			{Name: "data", DiskPath: "/state/vols/api-data.qcow2"},
+		},
+	}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "if=virtio,cache=writeback,discard=unmap,format=qcow2,bootindex=1,file=/state/api-0/root.qcow2") {
+		t.Fatalf("root disk is not pinned as boot target: %s", joined)
+	}
+	if strings.Contains(joined, "drive=vol-data,serial=vol-data,bootindex=") {
+		t.Fatalf("named volume should not advertise a firmware boot index: %s", joined)
 	}
 }
 
