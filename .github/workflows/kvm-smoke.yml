@@ -125,7 +125,11 @@ jobs:
               size: 64M
           YAML
           ./bin/holos up -f "$RUNNER_TEMP/holos-volume.yaml"
-          ./bin/holos exec -w 10m volume-smoke -- sudo sh -lc 'mountpoint -q /mnt/data && echo ok > /mnt/data/probe' || {
+          ./bin/holos exec -w 10m volume-smoke -- sudo mountpoint -q /mnt/data || {
+            dump_project_logs volume-smoke
+            exit 1
+          }
+          ./bin/holos exec -w 1m volume-smoke -- sudo touch /mnt/data/probe || {
             dump_project_logs volume-smoke
             exit 1
           }
