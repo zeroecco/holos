@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export HOLOS_STATE_DIR="$RUNNER_TEMP/holos-kvm-state"
+          export HOLOS_STATE_DIR="/tmp/holos-kvm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf "$HOLOS_STATE_DIR"
           mkdir -p "$HOLOS_STATE_DIR"
 
@@ -67,6 +67,7 @@ jobs:
             cleanup_down port-bind-smoke
             cleanup_down ubuntu-smoke
             cleanup_down volume-smoke
+            rm -rf "$HOLOS_STATE_DIR"
           }
           trap cleanup EXIT
 
@@ -152,10 +153,11 @@ jobs:
       - name: Smoke supported images
         shell: bash
         env:
-          HOLOS_STATE_DIR: ${{ runner.temp }}/holos-supported-images-state
+          HOLOS_STATE_DIR: /tmp/holos-supported-${{ github.run_id }}-${{ github.run_attempt }}
           HOLOS_BIN: ./bin/holos
           HOLOS_KVM_IMAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.images || '' }}
         run: |
           rm -rf "$HOLOS_STATE_DIR"
           mkdir -p "$HOLOS_STATE_DIR"
+          trap 'rm -rf "$HOLOS_STATE_DIR"' EXIT
           test/kvm/supported-images-smoke.sh
