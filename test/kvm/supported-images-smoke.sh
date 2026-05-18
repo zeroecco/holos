@@ -2,6 +2,10 @@
 set -euo pipefail
 
 HOLOS_BIN=${HOLOS_BIN:-./bin/holos}
+case "$HOLOS_BIN" in
+  /*) ;;
+  *) HOLOS_BIN="$(pwd)/$HOLOS_BIN" ;;
+esac
 STATE_DIR=${HOLOS_STATE_DIR:?HOLOS_STATE_DIR must be set}
 
 # Cover every supported distro family plus the newest non-default Debian/Ubuntu
