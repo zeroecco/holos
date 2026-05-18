@@ -2105,9 +2105,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	}
 	memMB := svc.VM.MemoryMB
 	if memMB == 0 {
-		memMB, err = composeMemoryMB(composeMemLimit(svc))
+		memLimit := composeMemLimit(svc)
+		memMB, err = composeMemoryMB(memLimit)
 		if err != nil {
 			return config.Manifest{}, err
+		}
+		if strings.TrimSpace(memLimit) == "" {
+			memMB = max(memMB, images.MinMemoryMB(svc.Image))
 		}
 	}
 	var diskSizeBytes int64

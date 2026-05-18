@@ -90,6 +90,22 @@ func TestRequiresVGA(t *testing.T) {
 	}
 }
 
+func TestMinMemoryMB(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]int{
+		"centos-stream":    1024,
+		"centos-stream:10": 1024,
+		"ubuntu:noble":     0,
+		"./local.qcow2":    0,
+	}
+	for ref, want := range cases {
+		if got := MinMemoryMB(ref); got != want {
+			t.Errorf("MinMemoryMB(%q) = %d, want %d", ref, got, want)
+		}
+	}
+}
+
 func TestResolveKnownImages(t *testing.T) {
 	t.Parallel()
 

@@ -389,6 +389,37 @@ func TestRocky10AddsVGABootWorkaround(t *testing.T) {
 	}
 }
 
+func TestCentOSStreamUsesImageMinimumMemory(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	prewarmImageCache(t, stateDir, "centos-stream")
+
+	file := &File{
+		Name: "centos",
+		Services: map[string]Service{
+			"vm": {Image: "centos-stream"},
+		},
+	}
+	project, err := file.Resolve(dir, stateDir)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got := project.Services["vm"].VM.MemoryMB; got != 1024 {
+		t.Fatalf("implicit centos-stream memory = %d, want 1024", got)
+	}
+
+	file.Services["vm"] = Service{Image: "centos-stream", VM: VM{MemoryMB: 768}}
+	project, err = file.Resolve(dir, stateDir)
+	if err != nil {
+		t.Fatalf("resolve explicit memory: %v", err)
+	}
+	if got := project.Services["vm"].VM.MemoryMB; got != 768 {
+		t.Fatalf("explicit centos-stream memory = %d, want 768", got)
+	}
+}
+
 // sha256Prefix mirrors images.cacheFilename's URL-hash suffix without
 // exporting it; tests only need the first 4 bytes (8 hex chars) of the
 // URL's SHA-256 digest.

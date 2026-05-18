@@ -95,6 +95,9 @@ type Image struct {
 	// OSFamily is explicit guest metadata consumed by cloud-init
 	// rendering. Supported values are "systemd" and "openrc".
 	OSFamily string
+	// MinMemoryMB raises the implicit VM memory for images that cannot boot
+	// reliably with Holos' global default. User-specified VM memory still wins.
+	MinMemoryMB int
 	// RequiresVGA asks compose to add an explicit VGA device for BIOS boots.
 	// Some images' GRUB configs assume a graphics terminal exists even when
 	// holos runs headless with -display none.
@@ -156,7 +159,7 @@ var Registry = []Image{
 	{Name: "almalinux", Tag: "9", URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-9.7-20260518.x86_64.qcow2", Format: "qcow2", User: "almalinux", OSFamily: "systemd", SHA256URL: "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM"},
 	{Name: "rocky", Tag: "10", URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.1-20251116.0.x86_64.qcow2", Format: "qcow2", Default: true, User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/10/images/x86_64/Rocky-10-GenericCloud-Base-10.1-20251116.0.x86_64.qcow2.CHECKSUM", RequiresVGA: true},
 	{Name: "rocky", Tag: "9", URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.7-20251123.2.x86_64.qcow2", Format: "qcow2", User: "rocky", OSFamily: "systemd", SHA256URL: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base-9.7-20251123.2.x86_64.qcow2.CHECKSUM"},
-	{Name: "centos-stream", Tag: "10", URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-20260513.0.x86_64.qcow2", Format: "qcow2", Default: true, User: "cloud-user", OSFamily: "systemd", SHA256URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CHECKSUM"},
+	{Name: "centos-stream", Tag: "10", URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CentOS-Stream-GenericCloud-10-20260513.0.x86_64.qcow2", Format: "qcow2", Default: true, User: "cloud-user", OSFamily: "systemd", MinMemoryMB: 1024, SHA256URL: "https://cloud.centos.org/centos/10-stream/x86_64/images/CHECKSUM"},
 }
 
 // Resolve looks up an image reference. Accepts:
@@ -317,6 +320,16 @@ func RequiresVGA(ref string) bool {
 		return false
 	}
 	return img.RequiresVGA
+}
+
+// MinMemoryMB returns the image-specific memory floor, or 0 when the global
+// default is sufficient.
+func MinMemoryMB(ref string) int {
+	img, err := Resolve(ref)
+	if err != nil || img == nil {
+		return 0
+	}
+	return img.MinMemoryMB
 }
 
 // ListAvailable returns all registered images.
