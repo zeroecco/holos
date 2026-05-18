@@ -125,6 +125,10 @@ jobs:
               size: 64M
           YAML
           ./bin/holos up -f "$RUNNER_TEMP/holos-volume.yaml"
+          ./bin/holos exec -w 10m volume-smoke -- sudo cloud-init status --wait || {
+            dump_project_logs volume-smoke
+            exit 1
+          }
           ./bin/holos exec -w 10m volume-smoke -- sudo mountpoint -q /mnt/data || {
             dump_project_logs volume-smoke
             exit 1
@@ -135,6 +139,10 @@ jobs:
           }
           ./bin/holos stop -f "$RUNNER_TEMP/holos-volume.yaml"
           ./bin/holos start -f "$RUNNER_TEMP/holos-volume.yaml"
+          ./bin/holos exec -w 10m volume-smoke -- sudo cloud-init status --wait || {
+            dump_project_logs volume-smoke
+            exit 1
+          }
           ./bin/holos exec -w 10m volume-smoke -- sudo test -f /mnt/data/probe || {
             dump_project_logs volume-smoke
             exit 1
