@@ -148,7 +148,7 @@ services:
 	assertContains(t, stderr, "image", "missing image error")
 }
 
-func TestValidate_RejectsUDPPort(t *testing.T) {
+func TestValidate_AcceptsUDPPort(t *testing.T) {
 	h := newHarness(t)
 
 	dir := h.writeProject("udp", "", nil)
@@ -164,11 +164,8 @@ services:
 `, img)
 	_, _ = writeFile(dir, "holos.yaml", compose)
 
-	_, stderr, err := h.run("validate", "-f", dir+"/holos.yaml")
-	if err == nil {
-		t.Fatal("expected validate to reject UDP port")
-	}
-	assertContains(t, stderr, "tcp", "udp rejection error")
+	stdout, _ := h.mustRun("validate", "-f", dir+"/holos.yaml")
+	assertContains(t, stdout, "project: udp", "validate udp output")
 }
 
 // TestValidate_UsesCWDCompose covers the implicit holos.yaml discovery.
