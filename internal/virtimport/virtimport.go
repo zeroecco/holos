@@ -28,7 +28,8 @@ type ImportedVolume struct {
 }
 
 // ImportedNetwork describes a libvirt NIC preserved as Compose network
-// metadata for a future bridge/tap backend.
+// metadata that can resolve to a bridge or tap-backed runtime network when the
+// host bridge is configured.
 type ImportedNetwork struct {
 	Name   string
 	Type   string
