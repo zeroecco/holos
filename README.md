@@ -122,6 +122,8 @@ holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
   `holos.yaml`.
 - [Examples](./examples/README.md): runnable and template stacks with
   README-style explanations.
+- [Missing features](./docs/missing-features.md): prioritized gaps that fit
+  holos' single-host KVM compose goal.
 - [Development](./docs/development.md): build, test, host requirements, and
   release process.
 - [Security policy](./SECURITY.md): supported versions and private reporting.

@@ -106,4 +106,8 @@ holos down hello
     <h3><a href="{{ '/threat-model/' | relative_url }}">Threat Model</a></h3>
     <p>Security boundaries, lock behavior, image verification, private qcow2 guidance, and hardening checklists.</p>
   </div>
+  <div class="card">
+    <h3><a href="{{ '/missing-features/' | relative_url }}">Missing Features</a></h3>
+    <p>Prioritized gaps that still fit holos' single-host KVM compose goal.</p>
+  </div>
 </div>
