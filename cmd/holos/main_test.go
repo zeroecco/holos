@@ -16,7 +16,14 @@ func writeTestFile(t *testing.T, dir, name, content string, perm os.FileMode) st
 	t.Helper()
 
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+	writePerm := perm &^ 0o111
+	if writePerm == 0 {
+		writePerm = 0o600
+	}
+	if err := os.WriteFile(path, []byte(content), writePerm); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, perm); err != nil {
 		t.Fatal(err)
 	}
 	return path
