@@ -4,9 +4,76 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/zeroecco/holos/internal/config"
 )
+
+const (
+	testCopyChmod       = "0755"
+	testCopyMode        = "755"
+	testCopyOwner       = "app:app"
+	testCopyConfigDest  = "/etc/app/config"
+	testCopyScriptDest  = "/usr/local/bin/run.sh"
+	testDockerWorkdir   = "/opt/app"
+	testDockerBaseImage = "ubuntu:noble"
+)
+
+func writeDockerfile(t *testing.T, dir, content string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, "Dockerfile")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertContains(t *testing.T, got string, wants ...string) {
+	t.Helper()
+
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected content to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
+func assertOmits(t *testing.T, got, forbidden string) {
+	t.Helper()
+
+	if strings.Contains(got, forbidden) {
+		t.Fatalf("expected content to omit %q, got:\n%s", forbidden, got)
+	}
+}
+
+func assertEnvEqual(t *testing.T, got, want [][2]string) {
+	t.Helper()
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("parseEnv = %v, want %v", got, want)
+	}
+}
+
+type testWriteFileWant struct {
+	path        string
+	content     string
+	permissions string
+	owner       string
+}
+
+func assertWriteFile(t *testing.T, name string, got config.WriteFile, want testWriteFileWant) {
+	t.Helper()
+
+	if got.Path != want.path ||
+		got.Content != want.content ||
+		got.Permissions != want.permissions ||
+		got.Owner != want.owner {
+		t.Fatalf("%s write file = %+v, want %+v", name, got, want)
+	}
+}
 
 func TestParseBasicDockerfile(t *testing.T) {
 	t.Parallel()
@@ -20,6 +87,7 @@ func TestParseBasicDockerfile(t *testing.T) {
 
 	dfContent := `FROM ubuntu:noble
 
+# comment ignored by parser
 ENV APP_PORT=8080
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -32,96 +100,164 @@ RUN echo "hello"
 
 COPY app.conf /etc/nginx/conf.d/
 `
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, dfContent)
 
 	result, err := Parse(dfPath, dir)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if result.FromImage != "ubuntu:noble" {
-		t.Errorf("FromImage = %q, want ubuntu:noble", result.FromImage)
+	if result.FromImage != testDockerBaseImage {
+		t.Errorf("FromImage = %q, want %s", result.FromImage, testDockerBaseImage)
+	}
+	if !strings.HasPrefix(result.Script, buildScriptPrelude) {
+		t.Fatalf("script prefix = %q, want %q", result.Script, buildScriptPrelude)
 	}
 
-	if !strings.Contains(result.Script, "export APP_PORT=8080") {
-		t.Error("script missing APP_PORT export")
-	}
-	if !strings.Contains(result.Script, "export DEBIAN_FRONTEND=noninteractive") {
-		t.Error("script missing DEBIAN_FRONTEND export")
-	}
-	if !strings.Contains(result.Script, "mkdir -p /opt/app && cd /opt/app") {
-		t.Error("script missing WORKDIR mkdir+cd")
-	}
-	if !strings.Contains(result.Script, "apt-get update") {
-		t.Error("script missing apt-get update")
-	}
-	if !strings.Contains(result.Script, "apt-get install -y nginx") {
-		t.Error("script missing apt-get install")
-	}
-	if !strings.Contains(result.Script, `echo "hello"`) {
-		t.Error("script missing echo command")
-	}
+	assertContains(t, result.Script,
+		"export APP_PORT=8080",
+		"export DEBIAN_FRONTEND=noninteractive",
+		"mkdir -p /opt/app && cd /opt/app",
+		"apt-get update",
+		"apt-get install -y nginx",
+		`echo "hello"`,
+	)
+	assertOmits(t, result.Script, "comment ignored by parser")
 
 	// COPY'd file + build script
 	if len(result.WriteFiles) != 2 {
 		t.Fatalf("WriteFiles count = %d, want 2", len(result.WriteFiles))
 	}
 
-	confFile := result.WriteFiles[0]
-	if confFile.Path != "/etc/nginx/conf.d/app.conf" {
-		t.Errorf("COPY dest = %q, want /etc/nginx/conf.d/app.conf", confFile.Path)
-	}
-	if confFile.Content != "listen 80;\n" {
-		t.Errorf("COPY content = %q", confFile.Content)
+	assertWriteFile(t, "COPY", result.WriteFiles[0], testWriteFileWant{
+		path:        "/etc/nginx/conf.d/app.conf",
+		content:     "listen 80;\n",
+		permissions: defaultCopyPermissions,
+		owner:       defaultCopyOwner,
+	})
+	assertWriteFile(t, "build script", result.WriteFiles[1], testWriteFileWant{
+		path:        buildScriptPath,
+		content:     result.Script,
+		permissions: buildScriptPermissions,
+		owner:       buildScriptOwner,
+	})
+}
+
+func TestBuildScriptWriteFile(t *testing.T) {
+	t.Parallel()
+
+	const script = "echo ready\n"
+	wf := buildScriptWriteFile(script)
+
+	assertWriteFile(t, "build script", wf, testWriteFileWant{
+		path:        buildScriptPath,
+		content:     script,
+		permissions: buildScriptPermissions,
+		owner:       buildScriptOwner,
+	})
+}
+
+func TestParseWorkdirTrimsAndQuotesPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, "FROM ubuntu:noble\nWORKDIR  /opt/my app \n")
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
 	}
 
-	buildScript := result.WriteFiles[1]
-	if buildScript.Path != buildScriptPath {
-		t.Errorf("build script path = %q, want %q", buildScript.Path, buildScriptPath)
-	}
-	if buildScript.Permissions != "0755" {
-		t.Errorf("build script perms = %q, want 0755", buildScript.Permissions)
-	}
+	want := "mkdir -p '/opt/my app' && cd '/opt/my app'\n"
+	assertContains(t, result.Script, want)
 }
 
 func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]string{
-		"EXPOSE":      "publish ports in holos.yaml",
-		"CMD":         "cloud_init.runcmd",
-		"ENTRYPOINT":  "cloud_init.runcmd",
-		"HEALTHCHECK": "services.<name>.healthcheck",
-		"ADD":         "use COPY",
-		"USER":        "not supported",
+	cases := []struct {
+		instruction string
+		dockerfile  string
+		wantHint    string
+	}{
+		{
+			instruction: "EXPOSE",
+			dockerfile:  "FROM alpine:3.21\nEXPOSE ignored\n",
+			wantHint:    "publish ports in holos.yaml",
+		},
+		{
+			instruction: "CMD",
+			dockerfile:  "FROM alpine:3.21\nCMD [\"echo\", \"hi\"]\n",
+			wantHint:    "cloud_init.runcmd",
+		},
+		{
+			instruction: "ENTRYPOINT",
+			dockerfile:  "FROM alpine:3.21\nENTRYPOINT [\"echo\", \"hi\"]\n",
+			wantHint:    "cloud_init.runcmd",
+		},
+		{
+			instruction: "HEALTHCHECK",
+			dockerfile:  "FROM alpine:3.21\nHEALTHCHECK ignored\n",
+			wantHint:    "services.<name>.healthcheck",
+		},
+		{
+			instruction: "ADD",
+			dockerfile:  "FROM alpine:3.21\nADD ignored\n",
+			wantHint:    "use COPY",
+		},
+		{
+			instruction: "USER",
+			dockerfile:  "FROM alpine:3.21\nUSER ignored\n",
+			wantHint:    "not supported",
+		},
 	}
 
-	for instruction, want := range cases {
-		t.Run(instruction, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.instruction, func(t *testing.T) {
 			t.Parallel()
 
 			dir := t.TempDir()
-			dfContent := fmt.Sprintf("FROM alpine:3.21\n%s ignored\n", instruction)
-			if instruction == "CMD" || instruction == "ENTRYPOINT" {
-				dfContent = fmt.Sprintf("FROM alpine:3.21\n%s [\"echo\", \"hi\"]\n", instruction)
-			}
-			dfPath := filepath.Join(dir, "Dockerfile")
-			if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-				t.Fatal(err)
-			}
+			dfPath := writeDockerfile(t, dir, tc.dockerfile)
 
 			_, err := Parse(dfPath, dir)
 			if err == nil {
-				t.Fatalf("expected %s to be rejected", instruction)
+				t.Fatalf("expected %s to be rejected", tc.instruction)
 			}
-			if !strings.Contains(err.Error(), instruction) {
-				t.Fatalf("error should name %s; got %v", instruction, err)
-			}
-			if !strings.Contains(err.Error(), want) {
-				t.Fatalf("error should explain remediation %q; got %v", want, err)
+			assertContains(t, err.Error(), tc.instruction)
+			assertContains(t, err.Error(), tc.wantHint)
+		})
+	}
+}
+
+func TestUnsupportedInstructionErrorListsSupportedInstructions(t *testing.T) {
+	t.Parallel()
+
+	err := unsupportedInstructionError("BOGUS")
+	if err == nil {
+		t.Fatal("unsupportedInstructionError returned nil")
+	}
+	assertContains(t, err.Error(), "BOGUS")
+	assertContains(t, err.Error(), supportedInstructionList())
+}
+
+func TestParseFrom(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		args string
+		want string
+	}{
+		{args: "alpine:3.21", want: "alpine:3.21"},
+		{args: "--platform=linux/amd64 ubuntu:noble", want: "ubuntu:noble"},
+		{args: "--platform=$BUILDPLATFORM golang:1.24 AS builder", want: "golang:1.24"},
+		{args: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.args, func(t *testing.T) {
+			t.Parallel()
+
+			if got := parseFrom(tt.args); got != tt.want {
+				t.Fatalf("parseFrom(%q) = %q, want %q", tt.args, got, tt.want)
 			}
 		})
 	}
@@ -134,19 +270,14 @@ func TestParseExecFormRun(t *testing.T) {
 	dfContent := `FROM alpine
 RUN ["apk", "add", "curl"]
 `
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, dfContent)
 
 	result, err := Parse(dfPath, dir)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if !strings.Contains(result.Script, "apk add curl") {
-		t.Errorf("exec form not converted: %s", result.Script)
-	}
+	assertContains(t, result.Script, "apk add curl")
 }
 
 // TestParseExecFormRunPreservesArgvBoundaries pins the Docker exec-
@@ -164,27 +295,42 @@ func TestParseExecFormRunPreservesArgvBoundaries(t *testing.T) {
 	dfContent := `FROM alpine
 RUN ["echo", "hello world", "$PATH", "a'b"]
 `
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, dfContent)
 
 	result, err := Parse(dfPath, dir)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	for _, want := range []string{
+	assertContains(t, result.Script,
 		"'hello world'",
 		"'$PATH'",
 		`'a'\''b'`,
-	} {
-		if !strings.Contains(result.Script, want) {
-			t.Errorf("script missing quoted arg %q:\n%s", want, result.Script)
-		}
+	)
+	assertOmits(t, result.Script, "echo hello world $PATH")
+}
+
+func TestShellQuote(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{value: "", want: "''"},
+		{value: "abcXYZ123_-./:", want: "abcXYZ123_-./:"},
+		{value: "hello world", want: "'hello world'"},
+		{value: "$PATH", want: "'$PATH'"},
+		{value: "a'b", want: `'a'\''b'`},
 	}
-	if strings.Contains(result.Script, "echo hello world $PATH") {
-		t.Errorf("argv boundaries flattened (pre-fix behavior):\n%s", result.Script)
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			t.Parallel()
+
+			if got := shellQuote(tt.value); got != tt.want {
+				t.Fatalf("shellQuote(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -199,10 +345,7 @@ func TestParseCopyChmod(t *testing.T) {
 	dfContent := `FROM ubuntu:noble
 COPY --chmod=755 run.sh /usr/local/bin/
 `
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, dfContent)
 
 	result, err := Parse(dfPath, dir)
 	if err != nil {
@@ -214,11 +357,64 @@ COPY --chmod=755 run.sh /usr/local/bin/
 		t.Fatal("no write_files from COPY")
 	}
 	wf := result.WriteFiles[0]
-	if wf.Permissions != "755" {
-		t.Errorf("permissions = %q, want 755", wf.Permissions)
+	if wf.Permissions != testCopyMode {
+		t.Errorf("permissions = %q, want %s", wf.Permissions, testCopyMode)
 	}
-	if wf.Path != "/usr/local/bin/run.sh" {
-		t.Errorf("path = %q, want /usr/local/bin/run.sh", wf.Path)
+	if wf.Path != testCopyScriptDest {
+		t.Errorf("path = %q, want %s", wf.Path, testCopyScriptDest)
+	}
+}
+
+func TestParseCopyChown(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("data\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dfContent := `FROM ubuntu:noble
+COPY --chown=app:app config /etc/app/config
+`
+	dfPath := writeDockerfile(t, dir, dfContent)
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	if len(result.WriteFiles) < 1 {
+		t.Fatal("no write_files from COPY")
+	}
+	wf := result.WriteFiles[0]
+	if wf.Owner != testCopyOwner {
+		t.Errorf("owner = %q, want %s", wf.Owner, testCopyOwner)
+	}
+}
+
+func TestCopySourceEscapesContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		rel  string
+		want bool
+	}{
+		{rel: "..", want: true},
+		{rel: "../secret", want: true},
+		{rel: "..data", want: false},
+		{rel: "...", want: false},
+		{rel: "nested/..data", want: false},
+		{rel: "config/app.conf", want: false},
+		{rel: ".", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.rel, func(t *testing.T) {
+			t.Parallel()
+
+			if got := copySourceEscapesContext(tt.rel); got != tt.want {
+				t.Fatalf("copySourceEscapesContext(%q) = %v, want %v", tt.rel, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -229,18 +425,56 @@ func TestParseEnvLegacyForm(t *testing.T) {
 	dfContent := `FROM ubuntu:noble
 ENV MY_VAR some value with spaces
 `
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, dfContent)
 
 	result, err := Parse(dfPath, dir)
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	if !strings.Contains(result.Script, "export MY_VAR='some value with spaces'") {
-		t.Errorf("legacy ENV not handled: %s", result.Script)
+	assertContains(t, result.Script, "export MY_VAR='some value with spaces'")
+}
+
+func TestParseEnv(t *testing.T) {
+	t.Parallel()
+
+	got := parseEnv(`APP_PORT=8080 MESSAGE="hello world" EMPTY=''`)
+	want := [][2]string{
+		{"APP_PORT", "8080"},
+		{"MESSAGE", "hello world"},
+		{"EMPTY", ""},
+	}
+	assertEnvEqual(t, got, want)
+}
+
+func TestParseEnvLegacy(t *testing.T) {
+	t.Parallel()
+
+	got := parseEnv("MY_VAR some value with spaces")
+	assertEnvEqual(t, got, [][2]string{{"MY_VAR", "some value with spaces"}})
+}
+
+func TestSplitInstruction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		line     string
+		wantCmd  string
+		wantArgs string
+	}{
+		{line: "run echo hello", wantCmd: "RUN", wantArgs: "echo hello"},
+		{line: "FROM   alpine:3.21", wantCmd: "FROM", wantArgs: "alpine:3.21"},
+		{line: "WORKDIR", wantCmd: "WORKDIR"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			t.Parallel()
+
+			gotCmd, gotArgs := splitInstruction(tt.line)
+			if gotCmd != tt.wantCmd || gotArgs != tt.wantArgs {
+				t.Fatalf("splitInstruction(%q) = (%q, %q), want (%q, %q)", tt.line, gotCmd, gotArgs, tt.wantCmd, tt.wantArgs)
+			}
+		})
 	}
 }
 
@@ -264,25 +498,34 @@ func TestCopyRejectsEscapingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cases := map[string]string{
-		"relative parent traversal": `FROM alpine:3.21
+	cases := []struct {
+		name       string
+		dockerfile string
+	}{
+		{
+			name: "relative parent traversal",
+			dockerfile: `FROM alpine:3.21
 COPY ../secret /opt/exfil
 `,
-		"absolute host path": fmt.Sprintf(`FROM alpine:3.21
+		},
+		{
+			name: "absolute host path",
+			dockerfile: fmt.Sprintf(`FROM alpine:3.21
 COPY %s /opt/exfil
 `, secret),
+		},
 	}
 
-	for name, dfContent := range cases {
-		t.Run(name, func(t *testing.T) {
-			dfPath := filepath.Join(contextDir, "Dockerfile."+strings.ReplaceAll(name, " ", "_"))
-			if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dfPath := filepath.Join(contextDir, "Dockerfile."+strings.ReplaceAll(tc.name, " ", "_"))
+			if err := os.WriteFile(dfPath, []byte(tc.dockerfile), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := Parse(dfPath, contextDir); err == nil {
 				t.Fatal("expected COPY-escape error, got nil")
-			} else if !strings.Contains(err.Error(), "escapes build context") {
-				t.Fatalf("error should name the escape; got %v", err)
+			} else {
+				assertContains(t, err.Error(), "escapes build context")
 			}
 		})
 	}
@@ -313,15 +556,12 @@ func TestCopyRejectsSymlinkEscape(t *testing.T) {
 	dfContent := `FROM alpine:3.21
 COPY inside.link /opt/exfil
 `
-	dfPath := filepath.Join(contextDir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte(dfContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, contextDir, dfContent)
 
 	if _, err := Parse(dfPath, contextDir); err == nil {
 		t.Fatal("expected symlink-escape error, got nil")
-	} else if !strings.Contains(err.Error(), "escapes build context") {
-		t.Fatalf("error should name the escape; got %v", err)
+	} else {
+		assertContains(t, err.Error(), "escapes build context")
 	}
 }
 
@@ -339,16 +579,11 @@ func TestCopyRejectsMultiSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	dfPath := filepath.Join(dir, "Dockerfile")
-	if err := os.WriteFile(dfPath, []byte("FROM alpine:3.21\nCOPY a.txt b.txt /opt/\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dfPath := writeDockerfile(t, dir, "FROM alpine:3.21\nCOPY a.txt b.txt /opt/\n")
 
 	_, err := Parse(dfPath, dir)
 	if err == nil {
 		t.Fatal("expected multi-source COPY to be rejected")
 	}
-	if !strings.Contains(err.Error(), "multi-source") {
-		t.Fatalf("error should name the multi-source form; got %v", err)
-	}
+	assertContains(t, err.Error(), "multi-source")
 }

@@ -5,12 +5,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,12 +46,7 @@ func TestProbeHealthcheck_NonZeroExit(t *testing.T) {
 
 	err := probeHealthcheck(context.Background(), addr, "tester", keyPath,
 		[]string{"/bin/false"}, 2*time.Second)
-	if err == nil {
-		t.Fatal("expected error on non-zero exit")
-	}
-	if !strings.Contains(err.Error(), "exit=2") {
-		t.Fatalf("error should mention exit code; got %v", err)
-	}
+	assertErrorContains(t, err, "exit=2")
 }
 
 // TestProbeHealthcheck_DialFailure ensures a dead port surfaces as a
@@ -64,12 +59,7 @@ func TestProbeHealthcheck_DialFailure(t *testing.T) {
 	// Port 1 is never bound on macOS/Linux; connect refuses quickly.
 	err := probeHealthcheck(context.Background(), "127.0.0.1:1", "tester", keyPath,
 		[]string{"true"}, 500*time.Millisecond)
-	if err == nil {
-		t.Fatal("expected dial error")
-	}
-	if !strings.Contains(err.Error(), "dial") {
-		t.Fatalf("error should mention dial; got %v", err)
-	}
+	assertErrorContains(t, err, "dial")
 }
 
 // TestProbeHealthcheck_Bypass verifies that setting HOLOS_HEALTH_BYPASS
@@ -82,6 +72,47 @@ func TestProbeHealthcheck_Bypass(t *testing.T) {
 	if err := probeHealthcheck(context.Background(), "203.0.113.1:22", "nobody", "/does/not/exist",
 		[]string{"true"}, time.Second); err != nil {
 		t.Fatalf("bypass should return nil; got %v", err)
+	}
+}
+
+func TestProbeHealthcheckRejectsEmptyCommand(t *testing.T) {
+	t.Parallel()
+
+	err := probeHealthcheck(context.Background(), "127.0.0.1:1", "tester", "/does/not/exist", nil, time.Second)
+	assertErrorContains(t, err, "empty healthcheck command")
+}
+
+func TestShellJoinQuotesArgv(t *testing.T) {
+	t.Parallel()
+
+	got := shellJoin([]string{"test", "hello world", "it's", "$HOME"})
+	want := "'test' 'hello world' 'it'\\''s' '$HOME'"
+	if got != want {
+		t.Fatalf("shellJoin() = %q, want %q", got, want)
+	}
+}
+
+func TestShellQuoteArg(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		arg  string
+		want string
+	}{
+		{name: "plain", arg: "test", want: "'test'"},
+		{name: "empty", arg: "", want: "''"},
+		{name: "single quote", arg: "it's", want: "'it'\\''s'"},
+		{name: "shell variable", arg: "$HOME", want: "'$HOME'"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := shellQuoteArg(tt.arg); got != tt.want {
+				t.Fatalf("shellQuoteArg(%q) = %q, want %q", tt.arg, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -254,6 +285,89 @@ func TestWaitForHealthy_RetriesHonored(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Fatalf("probe ran %d times, want 3 retries", calls)
+	}
+}
+
+func TestHealthcheckRetriesError(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("probe failed")
+	err := healthcheckRetriesError(3, 2*time.Second, cause)
+	assertErrorContains(t, err, "healthcheck failed after 3 retries (start_period 2s): probe failed")
+	if !errors.Is(err, cause) {
+		t.Fatalf("healthcheckRetriesError does not wrap cause: %v", err)
+	}
+}
+
+func TestHealthGraceSleep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		interval  time.Duration
+		remaining time.Duration
+		want      time.Duration
+	}{
+		{name: "interval fits", interval: 10 * time.Millisecond, remaining: 50 * time.Millisecond, want: 10 * time.Millisecond},
+		{name: "cap to remaining", interval: 50 * time.Millisecond, remaining: 10 * time.Millisecond, want: 10 * time.Millisecond},
+		{name: "zero remaining", interval: 10 * time.Millisecond, remaining: 0, want: 0},
+		{name: "negative remaining", interval: 10 * time.Millisecond, remaining: -time.Millisecond, want: -time.Millisecond},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := healthGraceSleep(tt.interval, tt.remaining); got != tt.want {
+				t.Fatalf("healthGraceSleep(%s, %s) = %s, want %s", tt.interval, tt.remaining, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHealthTimingFromSeconds(t *testing.T) {
+	t.Parallel()
+
+	got := healthTimingFromSeconds(2, 3, 4)
+	if got.interval != 2*time.Second {
+		t.Fatalf("interval = %s, want 2s", got.interval)
+	}
+	if got.startPeriod != 3*time.Second {
+		t.Fatalf("startPeriod = %s, want 3s", got.startPeriod)
+	}
+	if got.timeout != 4*time.Second {
+		t.Fatalf("timeout = %s, want 4s", got.timeout)
+	}
+}
+
+func TestWaitForHealthy_NonPositiveRetriesStillProbeOnce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		retries int
+	}{
+		{name: "zero", retries: 0},
+		{name: "negative", retries: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var calls int
+			probe := func(ctx context.Context, timeout time.Duration) error {
+				calls++
+				return fmt.Errorf("nope")
+			}
+
+			err := waitForHealthyWith(context.Background(), probe,
+				time.Millisecond, tt.retries, 0, time.Second)
+			if err == nil {
+				t.Fatal("expected failure")
+			}
+			if calls != 1 {
+				t.Fatalf("probe ran %d times, want 1", calls)
+			}
+		})
 	}
 }
 

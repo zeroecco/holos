@@ -3,7 +3,6 @@ package runtime
 import (
 	"io/fs"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -19,9 +18,8 @@ func TestEnsureLayoutPermissions(t *testing.T) {
 		t.Fatalf("ensureLayout: %v", err)
 	}
 
-	for _, sub := range []string{"", "projects", "instances"} {
-		path := filepath.Join(dir, sub)
-		assertMode(t, path, 0o700)
+	for _, path := range stateLayoutDirs(dir) {
+		assertMode(t, path, stateDirPerm)
 	}
 }
 
@@ -30,10 +28,11 @@ func TestEnsureLayoutPermissions(t *testing.T) {
 // chmod'd back to 0700 on the next invocation.
 func TestEnsureLayoutTightensExisting(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "projects"), 0o755); err != nil {
+	projects := projectsDir(dir)
+	if err := os.MkdirAll(projects, 0o755); err != nil {
 		t.Fatalf("seed loose dir: %v", err)
 	}
-	if err := os.Chmod(filepath.Join(dir, "projects"), 0o755); err != nil {
+	if err := os.Chmod(projects, 0o755); err != nil {
 		t.Fatalf("chmod loose dir: %v", err)
 	}
 
@@ -41,7 +40,7 @@ func TestEnsureLayoutTightensExisting(t *testing.T) {
 	if err := m.ensureLayout(); err != nil {
 		t.Fatalf("ensureLayout: %v", err)
 	}
-	assertMode(t, filepath.Join(dir, "projects"), 0o700)
+	assertMode(t, projects, stateDirPerm)
 }
 
 func assertMode(t *testing.T, path string, want fs.FileMode) {

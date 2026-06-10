@@ -8,28 +8,16 @@ import (
 	"strings"
 )
 
-// PCIDevice represents a PCI device discovered from sysfs, including its
-// address, class, vendor/device IDs, current driver binding, and IOMMU group.
-type PCIDevice struct {
-	Address    string // BDF notation, e.g. "0000:01:00.0"
-	Class      string // first 4 hex digits of PCI class, e.g. "0300" (VGA)
-	Vendor     string // PCI vendor ID, e.g. "10de" (NVIDIA)
-	DeviceID   string // PCI device ID, e.g. "2204"
-	Driver     string // kernel driver, e.g. "vfio-pci", "nvidia", "nouveau"
-	IOMMUGroup int    // IOMMU group number
-	ClassName  string // human-readable class name, e.g. "VGA", "Audio"
-}
+const (
+	iommuGroupsRoot    = "/sys/kernel/iommu_groups"
+	iommuDevicesSubdir = "devices"
+)
 
-// IOMMUGroup is a set of PCI devices that share an IOMMU group and must be
-// passed through to a VM together.
-type IOMMUGroup struct {
-	ID      int
-	Devices []PCIDevice
-}
+var gpuClassPrefixes = []string{pciClassVGA, pciClass3D}
 
 // ListIOMMUGroups discovers all IOMMU groups and their devices from sysfs.
 func ListIOMMUGroups() ([]IOMMUGroup, error) {
-	groupsPath := "/sys/kernel/iommu_groups"
+	groupsPath := iommuGroupsRoot
 	entries, err := os.ReadDir(groupsPath)
 	if err != nil {
 		return nil, fmt.Errorf("read iommu groups (is IOMMU enabled?): %w", err)
@@ -46,7 +34,7 @@ func ListIOMMUGroups() ([]IOMMUGroup, error) {
 			continue
 		}
 
-		devicesPath := filepath.Join(groupsPath, entry.Name(), "devices")
+		devicesPath := filepath.Join(groupsPath, entry.Name(), iommuDevicesSubdir)
 		deviceEntries, err := os.ReadDir(devicesPath)
 		if err != nil {
 			continue
@@ -79,7 +67,7 @@ func ListGPUs() ([]PCIDevice, error) {
 	var gpus []PCIDevice
 	for _, group := range groups {
 		for _, dev := range group.Devices {
-			if strings.HasPrefix(dev.Class, "0300") || strings.HasPrefix(dev.Class, "0302") {
+			if isGPUClass(dev.Class) {
 				gpus = append(gpus, dev)
 			}
 		}
@@ -87,64 +75,11 @@ func ListGPUs() ([]PCIDevice, error) {
 	return gpus, nil
 }
 
-func readPCIDevice(address string, groupID int) PCIDevice {
-	sysPath := filepath.Join("/sys/bus/pci/devices", address)
-
-	dev := PCIDevice{
-		Address:    address,
-		IOMMUGroup: groupID,
+func isGPUClass(class string) bool {
+	for _, prefix := range gpuClassPrefixes {
+		if strings.HasPrefix(class, prefix) {
+			return true
+		}
 	}
-
-	dev.Class = readSysfsHex(filepath.Join(sysPath, "class"))
-	if len(dev.Class) >= 4 {
-		dev.Class = dev.Class[:4]
-	}
-	dev.Vendor = readSysfsHex(filepath.Join(sysPath, "vendor"))
-	dev.DeviceID = readSysfsHex(filepath.Join(sysPath, "device"))
-	dev.Driver = readDriverName(filepath.Join(sysPath, "driver"))
-	dev.ClassName = classToName(dev.Class)
-
-	return dev
-}
-
-func readSysfsHex(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	s := strings.TrimSpace(string(data))
-	return strings.TrimPrefix(s, "0x")
-}
-
-func readDriverName(driverLink string) string {
-	target, err := os.Readlink(driverLink)
-	if err != nil {
-		return ""
-	}
-	return filepath.Base(target)
-}
-
-func classToName(class string) string {
-	switch {
-	case strings.HasPrefix(class, "0300"):
-		return "VGA"
-	case strings.HasPrefix(class, "0302"):
-		return "3D Controller"
-	case strings.HasPrefix(class, "0403"):
-		return "Audio"
-	case strings.HasPrefix(class, "0200"):
-		return "Ethernet"
-	case strings.HasPrefix(class, "0108"):
-		return "NVMe"
-	case strings.HasPrefix(class, "0106"):
-		return "SATA"
-	case strings.HasPrefix(class, "0604"):
-		return "PCI Bridge"
-	case strings.HasPrefix(class, "0600"):
-		return "Host Bridge"
-	case strings.HasPrefix(class, "0c03"):
-		return "USB"
-	default:
-		return class
-	}
+	return false
 }

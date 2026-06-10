@@ -12,23 +12,35 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const (
+	sshStateSubdir     = "ssh"
+	projectSSHKeyName  = "id_ed25519"
+	publicKeyExtension = ".pub"
+	projectKeyComment  = "holos-"
+	sshKeyCommentSep   = " "
+	sshKeyLineEnd      = "\n"
+	sshDirPerm         = os.FileMode(0o700)
+	sshPrivateKeyPerm  = os.FileMode(0o600)
+	sshPublicKeyPerm   = os.FileMode(0o644)
+)
+
 // sshDir returns the per-project directory that owns the `holos exec`
 // keypair. One key per project is sufficient because all instances in a
 // project share a trust domain: they already sit on the same socket-
 // multicast L2 segment and cannot be isolated from each other.
 func sshDir(stateDir, project string) string {
-	return filepath.Join(stateDir, "ssh", project)
+	return filepath.Join(stateDir, sshStateSubdir, project)
 }
 
 // privateKeyPath / publicKeyPath are the on-disk locations of the
 // generated keypair. Naming follows OpenSSH conventions so operators can
 // inspect or rotate them with standard tools.
 func privateKeyPath(stateDir, project string) string {
-	return filepath.Join(sshDir(stateDir, project), "id_ed25519")
+	return filepath.Join(sshDir(stateDir, project), projectSSHKeyName)
 }
 
 func publicKeyPath(stateDir, project string) string {
-	return privateKeyPath(stateDir, project) + ".pub"
+	return privateKeyPath(stateDir, project) + publicKeyExtension
 }
 
 // ensureProjectSSHKey creates an ed25519 keypair for the project at
@@ -42,7 +54,7 @@ func publicKeyPath(stateDir, project string) string {
 // already-booted VMs keep their existing authorized_keys entry.
 func ensureProjectSSHKey(stateDir, project string) (privatePath string, publicKey string, err error) {
 	dir := sshDir(stateDir, project)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, sshDirPerm); err != nil {
 		return "", "", fmt.Errorf("create ssh dir: %w", err)
 	}
 
@@ -64,11 +76,11 @@ func ensureProjectSSHKey(stateDir, project string) (privatePath string, publicKe
 
 	// Encode the private key in OpenSSH's format so the standard `ssh`
 	// binary can consume it directly via -i without any conversion.
-	pemBlock, err := ssh.MarshalPrivateKey(priv, "holos-"+project)
+	pemBlock, err := ssh.MarshalPrivateKey(priv, sshKeyComment(project))
 	if err != nil {
 		return "", "", fmt.Errorf("marshal ssh private key: %w", err)
 	}
-	if err := os.WriteFile(privPath, pem.EncodeToMemory(pemBlock), 0o600); err != nil {
+	if err := os.WriteFile(privPath, pem.EncodeToMemory(pemBlock), sshPrivateKeyPerm); err != nil {
 		return "", "", fmt.Errorf("write private key: %w", err)
 	}
 
@@ -76,10 +88,18 @@ func ensureProjectSSHKey(stateDir, project string) (privatePath string, publicKe
 	if err != nil {
 		return "", "", fmt.Errorf("derive public key: %w", err)
 	}
-	authorizedLine := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(sshPub))) +
-		" holos-" + project + "\n"
-	if err := os.WriteFile(pubPath, []byte(authorizedLine), 0o644); err != nil {
+	authorizedLine := authorizedKeyLine(sshPub, project)
+	if err := os.WriteFile(pubPath, []byte(authorizedLine), sshPublicKeyPerm); err != nil {
 		return "", "", fmt.Errorf("write public key: %w", err)
 	}
 	return privPath, strings.TrimSpace(authorizedLine), nil
+}
+
+func authorizedKeyLine(pub ssh.PublicKey, project string) string {
+	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))) +
+		sshKeyCommentSep + sshKeyComment(project) + sshKeyLineEnd
+}
+
+func sshKeyComment(project string) string {
+	return projectKeyComment + project
 }

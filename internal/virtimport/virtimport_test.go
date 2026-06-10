@@ -1,8 +1,13 @@
 package virtimport
 
 import (
+	"fmt"
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/zeroecco/holos/internal/compose"
 )
 
 const fullDomainXML = `
@@ -50,6 +55,19 @@ const fullDomainXML = `
 </domain>
 `
 
+func assertServiceDevicePCIs(t *testing.T, svc compose.Service, want []string) {
+	t.Helper()
+
+	if len(svc.Devices) != len(want) {
+		t.Fatalf("devices len = %d, want %d: %+v", len(svc.Devices), len(want), svc.Devices)
+	}
+	for i, wantPCI := range want {
+		if svc.Devices[i].PCI != wantPCI {
+			t.Fatalf("devices[%d].PCI = %q, want %q: %+v", i, svc.Devices[i].PCI, wantPCI, svc.Devices)
+		}
+	}
+}
+
 func TestConvertFullDomain(t *testing.T) {
 	t.Parallel()
 
@@ -82,9 +100,7 @@ func TestConvertFullDomain(t *testing.T) {
 	if svc.ImageFormat != "qcow2" {
 		t.Errorf("image_format = %q, want qcow2", svc.ImageFormat)
 	}
-	if len(svc.Devices) != 1 || svc.Devices[0].PCI != "0000:01:00.0" {
-		t.Errorf("devices = %+v, want one entry 0000:01:00.0", svc.Devices)
-	}
+	assertServiceDevicePCIs(t, svc, []string{"0000:01:00.0"})
 
 	wantWarnings := []string{
 		"renamed domain",       // sanitised name
@@ -92,11 +108,7 @@ func TestConvertFullDomain(t *testing.T) {
 		"hostdev type \"usb\"", // unsupported passthrough
 		"interface",            // bridged/network NIC dropped
 	}
-	for _, want := range wantWarnings {
-		if !containsAny(warns, want) {
-			t.Errorf("expected a warning containing %q, got %v", want, warns)
-		}
-	}
+	assertWarningsContain(t, warns, wantWarnings...)
 }
 
 const minimalDomainXML = `
@@ -154,9 +166,7 @@ func TestConvertNoDisk(t *testing.T) {
 	if svc.Image != "" {
 		t.Errorf("image should be empty, got %q", svc.Image)
 	}
-	if !containsAny(warns, "no file-backed disk") {
-		t.Errorf("expected warning about missing disk, got %v", warns)
-	}
+	assertWarningsContain(t, warns, "no file-backed disk")
 }
 
 func TestConvertParseError(t *testing.T) {
@@ -170,17 +180,25 @@ func TestConvertParseError(t *testing.T) {
 func TestSanitizeName(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]string{
-		"web":             "web",
-		"My Web Server":   "my-web-server",
-		"  spaced.name  ": "spaced-name",
-		"weird___name!!!": "weird-name",
-		"---trim---":      "trim",
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "plain", input: "web", want: "web"},
+		{name: "mixed case and spaces", input: "My Web Server", want: "my-web-server"},
+		{name: "trimmed dotted name", input: "  spaced.name  ", want: "spaced-name"},
+		{name: "punctuation collapsed", input: "weird___name!!!", want: "weird-name"},
+		{name: "trim separators", input: "---trim---", want: "trim"},
 	}
-	for in, want := range cases {
-		if got := sanitizeName(in); got != want {
-			t.Errorf("sanitizeName(%q) = %q, want %q", in, got, want)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := sanitizeName(tc.input); got != tc.want {
+				t.Errorf("sanitizeName(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -190,6 +208,171 @@ func TestFormatPCI(t *testing.T) {
 	got := formatPCI(PCIAddress{Domain: "0x0000", Bus: "0x42", Slot: "0x1f", Function: "0x3"})
 	if got != "0000:42:1f.3" {
 		t.Errorf("formatPCI = %q, want 0000:42:1f.3", got)
+	}
+}
+
+func TestCPUModelName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		cpu  *CPUConfig
+		want string
+	}{
+		{
+			name: "nil",
+			want: "",
+		},
+		{
+			name: "host passthrough",
+			cpu:  &CPUConfig{Mode: "host-passthrough"},
+			want: "host",
+		},
+		{
+			name: "host model",
+			cpu:  &CPUConfig{Mode: "host-model"},
+			want: "host",
+		},
+		{
+			name: "named model",
+			cpu:  &CPUConfig{Mode: "custom", Model: &CPUModel{Value: " Skylake-Client-IBRS "}},
+			want: "Skylake-Client-IBRS",
+		},
+		{
+			name: "blank model",
+			cpu:  &CPUConfig{Mode: "custom", Model: &CPUModel{Value: "   "}},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := cpuModelName(tt.cpu); got != tt.want {
+				t.Fatalf("cpuModelName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDomainDiskImagePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		disk        Disk
+		wantPath    string
+		wantWarning string
+		wantOK      bool
+	}{
+		{
+			name:     "file disk",
+			disk:     Disk{Type: "file", Device: "disk", Source: DiskSource{File: " /var/lib/vm.qcow2 "}},
+			wantPath: "/var/lib/vm.qcow2",
+			wantOK:   true,
+		},
+		{
+			name:     "default file disk",
+			disk:     Disk{Source: DiskSource{File: "/var/lib/default.raw"}},
+			wantPath: "/var/lib/default.raw",
+			wantOK:   true,
+		},
+		{
+			name: "cdrom skipped",
+			disk: Disk{Type: "file", Device: "cdrom", Source: DiskSource{File: "/srv/seed.iso"}},
+		},
+		{
+			name: "floppy skipped",
+			disk: Disk{Type: "file", Device: "floppy", Source: DiskSource{File: "/srv/floppy.img"}},
+		},
+		{
+			name:        "non file disk warns",
+			disk:        Disk{Type: "block", Device: "disk", Target: DiskTarget{Dev: "vda"}},
+			wantWarning: `disk "vda" has type "block" (only file-backed disks are imported)`,
+		},
+		{
+			name:        "network disk warns",
+			disk:        Disk{Type: "network", Device: "disk", Target: DiskTarget{Dev: "vdb"}},
+			wantWarning: `disk "vdb" has type "network" (only file-backed disks are imported)`,
+		},
+		{
+			name: "blank source skipped",
+			disk: Disk{Type: "file", Device: "disk", Source: DiskSource{File: "   "}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path, warning, ok := domainDiskImagePath(tt.disk)
+			if path != tt.wantPath || warning != tt.wantWarning || ok != tt.wantOK {
+				t.Fatalf("domainDiskImagePath() = (%q, %q, %v), want (%q, %q, %v)",
+					path, warning, ok, tt.wantPath, tt.wantWarning, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestApplyDomainVMConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		domain     Domain
+		wantMemory int
+		wantUEFI   bool
+	}{
+		{
+			name: "current memory preferred",
+			domain: Domain{
+				Memory:        Memory{Unit: "MiB", Value: "1024"},
+				CurrentMemory: Memory{Unit: "MiB", Value: "512"},
+			},
+			wantMemory: 512,
+		},
+		{
+			name: "falls back to memory",
+			domain: Domain{
+				Memory:        Memory{Unit: "MiB", Value: "1024"},
+				CurrentMemory: Memory{Unit: "MiB", Value: "0"},
+			},
+			wantMemory: 1024,
+		},
+		{
+			name: "invalid memory ignored",
+			domain: Domain{
+				Memory:        Memory{Unit: "pages", Value: "1024"},
+				CurrentMemory: Memory{Unit: "MiB", Value: "-1"},
+			},
+		},
+		{
+			name: "loader enables uefi",
+			domain: Domain{
+				OS: OSConfig{Loader: &Loader{Path: " /usr/share/OVMF/OVMF_CODE.fd "}},
+			},
+			wantUEFI: true,
+		},
+		{
+			name: "blank loader ignored",
+			domain: Domain{
+				OS: OSConfig{Loader: &Loader{Path: "  "}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var svc compose.Service
+			applyDomainVMConfig(&svc, tt.domain)
+
+			if svc.VM.MemoryMB != tt.wantMemory {
+				t.Fatalf("memory_mb = %d, want %d", svc.VM.MemoryMB, tt.wantMemory)
+			}
+			if svc.VM.UEFI != tt.wantUEFI {
+				t.Fatalf("uefi = %v, want %v", svc.VM.UEFI, tt.wantUEFI)
+			}
+		})
 	}
 }
 
@@ -218,9 +401,119 @@ func TestMemoryToBytes(t *testing.T) {
 	}
 }
 
-func containsAny(warns []string, substr string) bool {
-	for _, w := range warns {
-		if strings.Contains(w, substr) {
+func TestMemoryUnitMultiplier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		unit string
+		want int64
+		ok   bool
+	}{
+		{unit: "", want: 1 << 10, ok: true},
+		{unit: " KiB ", want: 1 << 10, ok: true},
+		{unit: "bytes", want: 1, ok: true},
+		{unit: "MB", want: 1 << 20, ok: true},
+		{unit: "g", want: 1 << 30, ok: true},
+		{unit: "TiB", want: 1 << 40, ok: true},
+		{unit: "pages", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.unit, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := memoryUnitMultiplier(tt.unit)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("memoryUnitMultiplier(%q) = (%d, %v), want (%d, %v)", tt.unit, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestParseVirshDomainNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{name: "trims blanks", out: "\n web \n\n db\n\tbatch\t\n", want: []string{"web", "db", "batch"}},
+		{name: "trims crlf", out: "web\r\n db\r\n", want: []string{"web", "db"}},
+		{name: "empty output"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := parseVirshDomainNames([]byte(tt.out))
+			assertStringSliceEqual(t, "parseVirshDomainNames", got, tt.want)
+		})
+	}
+}
+
+func TestExitErrorStderr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		err        error
+		wantStderr string
+		wantOK     bool
+	}{
+		{
+			name:       "exit error with stderr",
+			err:        &exec.ExitError{Stderr: []byte("  failed to connect\n")},
+			wantStderr: "failed to connect",
+			wantOK:     true,
+		},
+		{name: "exit error without stderr", err: &exec.ExitError{}},
+		{name: "other error", err: fmt.Errorf("lookup failed")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotStderr, gotOK := exitErrorStderr(tt.err)
+			if gotStderr != tt.wantStderr || gotOK != tt.wantOK {
+				t.Fatalf("exitErrorStderr(%T) = (%q, %v), want (%q, %v)",
+					tt.err, gotStderr, gotOK, tt.wantStderr, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestExitErrorHasStderr(t *testing.T) {
+	t.Parallel()
+
+	if exitErrorHasStderr(&exec.ExitError{}) {
+		t.Fatal("exitErrorHasStderr(empty) = true, want false")
+	}
+	if !exitErrorHasStderr(&exec.ExitError{Stderr: []byte("failed\n")}) {
+		t.Fatal("exitErrorHasStderr(stderr) = false, want true")
+	}
+}
+
+func assertWarningsContain(t *testing.T, warns []string, wants ...string) {
+	t.Helper()
+
+	for _, want := range wants {
+		if !warningsContain(warns, want) {
+			t.Errorf("expected warning containing %q, got %v", want, warns)
+		}
+	}
+}
+
+func assertStringSliceEqual(t *testing.T, name string, got, want []string) {
+	t.Helper()
+
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s = %v, want %v", name, got, want)
+	}
+}
+
+func warningsContain(warns []string, substr string) bool {
+	for _, warning := range warns {
+		if strings.Contains(warning, substr) {
 			return true
 		}
 	}

@@ -4,19 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
-	"strings"
-	"sync"
 
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/qemu"
 )
 
-var (
-	testEphemeralPortsMu    sync.Mutex
-	testEphemeralPortsValue string
-	testEphemeralPortsIndex int
+const (
+	tcpNetwork        = "tcp"
+	ephemeralPortSpec = "0"
 )
 
 func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, error) {
@@ -37,20 +33,24 @@ func allocatePorts(manifest config.Manifest, index int) ([]qemu.PortMapping, err
 			hostPort = allocated
 		}
 
-		mappings = append(mappings, qemu.PortMapping{
-			Name:      port.Name,
-			HostAddr:  hostAddr,
-			HostPort:  hostPort,
-			GuestAddr: port.GuestAddr,
-			GuestPort: port.GuestPort,
-			Protocol:  port.Protocol,
-		})
+		mappings = append(mappings, qemuPortMapping(port, hostAddr, hostPort))
 	}
 	return mappings, nil
 }
 
+func qemuPortMapping(port config.PortForward, hostAddr string, hostPort int) qemu.PortMapping {
+	return qemu.PortMapping{
+		Name:      port.Name,
+		HostAddr:  hostAddr,
+		HostPort:  hostPort,
+		GuestAddr: port.GuestAddr,
+		GuestPort: port.GuestPort,
+		Protocol:  port.Protocol,
+	}
+}
+
 func ensureTCPPortAvailable(addr string, port int) error {
-	listener, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(port)))
+	listener, err := net.Listen(tcpNetwork, net.JoinHostPort(addr, strconv.Itoa(port)))
 	if err != nil {
 		return fmt.Errorf("host port %s:%d is unavailable: %w", addr, port, err)
 	}
@@ -58,7 +58,7 @@ func ensureTCPPortAvailable(addr string, port int) error {
 }
 
 func allocateEphemeralTCPPort() (int, error) {
-	return allocateEphemeralTCPPortOn("127.0.0.1")
+	return allocateEphemeralTCPPortOn(defaultHostAddr)
 }
 
 func allocateEphemeralTCPPortOn(addr string) (int, error) {
@@ -66,7 +66,7 @@ func allocateEphemeralTCPPortOn(addr string) (int, error) {
 		return port, err
 	}
 
-	listener, err := net.Listen("tcp", net.JoinHostPort(addr, "0"))
+	listener, err := net.Listen(tcpNetwork, net.JoinHostPort(addr, ephemeralPortSpec))
 	if err != nil {
 		return 0, fmt.Errorf("allocate ephemeral port: %w", err)
 	}
@@ -81,35 +81,7 @@ func allocateEphemeralTCPPortOn(addr string) (int, error) {
 
 func effectiveHostAddr(addr string) string {
 	if addr == "" {
-		return "127.0.0.1"
+		return defaultHostAddr
 	}
 	return addr
-}
-
-func nextTestEphemeralTCPPort() (int, bool, error) {
-	raw := os.Getenv("HOLOS_TEST_EPHEMERAL_PORTS")
-	if raw == "" {
-		return 0, false, nil
-	}
-
-	testEphemeralPortsMu.Lock()
-	defer testEphemeralPortsMu.Unlock()
-
-	if raw != testEphemeralPortsValue {
-		testEphemeralPortsValue = raw
-		testEphemeralPortsIndex = 0
-	}
-
-	parts := strings.Split(raw, ",")
-	if testEphemeralPortsIndex >= len(parts) {
-		return 0, true, fmt.Errorf("HOLOS_TEST_EPHEMERAL_PORTS exhausted after %d allocations", len(parts))
-	}
-	value := strings.TrimSpace(parts[testEphemeralPortsIndex])
-	testEphemeralPortsIndex++
-
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, true, fmt.Errorf("invalid HOLOS_TEST_EPHEMERAL_PORTS entry %q", value)
-	}
-	return port, true, nil
 }

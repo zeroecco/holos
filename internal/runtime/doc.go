@@ -34,7 +34,7 @@
 // Fresh instances get a new qcow2 overlay, cloud-init seed, and allocated
 // ports. Stopped instances with an existing work directory are restarted
 // in-place, preserving disk state. Instances are started in a new session
-// (setsid) and detached; a 300ms liveness check catches early QEMU failures.
+// (setsid) and detached; a short liveness check catches early QEMU failures.
 //
 // Stopping sends SIGTERM with a 10-second grace period, then SIGKILL.
 //

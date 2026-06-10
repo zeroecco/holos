@@ -3,7 +3,6 @@ package runtime
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 // OVMFFirmware is the resolved CODE/VARS firmware pair used for UEFI boots.
@@ -11,6 +10,12 @@ type OVMFFirmware struct {
 	CodePath         string
 	VarsTemplatePath string
 }
+
+const (
+	ovmfCodeEnv  = "HOLOS_OVMF_CODE"
+	ovmfVarsEnv  = "HOLOS_OVMF_VARS"
+	ovmfVarsPerm = os.FileMode(0o644)
+)
 
 var ovmfCodePaths = []string{
 	"/usr/share/OVMF/OVMF_CODE_4M.fd",
@@ -34,7 +39,7 @@ func (m *Manager) prepareUEFI(workDir string) (codePath, varsPath string, err er
 		return "", "", err
 	}
 
-	varsPath = filepath.Join(workDir, "OVMF_VARS.fd")
+	varsPath = newInstancePaths(workDir).ovmfVars
 	if err := copyFile(firmware.VarsTemplatePath, varsPath); err != nil {
 		return "", "", fmt.Errorf("copy OVMF_VARS: %w", err)
 	}
@@ -46,29 +51,44 @@ func (m *Manager) prepareUEFI(workDir string) (codePath, varsPath string, err er
 // environment override is set, both must be set; otherwise holos searches known
 // distro paths by pair so doctor and VM launch agree on what "usable" means.
 func ResolveOVMFFirmware() (OVMFFirmware, error) {
-	codeEnv := os.Getenv("HOLOS_OVMF_CODE")
-	varsEnv := os.Getenv("HOLOS_OVMF_VARS")
-	if codeEnv != "" || varsEnv != "" {
-		if codeEnv == "" || varsEnv == "" {
-			return OVMFFirmware{}, fmt.Errorf("set both HOLOS_OVMF_CODE and HOLOS_OVMF_VARS, or neither")
-		}
-		if err := checkReadableFile(codeEnv); err != nil {
-			return OVMFFirmware{}, fmt.Errorf("HOLOS_OVMF_CODE=%q is not usable: %w", codeEnv, err)
-		}
-		if err := checkReadableFile(varsEnv); err != nil {
-			return OVMFFirmware{}, fmt.Errorf("HOLOS_OVMF_VARS=%q is not usable: %w", varsEnv, err)
-		}
-		return OVMFFirmware{CodePath: codeEnv, VarsTemplatePath: varsEnv}, nil
+	codeEnv := os.Getenv(ovmfCodeEnv)
+	varsEnv := os.Getenv(ovmfVarsEnv)
+	if firmware, ok, err := resolveOVMFEnvOverride(codeEnv, varsEnv); ok || err != nil {
+		return firmware, err
 	}
 
 	for i, codePath := range ovmfCodePaths {
 		varsPath := ovmfVarsPaths[i]
-		if checkReadableFile(codePath) == nil && checkReadableFile(varsPath) == nil {
+		if readableOVMFPair(codePath, varsPath) {
 			return OVMFFirmware{CodePath: codePath, VarsTemplatePath: varsPath}, nil
 		}
 	}
 
-	return OVMFFirmware{}, fmt.Errorf("OVMF firmware CODE/VARS pair not found; install ovmf/edk2-ovmf or set HOLOS_OVMF_CODE and HOLOS_OVMF_VARS")
+	return OVMFFirmware{}, fmt.Errorf("OVMF firmware CODE/VARS pair not found; install ovmf/edk2-ovmf or set %s and %s", ovmfCodeEnv, ovmfVarsEnv)
+}
+
+func resolveOVMFEnvOverride(codeEnv, varsEnv string) (OVMFFirmware, bool, error) {
+	if codeEnv == "" && varsEnv == "" {
+		return OVMFFirmware{}, false, nil
+	}
+	if ovmfEnvOverrideIncomplete(codeEnv, varsEnv) {
+		return OVMFFirmware{}, true, fmt.Errorf("set both %s and %s, or neither", ovmfCodeEnv, ovmfVarsEnv)
+	}
+	if err := checkReadableFile(codeEnv); err != nil {
+		return OVMFFirmware{}, true, fmt.Errorf("%s=%q is not usable: %w", ovmfCodeEnv, codeEnv, err)
+	}
+	if err := checkReadableFile(varsEnv); err != nil {
+		return OVMFFirmware{}, true, fmt.Errorf("%s=%q is not usable: %w", ovmfVarsEnv, varsEnv, err)
+	}
+	return OVMFFirmware{CodePath: codeEnv, VarsTemplatePath: varsEnv}, true, nil
+}
+
+func ovmfEnvOverrideIncomplete(codeEnv, varsEnv string) bool {
+	return (codeEnv == "") != (varsEnv == "")
+}
+
+func readableOVMFPair(codePath, varsPath string) bool {
+	return checkReadableFile(codePath) == nil && checkReadableFile(varsPath) == nil
 }
 
 func checkReadableFile(path string) error {
@@ -91,5 +111,5 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0o644)
+	return os.WriteFile(dst, data, ovmfVarsPerm)
 }

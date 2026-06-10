@@ -7,18 +7,76 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
+func assertArgsContain(t *testing.T, args []string, needles ...string) {
+	t.Helper()
+
+	joined := strings.Join(args, " ")
+	for _, needle := range needles {
+		if !strings.Contains(joined, needle) {
+			t.Fatalf("expected args to contain %q, got:\n%s", needle, joined)
+		}
+	}
+}
+
+func assertArgsOmit(t *testing.T, args []string, forbidden ...string) {
+	t.Helper()
+
+	joined := strings.Join(args, " ")
+	for _, needle := range forbidden {
+		if strings.Contains(joined, needle) {
+			t.Fatalf("expected args to omit %q, got:\n%s", needle, joined)
+		}
+	}
+}
+
+func TestQEMUOptEscape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "plain path", input: "/state/root.qcow2", want: "/state/root.qcow2"},
+		{name: "path with comma", input: "/state/weird,path/root", want: "/state/weird,,path/root"},
+		{name: "option-looking value", input: "prefix,readonly=off", want: "prefix,,readonly=off"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := qemuOptEscape(tt.input); got != tt.want {
+				t.Fatalf("qemuOptEscape(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCharDevOptions(t *testing.T) {
+	t.Parallel()
+
+	if got, want := consoleCharDevOption("/state/serial,sock", "/state/qemu,log"),
+		"socket,id=console0,path=/state/serial,,sock,server=on,wait=off,logfile=/state/qemu,,log,logappend=on"; got != want {
+		t.Fatalf("consoleCharDevOption = %q, want %q", got, want)
+	}
+	if got, want := qmpCharDevOption("/state/qmp,sock"),
+		"socket,id=qmp,path=/state/qmp,,sock,server=on,wait=off"; got != want {
+		t.Fatalf("qmpCharDevOption = %q, want %q", got, want)
+	}
+}
+
 func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 	t.Parallel()
 
 	manifest := config.Manifest{
 		Name:        "api",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     2,
 			MemoryMB: 1024,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 		},
 		Mounts: []config.Mount{
 			{Source: "/srv/api", Target: "/var/lib/api", ReadOnly: true},
@@ -33,8 +91,8 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		LogPath:     "/state/api-0/console.log",
 		QMPPath:     "/state/api-0/qmp.sock",
 		Ports: []PortMapping{
-			{Name: "http", HostPort: 8080, GuestPort: 80, Protocol: "tcp"},
-			{Name: "admin", HostAddr: "0.0.0.0", HostPort: 9000, GuestAddr: "10.0.2.15", GuestPort: 9000, Protocol: "tcp"},
+			{Name: "http", HostPort: 8080, GuestPort: 80, Protocol: config.DefaultProtocol},
+			{Name: "admin", HostAddr: "0.0.0.0", HostPort: 9000, GuestAddr: "10.0.2.15", GuestPort: 9000, Protocol: config.DefaultProtocol},
 		},
 	}
 
@@ -43,21 +101,100 @@ func TestBuildArgsIncludesKVMNetworkingAndMounts(t *testing.T) {
 		t.Fatalf("build args: %v", err)
 	}
 
-	joined := strings.Join(args, " ")
-	for _, needle := range []string{
+	assertArgsContain(t, args,
 		"-enable-kvm",
 		"q35,accel=kvm",
+		"net0",
+		"virtio-net-pci,netdev=net0",
 		"hostfwd=tcp:127.0.0.1:8080-:80",
 		"hostfwd=tcp:0.0.0.0:9000-10.0.2.15:9000",
 		"-virtfs local,path=/srv/api,mount_tag=share0-var-lib-api,security_model=none,readonly=on",
 		"id=root,if=none,cache=writeback,discard=unmap,format=qcow2,file=/state/api-0/root.qcow2",
 		"virtio-blk-pci,drive=root,bootindex=1",
 		"file=/state/api-0/seed.iso",
-	} {
-		if !strings.Contains(joined, needle) {
-			t.Fatalf("expected args to contain %q, got:\n%s", needle, joined)
-		}
+	)
+	assertArgsOmit(t, args, "net1")
+}
+
+func TestBuildArgsOmitsFirmwareUnlessUEFIReady(t *testing.T) {
+	t.Parallel()
+
+	readyManifest := config.Manifest{
+		VM: config.VMConfig{
+			VCPU:     1,
+			MemoryMB: 256,
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
+			UEFI:     true,
+		},
 	}
+	tests := []struct {
+		name     string
+		manifest config.Manifest
+		spec     LaunchSpec
+	}{
+		{
+			name: "uefi disabled",
+			manifest: config.Manifest{VM: config.VMConfig{
+				VCPU:     1,
+				MemoryMB: 256,
+				Machine:  config.DefaultMachine,
+				CPUModel: config.DefaultCPUModel,
+			}},
+			spec: LaunchSpec{
+				OVMFCode: "/usr/share/OVMF_CODE.fd",
+				OVMFVars: "/state/OVMF_VARS.fd",
+			},
+		},
+		{
+			name:     "missing code",
+			manifest: readyManifest,
+			spec:     LaunchSpec{OVMFVars: "/state/OVMF_VARS.fd"},
+		},
+		{
+			name:     "missing vars",
+			manifest: readyManifest,
+			spec:     LaunchSpec{OVMFCode: "/usr/share/OVMF_CODE.fd"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			args, err := BuildArgs(tt.manifest, tt.spec)
+			if err != nil {
+				t.Fatalf("build args: %v", err)
+			}
+
+			assertArgsOmit(t, args, "if=pflash", "OVMF")
+		})
+	}
+}
+
+func TestBuildArgsIncludesFirmwareWhenUEFIReady(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{VM: config.VMConfig{
+		VCPU:     1,
+		MemoryMB: 256,
+		Machine:  config.DefaultMachine,
+		CPUModel: config.DefaultCPUModel,
+		UEFI:     true,
+	}}
+	spec := LaunchSpec{
+		OVMFCode: "/usr/share/OVMF,variant/OVMF_CODE.fd",
+		OVMFVars: "/state/weird,path/OVMF_VARS.fd",
+	}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+
+	assertArgsContain(t, args,
+		"if=pflash,format=raw,readonly=on,file=/usr/share/OVMF,,variant/OVMF_CODE.fd",
+		"if=pflash,format=raw,file=/state/weird,,path/OVMF_VARS.fd",
+	)
 }
 
 // TestBuildArgs_EscapesCommasInPaths pins the QEMU option-parser
@@ -80,10 +217,13 @@ func TestBuildArgs_EscapesCommasInPaths(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "api",
 		Image:       "/images/base,v1.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
-			VCPU: 1, MemoryMB: 256, Machine: "q35", CPUModel: "host",
-			UEFI: true,
+			VCPU:     1,
+			MemoryMB: 256,
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
+			UEFI:     true,
 		},
 		Mounts: []config.Mount{
 			{Source: "/srv/a,b", Target: "/var/lib/x", Kind: config.MountKindBind},
@@ -109,9 +249,7 @@ func TestBuildArgs_EscapesCommasInPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build args: %v", err)
 	}
-	joined := strings.Join(args, " ")
-
-	for _, needle := range []string{
+	assertArgsContain(t, args,
 		"path=/state/weird,,path/serial.sock",
 		"logfile=/state/weird,,path/console.log",
 		"path=/state/weird,,path/qmp.sock",
@@ -121,25 +259,17 @@ func TestBuildArgs_EscapesCommasInPaths(t *testing.T) {
 		"file=/state/weird,,path/seed.iso",
 		"path=/srv/a,,b",
 		"file=/state/vols/a,,b.qcow2",
-	} {
-		if !strings.Contains(joined, needle) {
-			t.Fatalf("expected escaped %q in args, got:\n%s", needle, joined)
-		}
-	}
+	)
 
 	// Negative check: no raw single-comma variants of those paths
 	// should appear. The double-escape turns a literal comma into
 	// ",," so the *single*-comma form is proof of regression.
-	for _, forbidden := range []string{
+	assertArgsOmit(t, args,
 		"path=/state/weird,path/serial.sock",
 		"file=/state/weird,path/root.qcow2",
 		"path=/srv/a,b",
 		"file=/state/vols/a,b.qcow2",
-	} {
-		if strings.Contains(joined, forbidden) {
-			t.Fatalf("found unescaped %q in args; comma splitting will break qemu:\n%s", forbidden, joined)
-		}
-	}
+	)
 }
 
 // TestBuildArgs_NamedVolumeReadOnly pins the `:ro` flag through to
@@ -155,12 +285,12 @@ func TestBuildArgs_NamedVolumeReadOnly(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "api",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     1,
 			MemoryMB: 256,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 		},
 	}
 	spec := LaunchSpec{
@@ -180,14 +310,9 @@ func TestBuildArgs_NamedVolumeReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build args: %v", err)
 	}
-	joined := strings.Join(args, " ")
-
-	if !strings.Contains(joined, "file=/state/vols/api-data.qcow2,cache=writeback,discard=unmap,readonly=on") {
-		t.Fatalf("read-only volume lost readonly=on: %s", joined)
-	}
-	if strings.Contains(joined, "file=/state/vols/api-cache.qcow2,cache=writeback,discard=unmap,readonly=on") {
-		t.Fatalf("writable volume unexpectedly got readonly=on: %s", joined)
-	}
+	assertArgsContain(t, args, "file=/state/vols/api-data.qcow2,cache=writeback,discard=unmap,readonly=on")
+	assertArgsContain(t, args, "virtio-blk-pci,drive=vol-data,serial=vol-data")
+	assertArgsOmit(t, args, "file=/state/vols/api-cache.qcow2,cache=writeback,discard=unmap,readonly=on")
 }
 
 func TestBuildArgs_RootDiskHasBootIndexWithNamedVolume(t *testing.T) {
@@ -196,12 +321,12 @@ func TestBuildArgs_RootDiskHasBootIndexWithNamedVolume(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "api",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     1,
 			MemoryMB: 256,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 		},
 	}
 	spec := LaunchSpec{
@@ -219,17 +344,11 @@ func TestBuildArgs_RootDiskHasBootIndexWithNamedVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build args: %v", err)
 	}
-	joined := strings.Join(args, " ")
-
-	if !strings.Contains(joined, "id=root,if=none,cache=writeback,discard=unmap,format=qcow2,file=/state/api-0/root.qcow2") {
-		t.Fatalf("root disk is not declared as an if=none drive: %s", joined)
-	}
-	if !strings.Contains(joined, "virtio-blk-pci,drive=root,bootindex=1") {
-		t.Fatalf("root disk device is not pinned as boot target: %s", joined)
-	}
-	if strings.Contains(joined, "drive=vol-data,serial=vol-data,bootindex=") {
-		t.Fatalf("named volume should not advertise a firmware boot index: %s", joined)
-	}
+	assertArgsContain(t, args,
+		"id=root,if=none,cache=writeback,discard=unmap,format=qcow2,file=/state/api-0/root.qcow2",
+		"virtio-blk-pci,drive=root,bootindex=1",
+	)
+	assertArgsOmit(t, args, "drive=vol-data,serial=vol-data,bootindex=")
 }
 
 func TestBuildArgsWithInternalNetwork(t *testing.T) {
@@ -238,12 +357,12 @@ func TestBuildArgsWithInternalNetwork(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "web",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     1,
 			MemoryMB: 512,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 		},
 		InternalNetwork: &config.InternalNetworkConfig{
 			MulticastGroup: "230.0.0.1",
@@ -251,12 +370,13 @@ func TestBuildArgsWithInternalNetwork(t *testing.T) {
 			Subnet:         "10.10.0.0/24",
 			InstanceIPs:    []string{"10.10.0.2"},
 			BaseMAC:        "52:54:00:ab:cd:00",
+			UserBaseMAC:    "52:54:01:ab:cd:00",
 		},
 	}
 
 	spec := LaunchSpec{
 		Name:        "web-0",
-		Index:       0,
+		Index:       2,
 		OverlayPath: "/state/web-0/root.qcow2",
 		LogPath:     "/state/web-0/console.log",
 		QMPPath:     "/state/web-0/qmp.sock",
@@ -267,20 +387,14 @@ func TestBuildArgsWithInternalNetwork(t *testing.T) {
 		t.Fatalf("build args: %v", err)
 	}
 
-	joined := strings.Join(args, " ")
-
-	if !strings.Contains(joined, "net0") {
-		t.Fatal("expected user-mode netdev net0")
-	}
-	if !strings.Contains(joined, "net1") {
-		t.Fatal("expected socket netdev net1")
-	}
-	if !strings.Contains(joined, "mcast=230.0.0.1:12345") {
-		t.Fatalf("expected multicast in args:\n%s", joined)
-	}
-	if !strings.Contains(joined, "mac=52:54:00:ab:cd:00") {
-		t.Fatalf("expected MAC in args:\n%s", joined)
-	}
+	assertArgsContain(t, args,
+		"net0",
+		"net1",
+		"socket,id=net1,mcast=230.0.0.1:12345",
+		"mcast=230.0.0.1:12345",
+		"virtio-net-pci,netdev=net0,mac=52:54:01:ab:cd:02",
+		"virtio-net-pci,netdev=net1,mac=52:54:00:ab:cd:02",
+	)
 }
 
 func TestBuildArgsWithVFIODevices(t *testing.T) {
@@ -289,12 +403,12 @@ func TestBuildArgsWithVFIODevices(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "ml",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     8,
 			MemoryMB: 16384,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 			UEFI:     true,
 		},
 		Devices: []config.Device{
@@ -318,19 +432,13 @@ func TestBuildArgsWithVFIODevices(t *testing.T) {
 		t.Fatalf("build args: %v", err)
 	}
 
-	joined := strings.Join(args, " ")
-
-	for _, needle := range []string{
+	assertArgsContain(t, args,
 		"kernel-irqchip=on",
 		"vfio-pci,host=0000:01:00.0",
 		"vfio-pci,host=0000:01:00.1",
 		"OVMF_CODE.fd",
 		"OVMF_VARS.fd",
-	} {
-		if !strings.Contains(joined, needle) {
-			t.Fatalf("expected args to contain %q, got:\n%s", needle, joined)
-		}
-	}
+	)
 }
 
 func TestBuildArgsWithROMFile(t *testing.T) {
@@ -339,16 +447,16 @@ func TestBuildArgsWithROMFile(t *testing.T) {
 	manifest := config.Manifest{
 		Name:        "gpu",
 		Image:       "/images/base.qcow2",
-		ImageFormat: "qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
 		VM: config.VMConfig{
 			VCPU:     4,
 			MemoryMB: 8192,
-			Machine:  "q35",
-			CPUModel: "host",
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
 			UEFI:     true,
 		},
 		Devices: []config.Device{
-			{PCI: "0000:41:00.0", ROMFile: "/opt/vbios/gpu.rom"},
+			{PCI: "0000:41:00.0", ROMFile: "/opt/vbios/gpu,patched.rom"},
 		},
 	}
 
@@ -367,9 +475,5 @@ func TestBuildArgsWithROMFile(t *testing.T) {
 		t.Fatalf("build args: %v", err)
 	}
 
-	joined := strings.Join(args, " ")
-
-	if !strings.Contains(joined, "romfile=/opt/vbios/gpu.rom") {
-		t.Fatalf("expected romfile in args:\n%s", joined)
-	}
+	assertArgsContain(t, args, "vfio-pci,host=0000:41:00.0,romfile=/opt/vbios/gpu,,patched.rom")
 }

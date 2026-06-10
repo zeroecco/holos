@@ -27,6 +27,12 @@ import (
 	"time"
 )
 
+const (
+	qmpUnixNetwork         = "unix"
+	qmpCapabilitiesCommand = "qmp_capabilities"
+	qmpPowerdownCommand    = "system_powerdown"
+)
+
 // Client is a connected QMP session over a unix socket.
 type Client struct {
 	conn net.Conn
@@ -37,7 +43,7 @@ type Client struct {
 // capabilities, and returns a ready client. The timeout bounds the initial
 // connect and the full handshake.
 func Dial(path string, timeout time.Duration) (*Client, error) {
-	conn, err := net.DialTimeout("unix", path, timeout)
+	conn, err := net.DialTimeout(qmpUnixNetwork, path, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("dial qmp %s: %w", path, err)
 	}
@@ -60,7 +66,7 @@ func Dial(path string, timeout time.Duration) (*Client, error) {
 		return nil, errors.New("qmp: empty greeting")
 	}
 
-	if err := c.execute("qmp_capabilities", nil); err != nil {
+	if err := c.execute(qmpCapabilitiesCommand, nil); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -82,7 +88,7 @@ func (c *Client) Powerdown(timeout time.Duration) error {
 		return err
 	}
 	defer func() { _ = c.conn.SetDeadline(time.Time{}) }()
-	return c.execute("system_powerdown", nil)
+	return c.execute(qmpPowerdownCommand, nil)
 }
 
 // Close closes the QMP session.
@@ -91,56 +97,6 @@ func (c *Client) Close() error {
 		return nil
 	}
 	return c.conn.Close()
-}
-
-type qmpError struct {
-	Class string `json:"class"`
-	Desc  string `json:"desc"`
-}
-
-// response models the three message shapes QMP may deliver on the same
-// stream: a command reply (Return set), a command error (Error set), or an
-// asynchronous event (Event set).
-type response struct {
-	Return *json.RawMessage `json:"return,omitempty"`
-	Error  *qmpError        `json:"error,omitempty"`
-	Event  string           `json:"event,omitempty"`
-}
-
-type command struct {
-	Execute   string `json:"execute"`
-	Arguments any    `json:"arguments,omitempty"`
-}
-
-// execute marshals and sends a single command, then reads responses until
-// it sees either a matching return or an error. Events are skipped so the
-// caller never has to deal with them.
-func (c *Client) execute(cmd string, args any) error {
-	payload, err := json.Marshal(command{Execute: cmd, Arguments: args})
-	if err != nil {
-		return fmt.Errorf("qmp encode %s: %w", cmd, err)
-	}
-	payload = append(payload, '\n')
-	if _, err := c.conn.Write(payload); err != nil {
-		return fmt.Errorf("qmp write %s: %w", cmd, err)
-	}
-
-	for {
-		var resp response
-		if err := c.readMessage(&resp); err != nil {
-			return fmt.Errorf("qmp read response for %s: %w", cmd, err)
-		}
-		if resp.Event != "" {
-			continue
-		}
-		if resp.Error != nil {
-			return fmt.Errorf("qmp %s: %s: %s", cmd, resp.Error.Class, resp.Error.Desc)
-		}
-		if resp.Return != nil {
-			return nil
-		}
-		return fmt.Errorf("qmp %s: malformed response", cmd)
-	}
 }
 
 func (c *Client) readMessage(v any) error {

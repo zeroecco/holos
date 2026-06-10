@@ -1,30 +1,60 @@
 package runtime
 
 import (
+	"net"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/config"
+	"github.com/zeroecco/holos/internal/qemu"
 )
 
 func TestAllocatePortsCarriesBindAddresses(t *testing.T) {
-	t.Setenv("HOLOS_TEST_EPHEMERAL_PORTS", "25000")
+	t.Setenv(testEphemeralPortsEnv, "25000")
 
 	ports, err := allocatePorts(config.Manifest{
 		Ports: []config.PortForward{
-			{Name: "http", HostAddr: "0.0.0.0", HostPort: 8080, GuestAddr: "10.0.2.15", GuestPort: 80, Protocol: "tcp"},
-			{Name: "admin", HostAddr: "127.0.0.2", GuestPort: 9000, Protocol: "tcp"},
+			{Name: "http", HostAddr: "0.0.0.0", HostPort: 8080, GuestAddr: "10.0.2.15", GuestPort: 80, Protocol: config.DefaultProtocol},
+			{Name: "admin", HostAddr: "127.0.0.2", GuestPort: 9000, Protocol: config.DefaultProtocol},
 		},
 	}, 2)
 	if err != nil {
 		t.Fatalf("allocatePorts: %v", err)
 	}
-	if len(ports) != 2 {
-		t.Fatalf("allocatePorts returned %d ports, want 2", len(ports))
+	want := []qemu.PortMapping{
+		{Name: "http", HostAddr: "0.0.0.0", HostPort: 8082, GuestAddr: "10.0.2.15", GuestPort: 80, Protocol: config.DefaultProtocol},
+		{Name: "admin", HostAddr: "127.0.0.2", HostPort: 25000, GuestPort: 9000, Protocol: config.DefaultProtocol},
 	}
-	if ports[0].HostAddr != "0.0.0.0" || ports[0].HostPort != 8082 || ports[0].GuestAddr != "10.0.2.15" || ports[0].GuestPort != 80 {
-		t.Fatalf("static port = %+v", ports[0])
+	if !slices.Equal(ports, want) {
+		t.Fatalf("allocatePorts = %+v, want %+v", ports, want)
 	}
-	if ports[1].HostAddr != "127.0.0.2" || ports[1].HostPort != 25000 || ports[1].GuestPort != 9000 {
-		t.Fatalf("ephemeral port = %+v", ports[1])
+}
+
+func TestEnsureTCPPortAvailableReportsOccupiedPort(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen(tcpNetwork, net.JoinHostPort(defaultHostAddr, ephemeralPortSpec))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	err = ensureTCPPortAvailable(defaultHostAddr, addr.Port)
+	if err == nil {
+		t.Fatal("ensureTCPPortAvailable succeeded for occupied port")
+	}
+	assertErrorContains(t, err, "host port 127.0.0.1:"+strconv.Itoa(addr.Port)+" is unavailable")
+}
+
+func TestEffectiveHostAddrDefaultsToLoopback(t *testing.T) {
+	t.Parallel()
+
+	if got := effectiveHostAddr(""); got != defaultHostAddr {
+		t.Fatalf("effectiveHostAddr(\"\") = %q, want %q", got, defaultHostAddr)
+	}
+	if got := effectiveHostAddr("0.0.0.0"); got != "0.0.0.0" {
+		t.Fatalf("effectiveHostAddr keeps explicit address = %q", got)
 	}
 }
