@@ -90,6 +90,39 @@ func TestRunVolumeExportRequiresProjectVolumeAndPath(t *testing.T) {
 	}
 }
 
+func TestRunVolumeSnapshotCreatesDetachedVolumeSnapshot(t *testing.T) {
+	stateDir := t.TempDir()
+	backing := filepath.Join(stateDir, "volumes", testVolumeCommandProject, "data.qcow2")
+	if err := os.MkdirAll(filepath.Dir(backing), 0o700); err != nil {
+		t.Fatalf("mkdir volume dir: %v", err)
+	}
+	if err := os.WriteFile(backing, []byte("volume"), 0o600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	logPath := installQEMUImgCommandMock(t)
+
+	err := runVolumeSnapshot([]string{"--state-dir", stateDir, testVolumeCommandProject, "data", "before-upgrade"})
+	if err != nil {
+		t.Fatalf("runVolumeSnapshot: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read qemu-img log: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"snapshot", "-c", "before-upgrade", backing}
+	assertStringSliceEqual(t, "qemu-img args", args, want)
+}
+
+func TestRunVolumeSnapshotRequiresProjectVolumeAndName(t *testing.T) {
+	t.Parallel()
+
+	err := runVolumeSnapshot(nil)
+	if err == nil || !strings.Contains(err.Error(), "usage: holos volumes snapshot") {
+		t.Fatalf("runVolumeSnapshot(nil) err = %v, want usage", err)
+	}
+}
+
 func TestFilterVolumesByProject(t *testing.T) {
 	t.Parallel()
 
@@ -139,4 +172,19 @@ func TestWriteVolumesTableEmpty(t *testing.T) {
 	if got, want := out.String(), "no named volumes\n"; got != want {
 		t.Fatalf("empty table = %q, want %q", got, want)
 	}
+}
+
+func installQEMUImgCommandMock(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	qemuImg := filepath.Join(dir, "qemu-img")
+	logPath := filepath.Join(dir, "qemu-img.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$HOLOS_QEMU_IMG_LOG\"\n"
+	if err := os.WriteFile(qemuImg, []byte(script), 0o755); err != nil {
+		t.Fatalf("write qemu-img mock: %v", err)
+	}
+	t.Setenv("HOLOS_QEMU_IMG", qemuImg)
+	t.Setenv("HOLOS_QEMU_IMG_LOG", logPath)
+	return logPath
 }

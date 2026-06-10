@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -239,6 +240,63 @@ func TestExportVolumeRefusesAttachedVolume(t *testing.T) {
 	}
 }
 
+func TestSnapshotVolumeCreatesInternalSnapshot(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	logPath := installQEMUImgVolumeMock(t)
+
+	if err := manager.SnapshotVolume(testVolumeProject, testVolumeName, "before-upgrade"); err != nil {
+		t.Fatalf("SnapshotVolume: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read qemu-img log: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"snapshot", "-c", "before-upgrade", backing}
+	assertStringSliceEqual(t, "qemu-img args", args, want)
+}
+
+func TestSnapshotVolumeRefusesAttachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	workDir := testVolumeWorkDir(stateDir)
+	if err := os.MkdirAll(workDir, stateDirPerm); err != nil {
+		t.Fatalf("create workdir: %v", err)
+	}
+	if err := os.Symlink(backing, volumeLinkPath(workDir, testVolumeName)); err != nil {
+		t.Fatalf("symlink volume: %v", err)
+	}
+	if err := manager.saveProject(&ProjectRecord{
+		Name: testVolumeProject,
+		Services: []ServiceRecord{
+			{
+				Name: testVolumeService,
+				Instances: []InstanceRecord{
+					{Name: instanceDirName(testVolumeService, 0), Status: InstanceStatusRunning, WorkDir: workDir},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+
+	err := manager.SnapshotVolume(testVolumeProject, testVolumeName, "before-upgrade")
+	assertErrorContains(t, err, "attached", instanceDirName(testVolumeService, 0))
+}
+
+func TestSnapshotVolumeRejectsInvalidSnapshotName(t *testing.T) {
+	t.Parallel()
+
+	err := NewManager(t.TempDir()).SnapshotVolume(testVolumeProject, testVolumeName, "../bad")
+	assertErrorContains(t, err, "invalid snapshot name")
+}
+
 func TestVolumeNameFromLink(t *testing.T) {
 	t.Parallel()
 
@@ -265,6 +323,21 @@ func writeTestProjectVolumeBacking(t *testing.T, stateDir, project, name, conten
 		t.Fatalf("write backing: %v", err)
 	}
 	return backing
+}
+
+func installQEMUImgVolumeMock(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	qemuImg := filepath.Join(dir, qemuImgDefault)
+	logPath := filepath.Join(dir, qemuImgDefault+".log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$" + testQEMUImgLogEnv + "\"\n"
+	if err := os.WriteFile(qemuImg, []byte(script), 0o755); err != nil {
+		t.Fatalf("write qemu-img mock: %v", err)
+	}
+	t.Setenv(qemuImgEnv, qemuImg)
+	t.Setenv(testQEMUImgLogEnv, logPath)
+	return logPath
 }
 
 func assertVolumeInfo(t *testing.T, got, want VolumeInfo) {

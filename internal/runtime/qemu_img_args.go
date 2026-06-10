@@ -3,10 +3,12 @@ package runtime
 import "fmt"
 
 const (
-	qemuImgCreateSubcommand  = "create"
-	qemuImgFormatFlag        = "-f"
-	qemuImgBackingFormatFlag = "-F"
-	qemuImgBackingFileFlag   = "-b"
+	qemuImgCreateSubcommand   = "create"
+	qemuImgSnapshotSubcommand = "snapshot"
+	qemuImgSnapshotCreateFlag = "-c"
+	qemuImgFormatFlag         = "-f"
+	qemuImgBackingFormatFlag  = "-F"
+	qemuImgBackingFileFlag    = "-b"
 )
 
 func byteSizeArg(sizeBytes int64) string {

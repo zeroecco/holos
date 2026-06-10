@@ -204,7 +204,9 @@ output, or `-f holos.yaml` to limit the list to one project. Use
 `holos volumes rm <project> <volume>` to remove a detached named volume; removal
 fails while any instance workdir still references the volume. Use
 `holos volumes export <project> <volume> <path>` to copy a detached volume
-backing file to a new destination without overwriting existing files.
+backing file to a new destination without overwriting existing files. Use
+`holos volumes snapshot <project> <volume> <snapshot>` to create an internal
+qcow2 snapshot on a detached named volume.
 
 ## Healthchecks And `depends_on`
 
