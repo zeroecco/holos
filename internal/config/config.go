@@ -18,7 +18,9 @@ const (
 	DefaultCPUModel           = "host"
 	DefaultNetworkMode        = "user"
 	DefaultUser               = "ubuntu"
-	DefaultProtocol           = "tcp"
+	DefaultProtocol           = ProtocolTCP
+	ProtocolTCP               = "tcp"
+	ProtocolUDP               = "udp"
 	ImageFormatQCOW2          = "qcow2"
 	ImageFormatRaw            = "raw"
 	DefaultFilePermissions    = "0644"

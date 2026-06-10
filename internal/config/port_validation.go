@@ -15,6 +15,7 @@ const (
 
 type portClaim struct {
 	hostAddr string
+	protocol string
 	host     int
 	baseHost int
 	guest    int
@@ -35,6 +36,9 @@ func validatePorts(ports []PortForward, replicas int) error {
 		if err := validatePortAddress("guest", port.GuestAddr); err != nil {
 			return err
 		}
+		if err := validatePortProtocol(port.Protocol); err != nil {
+			return err
+		}
 		if port.HostPort > minHostPort {
 			if err := validateReplicaHostPortRange(port.HostPort, replicas); err != nil {
 				return err
@@ -42,24 +46,21 @@ func validatePorts(ports []PortForward, replicas int) error {
 			for r := 0; r < replicas; r++ {
 				host := port.HostPort + r
 				hostAddr := effectiveHostAddr(port.HostAddr)
-				if prev, ok := conflictingPortClaim(claimed, hostAddr, host); ok {
+				if prev, ok := conflictingPortClaim(claimed, hostAddr, port.Protocol, host); ok {
 					return fmt.Errorf(
 						"host port %s:%d is claimed by both mapping %s:%d:%d and %s:%d:%d at replica %d",
 						hostAddr, host, prev.hostAddr, prev.baseHost, prev.guest, hostAddr, port.HostPort, port.GuestPort, r)
 				}
-				claimed = append(claimed, portClaim{hostAddr: hostAddr, host: host, baseHost: port.HostPort, guest: port.GuestPort})
+				claimed = append(claimed, portClaim{hostAddr: hostAddr, protocol: port.Protocol, host: host, baseHost: port.HostPort, guest: port.GuestPort})
 			}
-		}
-		if err := validatePortProtocol(port.Protocol); err != nil {
-			return err
 		}
 	}
 	return nil
 }
 
-func conflictingPortClaim(claimed []portClaim, hostAddr string, hostPort int) (portClaim, bool) {
+func conflictingPortClaim(claimed []portClaim, hostAddr string, protocol string, hostPort int) (portClaim, bool) {
 	for _, prev := range claimed {
-		if prev.host == hostPort && (prev.hostAddr == hostAddr || prev.hostAddr == wildcardHostAddr || hostAddr == wildcardHostAddr) {
+		if prev.protocol == protocol && prev.host == hostPort && (prev.hostAddr == hostAddr || prev.hostAddr == wildcardHostAddr || hostAddr == wildcardHostAddr) {
 			return prev, true
 		}
 	}
@@ -90,11 +91,17 @@ func validateHostPort(port int) error {
 	return nil
 }
 
-func validatePortProtocol(protocol string) error {
-	if protocol != DefaultProtocol {
-		return fmt.Errorf("protocol %q is unsupported; only %s is implemented", protocol, DefaultProtocol)
+func ValidatePortProtocol(protocol string) error {
+	switch protocol {
+	case ProtocolTCP, ProtocolUDP:
+		return nil
+	default:
+		return fmt.Errorf("protocol %q is unsupported; supported protocols are %s and %s", protocol, ProtocolTCP, ProtocolUDP)
 	}
-	return nil
+}
+
+func validatePortProtocol(protocol string) error {
+	return ValidatePortProtocol(protocol)
 }
 
 func validatePortAddress(kind, addr string) error {

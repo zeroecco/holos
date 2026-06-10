@@ -56,7 +56,8 @@ func TestNormalizePortProtocol(t *testing.T) {
 	}{
 		{name: "default", want: config.DefaultProtocol},
 		{name: "explicit tcp", input: config.DefaultProtocol, want: config.DefaultProtocol},
-		{name: "unsupported", input: "udp", wantErr: true},
+		{name: "explicit udp", input: config.ProtocolUDP, want: config.ProtocolUDP},
+		{name: "unsupported", input: "sctp", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -91,7 +92,8 @@ func TestSplitPortProtocol(t *testing.T) {
 	}{
 		{name: "default", spec: "8080:80", wantSpec: "8080:80", wantProtocol: config.DefaultProtocol},
 		{name: "explicit tcp", spec: "8080:80/" + config.DefaultProtocol, wantSpec: "8080:80", wantProtocol: config.DefaultProtocol},
-		{name: "unsupported", spec: "53:53/udp", wantErr: "unsupported"},
+		{name: "explicit udp", spec: "53:53/" + config.ProtocolUDP, wantSpec: "53:53", wantProtocol: config.ProtocolUDP},
+		{name: "unsupported", spec: "80/sctp", wantErr: "unsupported"},
 	}
 
 	for _, tt := range tests {
@@ -655,6 +657,7 @@ func TestParsePort(t *testing.T) {
 	}{
 		{"8080:80", "", 8080, "", 80, config.DefaultProtocol},
 		{"443:443/tcp", "", 443, "", 443, config.DefaultProtocol},
+		{"5353:5353/udp", "", 5353, "", 5353, config.ProtocolUDP},
 		{"80", "", 0, "", 80, config.DefaultProtocol},
 		{"127.0.0.1:8080:80", "127.0.0.1", 8080, "", 80, config.DefaultProtocol},
 		{"0.0.0.0:8443:443/tcp", "0.0.0.0", 8443, "", 443, config.DefaultProtocol},
@@ -704,15 +707,12 @@ func TestParsePortRejectsIPv6WithClearError(t *testing.T) {
 	}
 }
 
-// parsePort previously accepted "/udp" and other non-TCP protocol suffixes,
-// only for manifest validation to reject them later. The error must now
-// surface at parse time.
-func TestParsePortRejectsNonTCPProtocol(t *testing.T) {
+func TestParsePortRejectsUnsupportedProtocol(t *testing.T) {
 	t.Parallel()
 
-	for _, spec := range []string{"53:53/udp", "80/sctp"} {
+	for _, spec := range []string{"80/sctp", "80/icmp"} {
 		if _, err := parsePort(spec); err == nil {
-			t.Fatalf("parsePort(%q): expected error for non-tcp protocol", spec)
+			t.Fatalf("parsePort(%q): expected error for unsupported protocol", spec)
 		}
 	}
 }
@@ -746,7 +746,7 @@ services:
         target: "80"
         host_ip: 127.0.0.1
         published: "8080"
-        protocol: tcp
+        protocol: udp
         app_protocol: http
         mode: host
 `
@@ -759,9 +759,9 @@ services:
 	gotIdentity := got.Name == testComposeWebService
 	gotHost := got.HostAddr == "127.0.0.1" && got.HostPort == testComposeWebHostPort
 	gotGuest := got.GuestPort == testComposeWebGuestPort
-	gotProtocol := got.Protocol == config.DefaultProtocol
+	gotProtocol := got.Protocol == config.ProtocolUDP
 	if !gotIdentity || !gotHost || !gotGuest || !gotProtocol {
-		want := "name=web host=127.0.0.1:8080 guest=80 proto=tcp"
+		want := "name=web host=127.0.0.1:8080 guest=80 proto=udp"
 		t.Fatalf("resolved port = %+v, want %s", got, want)
 	}
 }

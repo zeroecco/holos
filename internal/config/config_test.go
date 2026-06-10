@@ -384,6 +384,23 @@ func TestValidatePortAddressConflicts(t *testing.T) {
 	if err := wildcardConflict.Validate(); err == nil {
 		t.Fatal("expected wildcard host address conflict")
 	}
+
+	samePortDifferentProtocol := base
+	samePortDifferentProtocol.Ports = []PortForward{
+		{
+			HostPort:  testHostPort,
+			GuestPort: testGuestPort,
+			Protocol:  ProtocolTCP,
+		},
+		{
+			HostPort:  testHostPort,
+			GuestPort: testAltGuestPort,
+			Protocol:  ProtocolUDP,
+		},
+	}
+	if err := samePortDifferentProtocol.Validate(); err != nil {
+		t.Fatalf("same host port with tcp and udp should not conflict: %v", err)
+	}
 }
 
 func TestApplyHealthcheckDefaults(t *testing.T) {

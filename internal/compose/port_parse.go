@@ -129,11 +129,8 @@ func normalizePortProtocol(protocol string) (string, error) {
 	if protocol == "" {
 		protocol = config.DefaultProtocol
 	}
-	// Only TCP forwarding is implemented end-to-end; reject other
-	// protocols at parse time rather than let the user discover the
-	// limitation at `holos up` via a validation error.
-	if protocol != config.DefaultProtocol {
-		return "", fmt.Errorf("protocol %q is unsupported; only %s is implemented", protocol, config.DefaultProtocol)
+	if err := config.ValidatePortProtocol(protocol); err != nil {
+		return "", err
 	}
 	return protocol, nil
 }

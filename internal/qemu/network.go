@@ -11,6 +11,7 @@ const (
 	userNetdevBase    = "user,id=" + userNetdevID
 	defaultHostAddr   = "127.0.0.1"
 	tcpProtocol       = "tcp"
+	udpProtocol       = "udp"
 	sshGuestPort      = 22
 	hostForwardFormat = "hostfwd=%s:%s:%d-%s"
 	netdevKey         = "netdev"
@@ -33,11 +34,11 @@ func buildNetdev(ports []PortMapping, sshPort int) (string, error) {
 }
 
 func portHostForward(port PortMapping) (string, error) {
-	if port.Protocol != tcpProtocol {
+	if port.Protocol != tcpProtocol && port.Protocol != udpProtocol {
 		return "", fmt.Errorf("unsupported port mapping protocol %q", port.Protocol)
 	}
 	hostAddr := hostForwardHostAddr(port.HostAddr)
-	return hostForward(tcpProtocol, hostAddr, port.HostPort, port.GuestAddr, port.GuestPort), nil
+	return hostForward(port.Protocol, hostAddr, port.HostPort, port.GuestAddr, port.GuestPort), nil
 }
 
 func hostForwardHostAddr(hostAddr string) string {

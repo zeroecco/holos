@@ -88,14 +88,15 @@ Core fields:
   currently metadata/no-op fields in Holos VM execution.
 - `vm`: virtual hardware (`vcpu`, `memory_mb`, `machine`, `cpu_model`, `uefi`,
   `extra_args`).
-- `ports`: TCP forwards. Use Docker Compose short syntax like
+- `ports`: TCP and UDP forwards. Use Docker Compose short syntax like
   `"host:guest"`, `"guest"`, `"host_ip:host:guest"`, or
-  `"host_ip:host:guest_ip:guest"`. Append `"/tcp"` explicitly when desired
-  (`"8080:80/tcp"`). Docker Compose long syntax is also accepted with
+  `"host_ip:host:guest_ip:guest"`. Append `"/tcp"` or `"/udp"` explicitly
+  when desired (`"8080:80/tcp"`, `"5353:5353/udp"`). Docker Compose long
+  syntax is also accepted with
   `target`, `published`, `host_ip`, `protocol`, `app_protocol`, `mode`, and
   `name`. Equal-length short-form ranges such as `"8080-8081:80-81"` expand
   to multiple forwards; long-form `published` ranges map each host port to the
-  same target. Holos supports TCP and IPv4 bind/guest addresses only. Host
+  same target. Holos supports TCP, UDP, and IPv4 bind/guest addresses. Host
   ports bind to `127.0.0.1` unless a host IP is provided.
 - `volumes`: bind mounts or top-level named volumes with `SRC:TGT[:ro|rw]`.
   Docker Compose long syntax is also accepted for `type: bind` and

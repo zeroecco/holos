@@ -63,17 +63,6 @@ VM, not orchestration scope creep.
 
 ## Compose Compatibility Gaps
 
-### UDP Port Forwarding
-
-Port declarations accept only TCP. UDP mappings are rejected, and QEMU argument
-generation only supports TCP host forwarding.
-
-Useful next steps:
-
-- Extend port parsing and validation to accept UDP.
-- Render QEMU `hostfwd=udp:` entries.
-- Add tests for mixed TCP/UDP services and replica port increments.
-
 ### Healthcheck `start_interval`
 
 Compose `start_interval` is accepted, but holos probes using `interval`.
