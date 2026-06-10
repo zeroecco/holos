@@ -39,7 +39,9 @@ func (m *Manager) stopProjectLocked(projectName string) (*ProjectRecord, error) 
 	}
 
 	for i := range record.Services {
-		m.stopAllInstances(record.Services[i].Instances)
+		if err := m.stopServiceInstances(projectName, &record.Services[i]); err != nil {
+			return nil, fmt.Errorf("service %q: %w", record.Services[i].Name, err)
+		}
 	}
 
 	if err := m.saveUpdatedProject(record); err != nil {
@@ -69,7 +71,9 @@ func (m *Manager) stopServiceLocked(projectName, serviceName string) (*ProjectRe
 	if !ok {
 		return nil, serviceNotFoundError(projectName, serviceName)
 	}
-	m.stopAllInstances(service.Instances)
+	if err := m.stopServiceInstances(projectName, service); err != nil {
+		return nil, fmt.Errorf("service %q: %w", service.Name, err)
+	}
 
 	if err := m.saveUpdatedProject(record); err != nil {
 		return nil, err

@@ -46,8 +46,8 @@ services:
 	assertStringSliceEqual(t, "hooks runcmd", project.Services["hooks"].CloudInit.RunCmd, []string{
 		"HOOK=post cd /srv/app && echo started",
 		"touch /tmp/ready",
-		"echo stopping",
 	})
+	assertStringSliceEqual(t, "hooks pre_stop", project.Services["hooks"].PreStopCommands, []string{"echo stopping"})
 }
 
 func TestShellQuote(t *testing.T) {

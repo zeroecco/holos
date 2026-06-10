@@ -21,6 +21,7 @@ type Manifest struct {
 	ExtraHosts         map[string]string      `json:"extra_hosts,omitempty"`
 	StopGracePeriodSec int                    `json:"stop_grace_period_sec,omitempty"`
 	Healthcheck        *HealthcheckConfig     `json:"healthcheck,omitempty"`
+	PreStopCommands    []string               `json:"pre_stop_commands,omitempty"`
 	// DependsOn is the resolved list of services this one must come
 	// up after. Purely informational for the runtime (topological
 	// ordering is already baked into Project.ServiceOrder), but the

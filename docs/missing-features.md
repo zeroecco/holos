@@ -30,21 +30,6 @@ Useful next steps:
 This is in scope because predictable VM networking is core to multi-service
 stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
-### Runtime Lifecycle Hooks
-
-`post_start` is translated into first-boot commands, but `pre_stop` cannot run
-at shutdown time because holos does not have a VM shutdown hook. The current
-behavior is useful metadata, not full lifecycle support.
-
-Useful next steps:
-
-- Execute `pre_stop` over SSH before ACPI shutdown when the guest is reachable.
-- Surface hook failure policy clearly.
-- Record hook output in instance logs or state for debugging.
-
-This is in scope because lifecycle hooks are operational behavior for a single
-VM, not orchestration scope creep.
-
 ## Compose Compatibility Gaps
 
 ### More Dockerfile Instruction Coverage

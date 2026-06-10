@@ -27,6 +27,7 @@ func TestServiceRecordForManifest(t *testing.T) {
 		CloudInit: config.CloudInit{
 			User: "debian",
 		},
+		PreStopCommands: []string{"echo stopping"},
 	}
 	record := serviceRecordForManifest(manifest)
 	if record.Name != testWebServiceName {
@@ -38,6 +39,7 @@ func TestServiceRecordForManifest(t *testing.T) {
 	if record.LoginUser != "debian" {
 		t.Fatalf("LoginUser = %q, want debian", record.LoginUser)
 	}
+	assertStringSliceEqual(t, "PreStopCommands", record.PreStopCommands, manifest.PreStopCommands)
 	if len(record.Instances) != 0 {
 		t.Fatalf("Instances = %#v, want empty", record.Instances)
 	}
@@ -245,11 +247,16 @@ func TestStopExcessReplicasRemovesInstancesAtOrAboveDesiredCount(t *testing.T) {
 	existing := &ServiceRecord{Instances: instances}
 	manager := &Manager{}
 
-	manager.stopExcessReplicas(existing, 2)
+	if err := manager.stopExcessReplicas("", existing, 2); err != nil {
+		t.Fatalf("stopExcessReplicas: %v", err)
+	}
 
 	assertDirExists(t, instances[0].WorkDir)
 	assertDirExists(t, instances[1].WorkDir)
 	assertPathRemoved(t, instances[2].WorkDir)
+	if got := existing.Instances[2].Status; got != InstanceStatusStopped {
+		t.Fatalf("excess instance status = %q, want %q", got, InstanceStatusStopped)
+	}
 }
 
 func testInstanceWithWorkDir(t *testing.T, root string, index int) InstanceRecord {

@@ -83,9 +83,12 @@ func serviceRunCmd(svc Service, dfRunCmd []string) []string {
 	out := append([]string{}, dfRunCmd...)
 	out = append(out, composeRunCmd(svc.Entrypoint, svc.Command, svc.WorkingDir)...)
 	out = append(out, lifecycleRunCmd(svc.PostStart)...)
-	out = append(out, lifecycleRunCmd(svc.PreStop)...)
 	out = append(out, svc.CloudInit.RunCmd...)
 	return out
+}
+
+func servicePreStopCmd(svc Service) []string {
+	return lifecycleRunCmd(svc.PreStop)
 }
 
 func lifecycleRunCmd(hooks []LifecycleHook) []string {

@@ -59,7 +59,7 @@ func newHealthSSHClient(ctx context.Context, addr, user string, key ssh.Signer, 
 	return ssh.NewClient(clientConn, chans, reqs), nil
 }
 
-func runHealthSSHCommand(client *ssh.Client, cmd []string) error {
+func runSSHCommand(client *ssh.Client, command string, label string) error {
 	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("ssh session: %w", err)
@@ -70,13 +70,17 @@ func runHealthSSHCommand(client *ssh.Client, cmd []string) error {
 	session.Stderr = &stderr
 	session.Stdout = io.Discard
 
-	if err := session.Run(shellJoin(cmd)); err != nil {
+	if err := session.Run(command); err != nil {
 		if exit, ok := err.(*ssh.ExitError); ok {
-			return fmt.Errorf("healthcheck exit=%d: %s", exit.ExitStatus(), stderr.String())
+			return fmt.Errorf("%s exit=%d: %s", label, exit.ExitStatus(), stderr.String())
 		}
-		return fmt.Errorf("healthcheck run: %w", err)
+		return fmt.Errorf("%s run: %w", label, err)
 	}
 	return nil
+}
+
+func runHealthSSHCommand(client *ssh.Client, cmd []string) error {
+	return runSSHCommand(client, shellJoin(cmd), "healthcheck")
 }
 
 // shellJoin renders argv as a single string suitable for session.Run,

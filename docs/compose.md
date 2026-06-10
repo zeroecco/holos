@@ -116,10 +116,12 @@ Core fields:
   `logging`, `mac_address`, `network_mode`, `post_start`, `pre_stop`,
   `provider`, `use_api_socket`, `volumes_from`: accepted for Docker Compose
   compatibility. `post_start` commands are translated into first-boot
-  `cloud_init.runcmd`; `pre_stop` is accepted and also rendered as best-effort
-  first-boot command metadata because Holos does not currently have a VM
-  shutdown hook. The remaining fields in this list are currently
-  metadata/no-op fields in Holos VM execution.
+  `cloud_init.runcmd`; `pre_stop` commands run over SSH before ACPI shutdown
+  when `holos stop`, `holos down`, scale-down, or removed-service cleanup stops
+  a running VM. If a configured `pre_stop` command cannot run or exits non-zero,
+  the stop operation fails before powerdown so the failure is visible. The
+  remaining fields in this list are currently metadata/no-op fields in Holos VM
+  execution.
 - `label_file`: loads label files relative to the compose file. Inline
   `labels` override file-provided labels.
 - `extra_hosts`: additional guest host mappings. Accepts Docker Compose map

@@ -98,6 +98,19 @@ func stopGraceDuration(stopGracePeriodSec int) time.Duration {
 	return secondsDuration(stopGracePeriodSec)
 }
 
+func (m *Manager) stopServiceInstances(project string, service *ServiceRecord) error {
+	for idx := range service.Instances {
+		if err := m.runPreStopCommands(project, *service, service.Instances[idx]); err != nil {
+			return err
+		}
+		if err := m.stopInstance(service.Instances[idx]); err != nil {
+			return err
+		}
+		markInstanceStopped(&service.Instances[idx])
+	}
+	return nil
+}
+
 func (m *Manager) stopAllInstances(instances []InstanceRecord) {
 	for idx := range instances {
 		_ = m.stopInstance(instances[idx])

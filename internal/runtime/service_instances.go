@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -33,14 +34,22 @@ func attachSortedInstances(svc *ServiceRecord, instances []InstanceRecord) {
 	svc.Instances = instances
 }
 
-func (m *Manager) stopExcessReplicas(existing *ServiceRecord, replicas int) {
+func (m *Manager) stopExcessReplicas(project string, existing *ServiceRecord, replicas int) error {
 	if existing == nil {
-		return
+		return nil
 	}
-	for _, inst := range existing.Instances {
+	for i := range existing.Instances {
+		inst := &existing.Instances[i]
 		if inst.Index >= replicas {
-			_ = m.stopInstance(inst)
-			removeInstanceDir(inst)
+			if err := m.runPreStopCommands(project, *existing, *inst); err != nil {
+				return fmt.Errorf("instance %q: %w", inst.Name, err)
+			}
+			if err := m.stopInstance(*inst); err != nil {
+				return fmt.Errorf("instance %q: %w", inst.Name, err)
+			}
+			markInstanceStopped(inst)
+			removeInstanceDir(*inst)
 		}
 	}
+	return nil
 }

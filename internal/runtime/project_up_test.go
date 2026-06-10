@@ -161,7 +161,9 @@ func TestCleanupRemovedServicesRemovesOnlyUndesiredWorkdirs(t *testing.T) {
 	}
 
 	manager := &Manager{}
-	manager.cleanupRemovedServices(existing, desired)
+	if err := manager.cleanupRemovedServices("", existing, desired); err != nil {
+		t.Fatalf("cleanupRemovedServices: %v", err)
+	}
 
 	if _, err := os.Stat(keptDir); err != nil {
 		t.Fatalf("kept workdir stat: %v", err)

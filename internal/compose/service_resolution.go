@@ -108,6 +108,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		ExtraHosts:         extraHosts,
 		StopGracePeriodSec: gracePeriodSec,
 		Healthcheck:        healthcheck,
+		PreStopCommands:    servicePreStopCmd(svc),
 		DependsOn:          append([]string(nil), svc.DependsOn...),
 	}, nil
 }

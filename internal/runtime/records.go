@@ -47,7 +47,8 @@ type ServiceRecord struct {
 	// file. Pre-exec records written by older holos versions leave
 	// this empty; callers fall back to lookupLoginUser in that
 	// case for graceful upgrade.
-	LoginUser string `json:"login_user,omitempty"`
+	LoginUser       string   `json:"login_user,omitempty"`
+	PreStopCommands []string `json:"pre_stop_commands,omitempty"`
 }
 
 // InstanceRecord is the persisted state of a single QEMU VM instance,

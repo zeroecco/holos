@@ -75,7 +75,10 @@ func (m *Manager) reconcileService(project string, manifest config.Manifest, exi
 		instances = append(instances, inst)
 	}
 
-	m.stopExcessReplicas(existing, manifest.Replicas)
+	if err := m.stopExcessReplicas(project, existing, manifest.Replicas); err != nil {
+		sortAndAttach()
+		return svc, err
+	}
 
 	sortAndAttach()
 	return svc, nil
@@ -96,6 +99,7 @@ func serviceRecordForManifest(manifest config.Manifest) *ServiceRecord {
 		Name:            manifest.Name,
 		DesiredReplicas: manifest.Replicas,
 		LoginUser:       manifest.CloudInit.User,
+		PreStopCommands: append([]string(nil), manifest.PreStopCommands...),
 	}
 }
 

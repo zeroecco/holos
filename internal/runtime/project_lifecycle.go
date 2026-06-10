@@ -37,7 +37,10 @@ func projectLoadErrorBlocksUp(err error) bool {
 
 func (m *Manager) tearDownProject(record *ProjectRecord) error {
 	for i := len(record.Services) - 1; i >= 0; i-- {
-		m.removeInstances(record.Services[i].Instances)
+		if err := m.stopServiceInstances(record.Name, &record.Services[i]); err != nil {
+			return err
+		}
+		m.removeInstanceDirs(record.Services[i].Instances)
 	}
 	return nil
 }

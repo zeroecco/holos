@@ -100,7 +100,9 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 		// error in service B does not collaterally stop a healthy
 		// service that was simply removed from the file and would
 		// have cleaned up on the next Up.
-		m.cleanupRemovedServices(existingByService, augmented)
+		if err := m.cleanupRemovedServices(project.Name, existingByService, augmented); err != nil {
+			upErr = fmt.Errorf("cleanup removed services: %w", err)
+		}
 	}
 
 	record.Services = services
