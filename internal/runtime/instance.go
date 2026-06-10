@@ -54,8 +54,15 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 
 	var ports []qemu.PortMapping
 	var sshPort int
+	var taps []tapAttachment
 	pid, err := m.launchWithPortRetry(manifest, baseSpec, paths.qemuLog, func() (qemu.LaunchSpec, error) {
 		var err error
+		if len(taps) > 0 {
+			if ip, ipErr := m.ipBinary(); ipErr == nil {
+				cleanupManagedTaps(ip, taps)
+			}
+			taps = nil
+		}
 		ports, err = allocatePorts(manifest, index)
 		if err != nil {
 			return qemu.LaunchSpec{}, err
@@ -67,13 +74,22 @@ func (m *Manager) startInstance(project string, manifest config.Manifest, index 
 		spec := baseSpec
 		spec.Ports = ports
 		spec.SSHPort = sshPort
+		taps, err = m.prepareManagedTaps(project, manifest, &spec)
+		if err != nil {
+			return qemu.LaunchSpec{}, err
+		}
 		return spec, nil
 	})
 	if err != nil {
+		if len(taps) > 0 {
+			if ip, ipErr := m.ipBinary(); ipErr == nil {
+				cleanupManagedTaps(ip, taps)
+			}
+		}
 		return InstanceRecord{}, err
 	}
 
-	return startedInstanceRecord(instanceName, index, workDir, paths, seedPath, manifest, pid, ports, sshPort, time.Now().UTC()), nil
+	return startedInstanceRecord(instanceName, index, workDir, paths, seedPath, manifest, pid, ports, sshPort, tapIfNameMap(taps), time.Now().UTC()), nil
 }
 
 func startLaunchSpec(instanceName string, index int, paths instancePaths, seedPath string, volumes []qemu.VolumeAttachment) qemu.LaunchSpec {
@@ -109,6 +125,7 @@ func InspectLaunchSpec(manifest config.Manifest, instance InstanceRecord) qemu.L
 	if manifest.VM.UEFI && instance.WorkDir != "" {
 		spec.OVMFVars = newInstancePaths(instance.WorkDir).ovmfVars
 	}
+	spec.TapIfNames = copyTapIfNames(instance.TapIfNames)
 	return spec
 }
 
@@ -126,7 +143,7 @@ func inspectVolumeAttachments(workDir string, mounts []config.Mount) []qemu.Volu
 	return volumes
 }
 
-func startedInstanceRecord(instanceName string, index int, workDir string, paths instancePaths, seedPath string, manifest config.Manifest, pid int, ports []qemu.PortMapping, sshPort int, startedAt time.Time) InstanceRecord {
+func startedInstanceRecord(instanceName string, index int, workDir string, paths instancePaths, seedPath string, manifest config.Manifest, pid int, ports []qemu.PortMapping, sshPort int, taps map[string]string, startedAt time.Time) InstanceRecord {
 	record := InstanceRecord{
 		Name:               instanceName,
 		Index:              index,
@@ -137,6 +154,7 @@ func startedInstanceRecord(instanceName string, index int, workDir string, paths
 		SerialPath:         paths.serialSocket,
 		QMPPath:            paths.qmpSocket,
 		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		TapIfNames:         taps,
 	}
 	return instanceRecordWithLaunchResult(record, pid, ports, sshPort, startedAt)
 }

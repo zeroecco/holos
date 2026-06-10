@@ -37,11 +37,15 @@ func TestRestartedInstanceRecordCarriesPreviousStateAndLaunchResult(t *testing.T
 	prev := testPreviousInstanceRecord(instanceName, testRestartRecordIndex, workDir)
 	manifest := config.Manifest{StopGracePeriodSec: 12}
 
-	record := restartedInstanceRecord(prev, manifest, 4321, ports, 2222, startedAt)
+	taps := map[string]string{"net1": "htabcdef123456"}
+	record := restartedInstanceRecord(prev, manifest, 4321, ports, 2222, taps, startedAt)
 	assertInstanceRecordIdentity(t, record, prev.Name, prev.Index, prev.WorkDir)
 	assertInstanceRecordRunning(t, record, 4321)
 	assertInstanceRecordPaths(t, record, prev.OverlayPath, prev.SeedPath, prev.LogPath, prev.SerialPath, prev.QMPPath)
 	assertInstanceRecordPorts(t, record, ports, 2222)
+	if record.TapIfNames["net1"] != taps["net1"] {
+		t.Fatalf("TapIfNames = %#v, want %#v", record.TapIfNames, taps)
+	}
 	assertInstanceRecordTiming(t, record, 12, startedAt)
 }
 

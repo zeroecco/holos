@@ -38,9 +38,16 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 
 	var ports []qemu.PortMapping
 	var sshPort int
+	var taps []tapAttachment
 	first := true
 	pid, err := m.launchWithPortRetry(manifest, baseSpec, paths.qemuLog, func() (qemu.LaunchSpec, error) {
 		var err error
+		if len(taps) > 0 {
+			if ip, ipErr := m.ipBinary(); ipErr == nil {
+				cleanupManagedTaps(ip, taps)
+			}
+			taps = nil
+		}
 		ports, err = allocatePorts(manifest, prev.Index)
 		if err != nil {
 			return qemu.LaunchSpec{}, err
@@ -56,13 +63,22 @@ func (m *Manager) restartInstance(project string, manifest config.Manifest, prev
 		spec := baseSpec
 		spec.Ports = ports
 		spec.SSHPort = sshPort
+		taps, err = m.prepareManagedTaps(project, manifest, &spec)
+		if err != nil {
+			return qemu.LaunchSpec{}, err
+		}
 		return spec, nil
 	})
 	if err != nil {
+		if len(taps) > 0 {
+			if ip, ipErr := m.ipBinary(); ipErr == nil {
+				cleanupManagedTaps(ip, taps)
+			}
+		}
 		return InstanceRecord{}, err
 	}
 
-	return restartedInstanceRecord(prev, manifest, pid, ports, sshPort, time.Now().UTC()), nil
+	return restartedInstanceRecord(prev, manifest, pid, ports, sshPort, tapIfNameMap(taps), time.Now().UTC()), nil
 }
 
 func shouldAllocateRestartSSHPort(firstAttempt bool, previousPort int) bool {
@@ -85,7 +101,7 @@ func restartLaunchSpec(prev InstanceRecord, volumes []qemu.VolumeAttachment) qem
 	}
 }
 
-func restartedInstanceRecord(prev InstanceRecord, manifest config.Manifest, pid int, ports []qemu.PortMapping, sshPort int, startedAt time.Time) InstanceRecord {
+func restartedInstanceRecord(prev InstanceRecord, manifest config.Manifest, pid int, ports []qemu.PortMapping, sshPort int, taps map[string]string, startedAt time.Time) InstanceRecord {
 	record := InstanceRecord{
 		Name:               prev.Name,
 		Index:              prev.Index,
@@ -96,6 +112,7 @@ func restartedInstanceRecord(prev InstanceRecord, manifest config.Manifest, pid 
 		SerialPath:         prev.SerialPath,
 		QMPPath:            prev.QMPPath,
 		StopGracePeriodSec: manifest.StopGracePeriodSec,
+		TapIfNames:         taps,
 	}
 	return instanceRecordWithLaunchResult(record, pid, ports, sshPort, startedAt)
 }

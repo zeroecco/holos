@@ -317,6 +317,38 @@ networks:
 	}
 }
 
+func TestResolveTapNetworkBackend(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: tapnet
+services:
+  web:
+    image: ./base.qcow2
+    networks:
+      lan: {}
+networks:
+  lan:
+    driver: tap
+    driver_opts:
+      holos.tap.bridge: br0
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+
+	web := project.Services["web"]
+	if got := web.InternalNetwork.Backend; got != "tap" {
+		t.Fatalf("web backend = %q, want tap", got)
+	}
+	if got := web.InternalNetwork.BridgeName; got != "br0" {
+		t.Fatalf("web bridge = %q, want br0", got)
+	}
+	if len(web.InternalNetwork.InstanceIPs) != 0 {
+		t.Fatalf("web tap instance IPs = %#v, want none for DHCP tap", web.InternalNetwork.InstanceIPs)
+	}
+}
+
 func TestDecodeServiceNetworkListItem(t *testing.T) {
 	t.Parallel()
 

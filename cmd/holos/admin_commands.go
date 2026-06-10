@@ -89,6 +89,9 @@ func networkSegmentBackendSuffix(segment compose.NetworkSegmentPlan) string {
 	if segment.Backend == "bridge" && segment.BridgeName != "" {
 		return ", bridge " + segment.BridgeName
 	}
+	if segment.Backend == "tap" && segment.BridgeName != "" {
+		return ", managed tap -> " + segment.BridgeName
+	}
 	return ""
 }
 

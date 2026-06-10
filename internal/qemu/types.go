@@ -31,6 +31,9 @@ type LaunchSpec struct {
 	// user-mode netdev is built without the sshd hostfwd so we don't
 	// occupy ports unnecessarily when the feature is disabled.
 	SSHPort int
+	// TapIfNames maps QEMU netdev IDs (net1, net2, ...) to host tap
+	// interfaces that the runtime created before launch.
+	TapIfNames map[string]string
 	// Volumes are resolved named-volume attachments for this instance.
 	// Each entry becomes a virtio-blk block device exposed to the guest
 	// with a stable serial so udev creates /dev/disk/by-id/virtio-<serial>.

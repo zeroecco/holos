@@ -15,12 +15,12 @@ func networkArgs(manifest config.Manifest, spec LaunchSpec, userNetdev string) [
 
 	mac := manifest.InternalNetwork.InstanceMAC(spec.Index)
 	args = append(args,
-		"-netdev", internalNetdev(socketNetdevID, manifest.InternalNetwork),
+		"-netdev", internalNetdev(socketNetdevID, manifest.InternalNetwork, spec.TapIfNames[socketNetdevID]),
 		qemuArgDevice, virtioNetDevice(socketNetdevID, mac))
 	for i, segment := range manifest.InternalNetwork.Segments {
 		netdevID := segmentNetdevID(i)
 		args = append(args,
-			"-netdev", segmentNetdev(netdevID, segment),
+			"-netdev", segmentNetdev(netdevID, segment, spec.TapIfNames[netdevID]),
 			qemuArgDevice, virtioNetDevice(netdevID, segment.SegmentMAC(spec.Index)))
 	}
 	return args
@@ -39,7 +39,10 @@ func socketNetdev(network *config.InternalNetworkConfig) string {
 		socketMulticastTarget(network))
 }
 
-func internalNetdev(netdevID string, network *config.InternalNetworkConfig) string {
+func internalNetdev(netdevID string, network *config.InternalNetworkConfig, tapIfName string) string {
+	if network.Backend == tapBackend && tapIfName != "" {
+		return tapNetdev(netdevID, tapIfName)
+	}
 	if network.Backend == bridgeBackend && network.BridgeName != "" {
 		return bridgeNetdev(netdevID, network.BridgeName)
 	}
@@ -61,7 +64,10 @@ func socketSegmentNetdev(netdevID string, segment config.InternalNetworkSegment)
 		segment.MulticastPort)
 }
 
-func segmentNetdev(netdevID string, segment config.InternalNetworkSegment) string {
+func segmentNetdev(netdevID string, segment config.InternalNetworkSegment, tapIfName string) string {
+	if segment.Backend == tapBackend && tapIfName != "" {
+		return tapNetdev(netdevID, tapIfName)
+	}
 	if segment.Backend == bridgeBackend && segment.BridgeName != "" {
 		return bridgeNetdev(netdevID, segment.BridgeName)
 	}
@@ -70,6 +76,10 @@ func segmentNetdev(netdevID string, segment config.InternalNetworkSegment) strin
 
 func bridgeNetdev(netdevID string, bridgeName string) string {
 	return qemuOptions("bridge", qemuKeyValue("id", netdevID), qemuKeyValue("br", bridgeName))
+}
+
+func tapNetdev(netdevID string, ifName string) string {
+	return qemuOptions("tap", qemuKeyValue("id", netdevID), qemuKeyValue("ifname", ifName), "script=no", "downscript=no")
 }
 
 func virtioNetDevice(netdevID, mac string) string {

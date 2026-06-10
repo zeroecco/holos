@@ -12,6 +12,11 @@ func (f *File) validate() error {
 	if len(f.Services) == 0 {
 		return fmt.Errorf("at least one service is required")
 	}
+	for name, network := range f.Networks {
+		if network.Driver == "tap" && tapBridgeName(network) == "" {
+			return fmt.Errorf("network %q driver tap requires driver_opts.holos.tap.bridge", name)
+		}
+	}
 	for name, svc := range f.Services {
 		if !namePattern.MatchString(name) {
 			return fmt.Errorf("service name %q must match %s", name, namePattern.String())

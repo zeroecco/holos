@@ -18,7 +18,7 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 		return ""
 	}
 	primaryIP := manifest.InternalNetwork.InstanceIP(instanceIndex)
-	primaryDHCP := manifest.InternalNetwork.Backend == "bridge"
+	primaryDHCP := networkUsesDHCP(manifest.InternalNetwork.Backend)
 	if primaryIP == "" && !primaryDHCP {
 		return ""
 	}
@@ -47,7 +47,7 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 	for _, segment := range manifest.InternalNetwork.Segments {
 		ip := segment.SegmentIP(instanceIndex)
 		mac := segment.SegmentMAC(instanceIndex)
-		dhcp := segment.Backend == "bridge"
+		dhcp := networkUsesDHCP(segment.Backend)
 		if mac == "" || (ip == "" && !dhcp) {
 			continue
 		}
@@ -79,4 +79,8 @@ func internalEthernetDef(mac string, ip string, dhcp bool) ethernetDef {
 	}
 	def.Addresses = []string{ip + internalNetworkAddressCIDR}
 	return def
+}
+
+func networkUsesDHCP(backend string) bool {
+	return backend == "bridge" || backend == "tap"
 }

@@ -32,7 +32,7 @@ func allocateServiceNetworks(services map[string]Service, order []string, networ
 			if !serviceAttachedToNetwork(attached[serviceName], networkName) {
 				continue
 			}
-			if segment.Backend == "bridge" {
+			if segment.Backend == "bridge" || segment.Backend == "tap" {
 				ipsByService[serviceName] = nil
 				continue
 			}

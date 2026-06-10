@@ -9,10 +9,13 @@ import (
 const (
 	qemuSystemEnv     = "HOLOS_QEMU_SYSTEM"
 	qemuImgEnv        = "HOLOS_QEMU_IMG"
+	ipEnv             = "HOLOS_IP"
 	qemuSystemDefault = "qemu-system-x86_64"
 	qemuImgDefault    = "qemu-img"
+	ipDefault         = "ip"
 	qemuSystemHint    = "install QEMU/KVM"
 	qemuImgHint       = "install QEMU tools"
+	ipHint            = "install iproute2"
 )
 
 func (m *Manager) qemuSystemCommand(args ...string) (*exec.Cmd, error) {
@@ -29,6 +32,10 @@ func (m *Manager) qemuSystemBinary() (string, error) {
 
 func (m *Manager) qemuImgBinary() (string, error) {
 	return binaryFromEnvOrPath(qemuImgEnv, qemuImgDefault, qemuImgHint)
+}
+
+func (m *Manager) ipBinary() (string, error) {
+	return binaryFromEnvOrPath(ipEnv, ipDefault, ipHint)
 }
 
 func binaryFromEnvOrPath(envName, defaultBinary, installHint string) (string, error) {

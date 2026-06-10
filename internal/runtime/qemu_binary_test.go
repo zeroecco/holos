@@ -14,6 +14,11 @@ func TestQEMUBinaryEnvironmentOverrides(t *testing.T) {
 	if got, err := manager.qemuImgBinary(); err != nil || got != "/custom/qemu-img" {
 		t.Fatalf("qemuImgBinary() = (%q, %v), want override", got, err)
 	}
+
+	t.Setenv(ipEnv, "/custom/ip")
+	if got, err := manager.ipBinary(); err != nil || got != "/custom/ip" {
+		t.Fatalf("ipBinary() = (%q, %v), want override", got, err)
+	}
 }
 
 func TestBinaryFromEnvOrPathUsesOverride(t *testing.T) {

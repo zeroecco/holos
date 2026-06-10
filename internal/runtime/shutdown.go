@@ -106,6 +106,7 @@ func (m *Manager) stopServiceInstances(project string, service *ServiceRecord) e
 		if err := m.stopInstance(service.Instances[idx]); err != nil {
 			return err
 		}
+		m.cleanupInstanceTaps(service.Instances[idx])
 		markInstanceStopped(&service.Instances[idx])
 	}
 	return nil
@@ -114,6 +115,7 @@ func (m *Manager) stopServiceInstances(project string, service *ServiceRecord) e
 func (m *Manager) stopAllInstances(instances []InstanceRecord) {
 	for idx := range instances {
 		_ = m.stopInstance(instances[idx])
+		m.cleanupInstanceTaps(instances[idx])
 		markInstanceStopped(&instances[idx])
 	}
 }

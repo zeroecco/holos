@@ -92,6 +92,12 @@ func generateNetworkMAC(project, service, network string) string {
 }
 
 func networkBackend(network Network) (backend string, bridgeName string) {
+	if network.Driver == "tap" {
+		if value := tapBridgeName(network); value != "" {
+			return "tap", value
+		}
+		return "", ""
+	}
 	if network.Driver != "bridge" {
 		return "", ""
 	}
@@ -110,6 +116,20 @@ func networkBackend(network Network) (backend string, bridgeName string) {
 		}
 	}
 	return "", ""
+}
+
+func tapBridgeName(network Network) string {
+	for _, key := range []string{
+		"holos.tap.bridge",
+		"holos.bridge.name",
+		"bridge",
+		"com.docker.network.bridge.name",
+	} {
+		if value := networkDriverOptString(network.DriverOpts, key); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func networkDriverOptString(options map[string]any, key string) string {

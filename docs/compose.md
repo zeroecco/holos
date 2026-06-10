@@ -189,7 +189,7 @@ only for peers that share the relevant segment, and `dns_search` is rendered
 into the primary internal NIC's netplan nameserver search list. `holos import`
 preserves libvirt NIC source and model in network `driver_opts`.
 
-For LAN-visible guests, use an existing host bridge through QEMU's bridge
+For LAN-visible guests, either use an existing host bridge through QEMU's bridge
 helper:
 
 ```yaml
@@ -202,6 +202,21 @@ networks:
 
 Bridge-backed networks use DHCP in the guest. Holos does not create bridges,
 edit `/etc/qemu/bridge.conf`, or grant helper permissions automatically.
+
+To have Holos create a tap interface and attach it to an existing bridge before
+launch, use `driver: tap`:
+
+```yaml
+networks:
+  lan:
+    driver: tap
+    driver_opts:
+      holos.tap.bridge: br0
+```
+
+Tap-backed networks also use DHCP in the guest. The host bridge must already
+exist, and the user running Holos must be allowed to run `ip tuntap` and
+`ip link set ... master ...`.
 
 Top-level `configs`/`secrets` and per-service references are distributed into
 guests as cloud-init write files. `file`, `content` (configs), and

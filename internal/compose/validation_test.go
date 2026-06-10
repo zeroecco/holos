@@ -25,6 +25,22 @@ func TestValidateRejectsMissingDependency(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsTapNetworkWithoutBridge(t *testing.T) {
+	t.Parallel()
+
+	file := &File{
+		Name: "test",
+		Services: map[string]Service{
+			"vm": {Image: "x.qcow2"},
+		},
+		Networks: map[string]Network{
+			"lan": {Driver: "tap"},
+		},
+	}
+	err := file.validate()
+	assertErrorContains(t, err, `network "lan" driver tap requires driver_opts.holos.tap.bridge`)
+}
+
 func TestServiceHasRunnableSource(t *testing.T) {
 	t.Parallel()
 

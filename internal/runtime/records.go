@@ -86,9 +86,10 @@ type InstanceRecord struct {
 	// SSHPort is the host-side forward to the guest's sshd, used by
 	// `holos exec`. Zero means no ssh forward was provisioned (e.g.
 	// instance records from a pre-exec version of holos).
-	SSHPort      int       `json:"ssh_port,omitempty"`
-	LastStarted  time.Time `json:"last_started"`
-	LastExitTime time.Time `json:"last_exit_time,omitempty"`
+	SSHPort      int               `json:"ssh_port,omitempty"`
+	TapIfNames   map[string]string `json:"tap_if_names,omitempty"`
+	LastStarted  time.Time         `json:"last_started"`
+	LastExitTime time.Time         `json:"last_exit_time,omitempty"`
 }
 
 // RunningCount returns the number of running instances.

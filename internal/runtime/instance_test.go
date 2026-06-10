@@ -91,7 +91,7 @@ func TestStartedInstanceRecordUsesLaunchResultAndInstancePaths(t *testing.T) {
 	ports := testHTTPPortMappings()
 	manifest := config.Manifest{StopGracePeriodSec: 9}
 
-	record := startedInstanceRecord(instanceName, instanceIndex, workDir, paths, seedPath, manifest, 1234, ports, 2222, startedAt)
+	record := startedInstanceRecord(instanceName, instanceIndex, workDir, paths, seedPath, manifest, 1234, ports, 2222, nil, startedAt)
 	assertInstanceRecordIdentity(t, record, instanceName, instanceIndex, workDir)
 	assertInstanceRecordRunning(t, record, 1234)
 	assertInstanceRecordPaths(t, record, paths.overlay, seedPath, paths.consoleLog, paths.serialSocket, paths.qmpSocket)

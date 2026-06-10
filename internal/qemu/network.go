@@ -10,6 +10,7 @@ const (
 	socketNetdevID    = "net1"
 	userNetdevBase    = "user,id=" + userNetdevID
 	bridgeBackend     = "bridge"
+	tapBackend        = "tap"
 	defaultHostAddr   = "127.0.0.1"
 	tcpProtocol       = "tcp"
 	udpProtocol       = "udp"

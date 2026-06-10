@@ -477,6 +477,43 @@ func TestBuildArgsWithBridgeNetwork(t *testing.T) {
 	)
 }
 
+func TestBuildArgsWithTapNetwork(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:        "web",
+		Image:       "/images/base.qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
+		VM: config.VMConfig{
+			VCPU:     1,
+			MemoryMB: 512,
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
+		},
+		InternalNetwork: &config.InternalNetworkConfig{
+			BaseMAC:     "52:54:02:ab:cd:00",
+			UserBaseMAC: "52:54:01:ab:cd:00",
+			Backend:     "tap",
+			BridgeName:  "br0",
+		},
+	}
+	spec := LaunchSpec{
+		Name:        "web-0",
+		Index:       0,
+		OverlayPath: "/state/root.qcow2",
+		TapIfNames:  map[string]string{"net1": "htabcdef123456"},
+	}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+	assertArgsContain(t, args,
+		"tap,id=net1,ifname=htabcdef123456,script=no,downscript=no",
+		"virtio-net-pci,netdev=net1,mac=52:54:02:ab:cd:00",
+	)
+}
+
 func TestBuildArgsWithVFIODevices(t *testing.T) {
 	t.Parallel()
 
