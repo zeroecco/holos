@@ -216,10 +216,10 @@ services:
 
 `test` accepts a list (exec form) or a string (wrapped as `sh -c`). Docker
 Compose's `test: ["NONE"]` and `disable: true` forms disable the healthcheck.
-`start_interval` is accepted for Compose compatibility; Holos currently probes
-using `interval`. Failures during `start_period` do not consume retry budget. Set
-`HOLOS_HEALTH_BYPASS=1` to skip the actual probe in CI environments that cannot
-SSH into guests.
+`start_interval` controls the probe cadence during `start_period`; when omitted,
+Holos uses `interval` in both phases. Failures during `start_period` do not
+consume retry budget. Set `HOLOS_HEALTH_BYPASS=1` to skip the actual probe in CI
+environments that cannot SSH into guests.
 
 ## Networking
 

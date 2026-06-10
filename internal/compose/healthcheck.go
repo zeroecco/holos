@@ -28,8 +28,8 @@ type Healthcheck struct {
 	// StartPeriod is a grace window right after boot during which
 	// failures do not count toward `retries`. Defaults to 0 (no grace).
 	StartPeriod string `yaml:"start_period,omitempty"`
-	// StartInterval is accepted for Docker Compose compatibility. Holos uses
-	// Interval for probing today.
+	// StartInterval sets the probe cadence during StartPeriod. When omitted,
+	// Holos uses Interval for probing.
 	StartInterval string `yaml:"start_interval,omitempty"`
 	// Timeout bounds a single probe's wall-clock budget. Defaults
 	// to 5s.

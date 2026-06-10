@@ -63,16 +63,6 @@ VM, not orchestration scope creep.
 
 ## Compose Compatibility Gaps
 
-### Healthcheck `start_interval`
-
-Compose `start_interval` is accepted, but holos probes using `interval`.
-
-Useful next steps:
-
-- Use `start_interval` during `start_period`.
-- Fall back to `interval` when `start_interval` is omitted.
-- Persist the resolved values in runtime records for inspectability.
-
 ### More Dockerfile Instruction Coverage
 
 The Dockerfile translator supports `FROM`, `RUN`, `COPY`, `ENV`, and `WORKDIR`.

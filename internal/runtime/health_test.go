@@ -258,7 +258,7 @@ func TestWaitForHealthy_StartPeriodDoesNotConsumeRetries(t *testing.T) {
 	// Short grace to keep the test fast. 50ms is enough for the
 	// loop to make several attempts at a 10ms interval.
 	err := waitForHealthyWith(context.Background(), probe,
-		10*time.Millisecond /* interval */, 1 /* retries */, 50*time.Millisecond /* start_period */, 5*time.Second /* timeout */)
+		10*time.Millisecond /* interval */, 10*time.Millisecond /* start_interval */, 1 /* retries */, 50*time.Millisecond /* start_period */, 5*time.Second /* timeout */)
 	if err != nil {
 		t.Fatalf("expected success, got: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestWaitForHealthy_RetriesHonored(t *testing.T) {
 	}
 
 	err := waitForHealthyWith(context.Background(), probe,
-		1*time.Millisecond /* interval */, 3 /* retries */, 0 /* start_period */, time.Second /* timeout */)
+		1*time.Millisecond /* interval */, 1*time.Millisecond /* start_interval */, 3 /* retries */, 0 /* start_period */, time.Second /* timeout */)
 	if err == nil {
 		t.Fatal("expected failure")
 	}
@@ -327,15 +327,23 @@ func TestHealthGraceSleep(t *testing.T) {
 func TestHealthTimingFromSeconds(t *testing.T) {
 	t.Parallel()
 
-	got := healthTimingFromSeconds(2, 3, 4)
+	got := healthTimingFromSeconds(2, 3, 1, 4)
 	if got.interval != 2*time.Second {
 		t.Fatalf("interval = %s, want 2s", got.interval)
+	}
+	if got.startInterval != time.Second {
+		t.Fatalf("startInterval = %s, want 1s", got.startInterval)
 	}
 	if got.startPeriod != 3*time.Second {
 		t.Fatalf("startPeriod = %s, want 3s", got.startPeriod)
 	}
 	if got.timeout != 4*time.Second {
 		t.Fatalf("timeout = %s, want 4s", got.timeout)
+	}
+
+	fallback := healthTimingFromSeconds(2, 3, 0, 4)
+	if fallback.startInterval != 2*time.Second {
+		t.Fatalf("fallback startInterval = %s, want interval 2s", fallback.startInterval)
 	}
 }
 
@@ -360,7 +368,7 @@ func TestWaitForHealthy_NonPositiveRetriesStillProbeOnce(t *testing.T) {
 			}
 
 			err := waitForHealthyWith(context.Background(), probe,
-				time.Millisecond, tt.retries, 0, time.Second)
+				time.Millisecond, time.Millisecond, tt.retries, 0, time.Second)
 			if err == nil {
 				t.Fatal("expected failure")
 			}
@@ -386,12 +394,31 @@ func TestWaitForHealthy_SucceedsDuringGrace(t *testing.T) {
 	}
 
 	err := waitForHealthyWith(context.Background(), probe,
-		1*time.Millisecond, 3, time.Second, time.Second)
+		1*time.Millisecond, time.Millisecond, 3, time.Second, time.Second)
 	if err != nil {
 		t.Fatalf("expected success, got: %v", err)
 	}
 	if calls != 2 {
 		t.Fatalf("probe ran %d times; expected early return at 2", calls)
+	}
+}
+
+func TestWaitForHealthy_UsesStartIntervalDuringGrace(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	probe := func(ctx context.Context, timeout time.Duration) error {
+		calls++
+		return fmt.Errorf("not yet")
+	}
+
+	err := waitForHealthyWith(context.Background(), probe,
+		200*time.Millisecond /* interval */, 5*time.Millisecond /* start_interval */, 1 /* retries */, 25*time.Millisecond /* start_period */, time.Second)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if calls < 4 {
+		t.Fatalf("probe ran %d times; want multiple start_interval attempts during grace", calls)
 	}
 }
 

@@ -52,6 +52,7 @@ func (m *Manifest) applyDefaults() {
 
 func applyHealthcheckDefaults(healthcheck *HealthcheckConfig) {
 	healthcheck.IntervalSec = intOrDefault(healthcheck.IntervalSec, DefaultHealthIntervalSec)
+	healthcheck.StartIntervalSec = intOrDefault(healthcheck.StartIntervalSec, healthcheck.IntervalSec)
 	healthcheck.Retries = intOrDefault(healthcheck.Retries, DefaultHealthRetries)
 	healthcheck.TimeoutSec = intOrDefault(healthcheck.TimeoutSec, DefaultHealthTimeoutSec)
 }

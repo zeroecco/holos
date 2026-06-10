@@ -27,11 +27,15 @@ func resolveHealthcheck(h *Healthcheck) (*config.HealthcheckConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck.start_period: %w", err)
 	}
+	startIntervalSec, err := parseDurationSec(h.StartInterval, intervalSec)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck.start_interval: %w", err)
+	}
 	timeoutSec, err := parseDurationSec(h.Timeout, config.DefaultHealthTimeoutSec)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck.timeout: %w", err)
 	}
-	return healthcheckConfig(h, intervalSec, healthcheckRetries(h.Retries), startSec, timeoutSec), nil
+	return healthcheckConfig(h, intervalSec, healthcheckRetries(h.Retries), startSec, startIntervalSec, timeoutSec), nil
 }
 
 func healthcheckRetries(retries int) int {
@@ -41,12 +45,13 @@ func healthcheckRetries(retries int) int {
 	return retries
 }
 
-func healthcheckConfig(h *Healthcheck, intervalSec, retries, startSec, timeoutSec int) *config.HealthcheckConfig {
+func healthcheckConfig(h *Healthcheck, intervalSec, retries, startSec, startIntervalSec, timeoutSec int) *config.HealthcheckConfig {
 	return &config.HealthcheckConfig{
-		Test:           append([]string{}, h.Test...),
-		IntervalSec:    intervalSec,
-		Retries:        retries,
-		StartPeriodSec: startSec,
-		TimeoutSec:     timeoutSec,
+		Test:             append([]string{}, h.Test...),
+		IntervalSec:      intervalSec,
+		Retries:          retries,
+		StartPeriodSec:   startSec,
+		StartIntervalSec: startIntervalSec,
+		TimeoutSec:       timeoutSec,
 	}
 }

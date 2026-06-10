@@ -16,10 +16,11 @@ func testCurlHealthcheck() []string {
 }
 
 type testHealthcheckTimingWant struct {
-	intervalSec    int
-	retries        int
-	startPeriodSec int
-	timeoutSec     int
+	intervalSec      int
+	retries          int
+	startPeriodSec   int
+	startIntervalSec int
+	timeoutSec       int
 }
 
 func assertHealthcheckTiming(t *testing.T, got *config.HealthcheckConfig, want testHealthcheckTimingWant) {
@@ -28,6 +29,7 @@ func assertHealthcheckTiming(t *testing.T, got *config.HealthcheckConfig, want t
 	if got.IntervalSec != want.intervalSec ||
 		got.Retries != want.retries ||
 		got.StartPeriodSec != want.startPeriodSec ||
+		got.StartIntervalSec != want.startIntervalSec ||
 		got.TimeoutSec != want.timeoutSec {
 		t.Fatalf("healthcheck timing = %+v, want %+v", got, want)
 	}
@@ -70,6 +72,7 @@ services:
       interval: 5s
       retries: 4
       start_period: 10s
+      start_interval: 1s
       timeout: 2s
 `
 	dir := t.TempDir()
@@ -81,10 +84,11 @@ services:
 	}
 	assertStringSliceEqual(t, "test", hc.Test, testCurlHealthcheck())
 	assertHealthcheckTiming(t, hc, testHealthcheckTimingWant{
-		intervalSec:    5,
-		retries:        4,
-		startPeriodSec: 10,
-		timeoutSec:     2,
+		intervalSec:      5,
+		retries:          4,
+		startPeriodSec:   10,
+		startIntervalSec: 1,
+		timeoutSec:       2,
 	})
 }
 
@@ -119,6 +123,9 @@ services:
 	if hc.TimeoutSec != config.DefaultHealthTimeoutSec {
 		t.Fatalf("timeout = %d, want default %d", hc.TimeoutSec, config.DefaultHealthTimeoutSec)
 	}
+	if hc.StartIntervalSec != config.DefaultHealthIntervalSec {
+		t.Fatalf("start interval = %d, want default interval %d", hc.StartIntervalSec, config.DefaultHealthIntervalSec)
+	}
 }
 
 func TestHealthcheckUnmarshalTestForms(t *testing.T) {
@@ -149,13 +156,14 @@ func TestHealthcheckConfig(t *testing.T) {
 	t.Parallel()
 
 	source := &Healthcheck{Test: testCMDTrueHealthcheck()}
-	got := healthcheckConfig(source, 5, 4, 10, 2)
+	got := healthcheckConfig(source, 5, 4, 10, 1, 2)
 	assertStringSliceEqual(t, "Test", got.Test, testCMDTrueHealthcheck())
 	assertHealthcheckTiming(t, got, testHealthcheckTimingWant{
-		intervalSec:    5,
-		retries:        4,
-		startPeriodSec: 10,
-		timeoutSec:     2,
+		intervalSec:      5,
+		retries:          4,
+		startPeriodSec:   10,
+		startIntervalSec: 1,
+		timeoutSec:       2,
 	})
 
 	source.Test[0] = "MUTATED"
@@ -288,7 +296,17 @@ services:
 `
 	dir := t.TempDir()
 	writeTestImage(t, dir)
-	resolveTestCompose(t, dir, yamlDoc)
+	proj := resolveTestCompose(t, dir, yamlDoc)
+	hc := proj.Services["api"].Healthcheck
+	if hc == nil {
+		t.Fatal("missing healthcheck")
+	}
+	assertHealthcheckTiming(t, hc, testHealthcheckTimingWant{
+		intervalSec:      2,
+		retries:          config.DefaultHealthRetries,
+		startIntervalSec: 1,
+		timeoutSec:       config.DefaultHealthTimeoutSec,
+	})
 }
 
 // TestHealthcheckRejectsUnknownFields pins that typos inside the

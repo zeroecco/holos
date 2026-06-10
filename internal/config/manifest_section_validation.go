@@ -32,6 +32,9 @@ func validateHealthcheckConfig(healthcheck HealthcheckConfig) error {
 	if healthcheck.StartPeriodSec < minHealthcheckStartPeriodSec {
 		return fmt.Errorf("healthcheck.start_period_sec must be >= %d", minHealthcheckStartPeriodSec)
 	}
+	if healthcheck.StartIntervalSec != 0 && healthcheck.StartIntervalSec < minHealthcheckIntervalSec {
+		return fmt.Errorf("healthcheck.start_interval_sec must be >= %d", minHealthcheckIntervalSec)
+	}
 	return nil
 }
 

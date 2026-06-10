@@ -28,7 +28,7 @@ func (m *Manager) waitForServiceHealthy(svc *ServiceRecord, manifest config.Mani
 		}
 		addr := healthcheckSSHAddr(inst.SSHPort)
 		if err := waitForHealthy(ctx, addr, user, keyPath,
-			hc.Test, hc.IntervalSec, hc.Retries, hc.StartPeriodSec, hc.TimeoutSec); err != nil {
+			hc.Test, hc.IntervalSec, hc.Retries, hc.StartPeriodSec, hc.StartIntervalSec, hc.TimeoutSec); err != nil {
 			return fmt.Errorf("instance %q: %w", inst.Name, err)
 		}
 	}

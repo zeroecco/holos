@@ -39,10 +39,11 @@ type HealthcheckConfig struct {
 	// enforces this.
 	Test []string `json:"test"`
 
-	IntervalSec    int `json:"interval_sec"`
-	Retries        int `json:"retries"`
-	StartPeriodSec int `json:"start_period_sec,omitempty"`
-	TimeoutSec     int `json:"timeout_sec,omitempty"`
+	IntervalSec      int `json:"interval_sec"`
+	Retries          int `json:"retries"`
+	StartPeriodSec   int `json:"start_period_sec,omitempty"`
+	StartIntervalSec int `json:"start_interval_sec,omitempty"`
+	TimeoutSec       int `json:"timeout_sec,omitempty"`
 }
 
 // VMConfig specifies virtual hardware: CPU count, memory, root disk size,
@@ -100,7 +101,7 @@ func (n *InternalNetworkConfig) InstanceIP(index int) string {
 	return ""
 }
 
-// PortForward maps a host TCP port/address to a guest TCP port/address.
+// PortForward maps a host TCP/UDP port/address to a guest TCP/UDP port/address.
 type PortForward struct {
 	Name      string `json:"name"`
 	HostAddr  string `json:"host_addr,omitempty"`

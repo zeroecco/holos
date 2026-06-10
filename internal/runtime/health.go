@@ -11,9 +11,10 @@ import (
 type probeFunc func(ctx context.Context, timeout time.Duration) error
 
 type healthTiming struct {
-	interval    time.Duration
-	startPeriod time.Duration
-	timeout     time.Duration
+	interval      time.Duration
+	startInterval time.Duration
+	startPeriod   time.Duration
+	timeout       time.Duration
 }
 
 // waitForHealthy polls probeHealthcheck in two distinct phases so
@@ -33,18 +34,21 @@ type healthTiming struct {
 // the two phases, so a long start_period (e.g. 60s, interval 10s,
 // retries 3) would hit the deadline at 60s without ever granting the
 // three post-grace retries the operator asked for.
-func waitForHealthy(ctx context.Context, addr, user, keyPath string, cmd []string, intervalSec, retries, startPeriodSec, timeoutSec int) error {
+func waitForHealthy(ctx context.Context, addr, user, keyPath string, cmd []string, intervalSec, retries, startPeriodSec, startIntervalSec, timeoutSec int) error {
 	probe := func(ctx context.Context, timeout time.Duration) error {
 		return probeHealthcheck(ctx, addr, user, keyPath, cmd, timeout)
 	}
-	timing := healthTimingFromSeconds(intervalSec, startPeriodSec, timeoutSec)
-	return waitForHealthyWith(ctx, probe, timing.interval, retries, timing.startPeriod, timing.timeout)
+	timing := healthTimingFromSeconds(intervalSec, startPeriodSec, startIntervalSec, timeoutSec)
+	return waitForHealthyWith(ctx, probe, timing.interval, timing.startInterval, retries, timing.startPeriod, timing.timeout)
 }
 
 // waitForHealthyWith is the phase-split loop factored out so unit
 // tests can supply a fake probe and verify the retry accounting
 // without touching ssh.
-func waitForHealthyWith(ctx context.Context, probe probeFunc, interval time.Duration, retries int, startPeriod, timeout time.Duration) error {
+func waitForHealthyWith(ctx context.Context, probe probeFunc, interval, startInterval time.Duration, retries int, startPeriod, timeout time.Duration) error {
+	if startInterval <= 0 {
+		startInterval = interval
+	}
 	// Phase 1: grace window. Failures are tolerated; any success
 	// short-circuits. We cap the sleep so the final attempt happens
 	// right at the deadline rather than overshooting by up to
@@ -65,7 +69,7 @@ func waitForHealthyWith(ctx context.Context, probe probeFunc, interval time.Dura
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(healthGraceSleep(interval, remaining)):
+			case <-time.After(healthGraceSleep(startInterval, remaining)):
 			}
 		}
 	}
@@ -110,11 +114,17 @@ func healthGraceSleep(interval, remaining time.Duration) time.Duration {
 	return interval
 }
 
-func healthTimingFromSeconds(intervalSec, startPeriodSec, timeoutSec int) healthTiming {
+func healthTimingFromSeconds(intervalSec, startPeriodSec, startIntervalSec, timeoutSec int) healthTiming {
+	interval := secondsDuration(intervalSec)
+	startInterval := secondsDuration(startIntervalSec)
+	if startInterval <= 0 {
+		startInterval = interval
+	}
 	return healthTiming{
-		interval:    secondsDuration(intervalSec),
-		startPeriod: secondsDuration(startPeriodSec),
-		timeout:     secondsDuration(timeoutSec),
+		interval:      interval,
+		startInterval: startInterval,
+		startPeriod:   secondsDuration(startPeriodSec),
+		timeout:       secondsDuration(timeoutSec),
 	}
 }
 

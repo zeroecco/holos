@@ -26,6 +26,7 @@ const (
 	testExplicitIntervalSec = 2
 	testExplicitRetries     = 4
 	testExplicitStartSec    = 6
+	testExplicitStartIntSec = 3
 	testExplicitTimeoutSec  = 8
 	testUDPProtocol         = "udp"
 	testBindSource          = "/host"
@@ -240,11 +241,12 @@ func TestValidateHealthcheckConfig(t *testing.T) {
 	t.Parallel()
 
 	valid := HealthcheckConfig{
-		Test:           []string{testHealthcheckCmd, testHealthcheckArg},
-		IntervalSec:    minHealthcheckIntervalSec,
-		Retries:        minHealthcheckRetries,
-		TimeoutSec:     minHealthcheckTimeoutSec,
-		StartPeriodSec: minHealthcheckStartPeriodSec,
+		Test:             []string{testHealthcheckCmd, testHealthcheckArg},
+		IntervalSec:      minHealthcheckIntervalSec,
+		Retries:          minHealthcheckRetries,
+		TimeoutSec:       minHealthcheckTimeoutSec,
+		StartPeriodSec:   minHealthcheckStartPeriodSec,
+		StartIntervalSec: minHealthcheckIntervalSec,
 	}
 
 	tests := []struct {
@@ -273,6 +275,10 @@ func TestValidateHealthcheckConfig(t *testing.T) {
 			name:    "negative start period",
 			mutate:  func(h *HealthcheckConfig) { h.StartPeriodSec = minHealthcheckStartPeriodSec - 1 },
 			wantErr: "healthcheck.start_period_sec must be >= 0",
+		},
+		{
+			name:   "zero start interval is fallback",
+			mutate: func(h *HealthcheckConfig) { h.StartIntervalSec = 0 },
 		},
 	}
 
@@ -417,18 +423,23 @@ func TestApplyHealthcheckDefaults(t *testing.T) {
 	if healthcheck.TimeoutSec != DefaultHealthTimeoutSec {
 		t.Fatalf("TimeoutSec = %d, want %d", healthcheck.TimeoutSec, DefaultHealthTimeoutSec)
 	}
+	if healthcheck.StartIntervalSec != DefaultHealthIntervalSec {
+		t.Fatalf("StartIntervalSec = %d, want interval default %d", healthcheck.StartIntervalSec, DefaultHealthIntervalSec)
+	}
 
 	explicit := HealthcheckConfig{
-		Test:           []string{testHealthcheckCmd, testHealthcheckArg},
-		IntervalSec:    testExplicitIntervalSec,
-		Retries:        testExplicitRetries,
-		StartPeriodSec: testExplicitStartSec,
-		TimeoutSec:     testExplicitTimeoutSec,
+		Test:             []string{testHealthcheckCmd, testHealthcheckArg},
+		IntervalSec:      testExplicitIntervalSec,
+		Retries:          testExplicitRetries,
+		StartPeriodSec:   testExplicitStartSec,
+		StartIntervalSec: testExplicitStartIntSec,
+		TimeoutSec:       testExplicitTimeoutSec,
 	}
 	applyHealthcheckDefaults(&explicit)
 	if explicit.IntervalSec != testExplicitIntervalSec ||
 		explicit.Retries != testExplicitRetries ||
 		explicit.StartPeriodSec != testExplicitStartSec ||
+		explicit.StartIntervalSec != testExplicitStartIntSec ||
 		explicit.TimeoutSec != testExplicitTimeoutSec {
 		t.Fatalf("explicit healthcheck defaults overwritten: %+v", explicit)
 	}
