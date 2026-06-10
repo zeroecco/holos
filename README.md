@@ -103,6 +103,7 @@ holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
 holos volumes [-f holos.yaml] [--json]
                                      list named volumes
+holos volumes rm <project> <volume>  remove a detached named volume
 holos devices [--gpu]                list PCI devices and IOMMU groups
 holos doctor [--json]                check host dependencies
 holos install [-f holos.yaml] [--system] [--enable]

@@ -2,11 +2,58 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/runtime"
 )
+
+const testVolumeCommandProject = "demo"
+
+func TestIsVolumeRemoveCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, arg := range []string{"rm", "remove"} {
+		if !isVolumeRemoveCommand(arg) {
+			t.Fatalf("isVolumeRemoveCommand(%q) = false, want true", arg)
+		}
+	}
+	if isVolumeRemoveCommand("list") {
+		t.Fatal("isVolumeRemoveCommand(list) = true, want false")
+	}
+}
+
+func TestRunVolumeRemoveRemovesDetachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	backing := filepath.Join(stateDir, "volumes", testVolumeCommandProject, "data.qcow2")
+	if err := os.MkdirAll(filepath.Dir(backing), 0o700); err != nil {
+		t.Fatalf("mkdir volume dir: %v", err)
+	}
+	if err := os.WriteFile(backing, []byte("volume"), 0o600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+
+	err := runVolumeRemove([]string{"--state-dir", stateDir, testVolumeCommandProject, "data"})
+	if err != nil {
+		t.Fatalf("runVolumeRemove: %v", err)
+	}
+	if _, err := os.Stat(backing); !os.IsNotExist(err) {
+		t.Fatalf("removed backing stat err = %v, want not exist", err)
+	}
+}
+
+func TestRunVolumeRemoveRequiresProjectAndVolume(t *testing.T) {
+	t.Parallel()
+
+	err := runVolumeRemove(nil)
+	if err == nil || !strings.Contains(err.Error(), "usage: holos volumes rm") {
+		t.Fatalf("runVolumeRemove(nil) err = %v, want usage", err)
+	}
+}
 
 func TestFilterVolumesByProject(t *testing.T) {
 	t.Parallel()

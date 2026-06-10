@@ -213,3 +213,54 @@ func sortVolumeInfos(volumes []VolumeInfo) {
 		return volumes[i].Name < volumes[j].Name
 	})
 }
+
+// RemoveVolume deletes a detached named-volume backing file.
+func (m *Manager) RemoveVolume(projectName, volumeName string) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	return m.withProjectLock(projectName, func() error {
+		return m.removeVolumeLocked(projectName, volumeName)
+	})
+}
+
+func (m *Manager) removeVolumeLocked(projectName, volumeName string) error {
+	volume, ok, err := m.findVolume(projectName, volumeName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+	}
+	if len(volume.Attachments) > 0 {
+		return fmt.Errorf("volume %q in project %q is attached to %s", volumeName, projectName, volumeAttachmentSummary(volume.Attachments))
+	}
+	if err := os.Remove(volumeBackingPath(m.stateDir, projectName, volumeName)); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+		}
+		return fmt.Errorf("remove volume %q in project %q: %w", volumeName, projectName, err)
+	}
+	return nil
+}
+
+func (m *Manager) findVolume(projectName, volumeName string) (VolumeInfo, bool, error) {
+	volumes, err := m.ListVolumes()
+	if err != nil {
+		return VolumeInfo{}, false, err
+	}
+	for _, volume := range volumes {
+		if volume.Project == projectName && volume.Name == volumeName {
+			return volume, true, nil
+		}
+	}
+	return VolumeInfo{}, false, nil
+}
+
+func volumeAttachmentSummary(attachments []VolumeAttachmentInfo) string {
+	parts := make([]string, len(attachments))
+	for i, attachment := range attachments {
+		parts[i] = attachment.Instance + ":" + attachment.Status
+	}
+	return strings.Join(parts, ",")
+}

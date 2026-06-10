@@ -10,6 +10,10 @@ import (
 )
 
 func runVolumes(args []string) error {
+	if len(args) > 0 && isVolumeRemoveCommand(args[0]) {
+		return runVolumeRemove(args[1:])
+	}
+
 	flags := newFlagSet("volumes")
 	projectFlags := addProjectFlags(flags, "path to holos.yaml (limits output to that one project)")
 	jsonOut := flags.Bool("json", false, "emit JSON")
@@ -34,6 +38,26 @@ func runVolumes(args []string) error {
 		return printJSON(volumes)
 	}
 	return writeVolumesTable(os.Stdout, volumes)
+}
+
+func isVolumeRemoveCommand(arg string) bool {
+	return arg == "rm" || arg == "remove"
+}
+
+func runVolumeRemove(args []string) error {
+	flags := newFlagSet("volumes rm")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 2 {
+		return fmt.Errorf("usage: holos volumes rm <project> <volume>")
+	}
+
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	return manager.RemoveVolume(flags.Arg(0), flags.Arg(1))
 }
 
 func filterVolumesByProject(volumes []runtime.VolumeInfo, project string) []runtime.VolumeInfo {

@@ -99,6 +99,69 @@ func TestListVolumesCombinesBackingFilesRecordsAndAttachments(t *testing.T) {
 	})
 }
 
+func TestRemoveVolumeDeletesDetachedBackingFile(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+
+	if err := manager.RemoveVolume(testVolumeProject, testVolumeName); err != nil {
+		t.Fatalf("RemoveVolume: %v", err)
+	}
+	if _, err := os.Stat(backing); !os.IsNotExist(err) {
+		t.Fatalf("removed backing stat err = %v, want not exist", err)
+	}
+}
+
+func TestRemoveVolumeRefusesAttachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	workDir := testVolumeWorkDir(stateDir)
+	if err := os.MkdirAll(workDir, stateDirPerm); err != nil {
+		t.Fatalf("create workdir: %v", err)
+	}
+	if err := os.Symlink(backing, volumeLinkPath(workDir, testVolumeName)); err != nil {
+		t.Fatalf("symlink volume: %v", err)
+	}
+	if err := manager.saveProject(&ProjectRecord{
+		Name: testVolumeProject,
+		Services: []ServiceRecord{
+			{
+				Name: testVolumeService,
+				Instances: []InstanceRecord{
+					{Name: instanceDirName(testVolumeService, 0), Status: InstanceStatusRunning, WorkDir: workDir},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+
+	err := manager.RemoveVolume(testVolumeProject, testVolumeName)
+	assertErrorContains(t, err, "attached", instanceDirName(testVolumeService, 0))
+	if _, statErr := os.Stat(backing); statErr != nil {
+		t.Fatalf("backing stat after refused remove: %v", statErr)
+	}
+}
+
+func TestRemoveVolumeReportsMissingVolume(t *testing.T) {
+	t.Parallel()
+
+	err := NewManager(t.TempDir()).RemoveVolume(testVolumeProject, testMissingVolumeName)
+	assertErrorContains(t, err, "not found")
+}
+
+func TestRemoveVolumeRejectsInvalidName(t *testing.T) {
+	t.Parallel()
+
+	err := NewManager(t.TempDir()).RemoveVolume(testVolumeProject, "../data")
+	assertErrorContains(t, err, "invalid volume name")
+}
+
 func TestVolumeNameFromLink(t *testing.T) {
 	t.Parallel()
 

@@ -200,7 +200,9 @@ guest mount fails, the cloud-init command exits non-zero and writes a
 
 Use `holos volumes` to list named volume backing files, declared size, path, and
 the instances that currently reference each volume. Add `--json` for structured
-output, or `-f holos.yaml` to limit the list to one project.
+output, or `-f holos.yaml` to limit the list to one project. Use
+`holos volumes rm <project> <volume>` to remove a detached named volume; removal
+fails while any instance workdir still references the volume.
 
 ## Healthchecks And `depends_on`
 
