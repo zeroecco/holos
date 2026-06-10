@@ -41,6 +41,24 @@ func TestRenderNetworkConfigAddsExternalDHCP(t *testing.T) {
 	)
 }
 
+func TestRenderNetworkConfigAddsDNSSearch(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{InternalNetwork: &config.InternalNetworkConfig{
+		InstanceIPs: []string{"10.10.0.2"},
+		BaseMAC:     "52:54:00:ab:cd:00",
+		DNSSearch:   []string{"svc.local", "example.test"},
+	}}
+
+	got := renderNetworkConfig(manifest, 0)
+	assertContains(t, got,
+		"nameservers:",
+		"search:",
+		"- svc.local",
+		"- example.test",
+	)
+}
+
 func TestRenderNetworkConfigSkipsMissingInstance(t *testing.T) {
 	t.Parallel()
 

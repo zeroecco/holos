@@ -81,6 +81,7 @@ type InternalNetworkConfig struct {
 	InstanceIPs    []string `json:"instance_ips"`
 	BaseMAC        string   `json:"base_mac"`
 	UserBaseMAC    string   `json:"user_base_mac"`
+	DNSSearch      []string `json:"dns_search,omitempty"`
 }
 
 // InstanceMAC returns the internal NIC MAC address for the given replica index.

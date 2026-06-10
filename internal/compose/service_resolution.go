@@ -110,6 +110,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			InstanceIPs:    instanceIPs,
 			BaseMAC:        baseMAC,
 			UserBaseMAC:    generateMAC(0x01, f.Name, name),
+			DNSSearch:      append([]string(nil), svc.DNSSearch...),
 		},
 		ExtraHosts:         extraHosts,
 		StopGracePeriodSec: gracePeriodSec,

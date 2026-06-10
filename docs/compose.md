@@ -182,9 +182,11 @@ Compose compatibility. Holos currently uses its own internal VM network plan,
 so these declarations do not create separate runtime segments yet. A service
 `mac_address`, or one matching per-network `mac_address`, is applied to the
 internal VM NIC and offset for replicas. Conflicting per-network MACs are
-rejected because holos has one internal VM NIC today. `holos import` preserves
-libvirt NIC source and model in network `driver_opts` for future bridge/tap
-support.
+rejected because holos has one internal VM NIC today. Per-service network
+`aliases` are added to the generated `/etc/hosts`, and `dns_search` is rendered
+into the internal NIC's netplan nameserver search list. `holos import`
+preserves libvirt NIC source and model in network `driver_opts` for future
+bridge/tap support.
 
 Top-level `configs`/`secrets` and per-service references are distributed into
 guests as cloud-init write files. `file`, `content` (configs), and

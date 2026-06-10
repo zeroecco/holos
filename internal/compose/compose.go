@@ -47,7 +47,10 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 		return nil, err
 	}
 
-	hosts, serviceIPs := allocateServiceIPs(f.Services, order)
+	hosts, serviceIPs, err := allocateServiceIPs(f.Services, order)
+	if err != nil {
+		return nil, err
+	}
 	network.Hosts = hosts
 
 	cacheDir := images.DefaultCacheDir(stateDir)

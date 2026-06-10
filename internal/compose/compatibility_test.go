@@ -96,6 +96,8 @@ name: networks
 services:
   api:
     image: ./base.qcow2
+    dns_search:
+      - svc.local
     networks:
       frontend:
         aliases: [web]
@@ -127,6 +129,10 @@ networks:
 	if got := project.Services["api"].InternalNetwork.BaseMAC; got != "02:42:ac:14:00:0a" {
 		t.Fatalf("api base MAC = %q, want network attachment MAC", got)
 	}
+	if got := project.Network.Hosts["web"]; got != project.Network.Hosts["api"] {
+		t.Fatalf("alias web resolves to %q, want api IP %q", got, project.Network.Hosts["api"])
+	}
+	assertStringSliceEqual(t, "api dns search", project.Services["api"].InternalNetwork.DNSSearch, []string{"svc.local"})
 }
 
 func TestResolveRejectsConflictingMACAddresses(t *testing.T) {
@@ -170,6 +176,34 @@ services:
 		t.Fatal("resolve invalid MAC err = nil, want error")
 	}
 	assertErrorContains(t, err, `mac_address "01:42:ac:11:00:02": must be a unicast address`)
+}
+
+func TestResolveRejectsConflictingNetworkAliases(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: aliasconflict
+services:
+  api:
+    image: ./base.qcow2
+    networks:
+      frontend:
+        aliases: [shared]
+  worker:
+    image: ./base.qcow2
+    networks:
+      frontend:
+        aliases: [shared]
+networks:
+  frontend: {}
+`
+	_, err := loadTestCompose(t, dir, yamlDoc).Resolve(dir, testStateDir(dir))
+	if err == nil {
+		t.Fatal("resolve conflicting aliases err = nil, want error")
+	}
+	assertErrorContains(t, err, `service "worker" alias "shared": conflicts with existing host "shared"`)
 }
 
 func TestDecodeServiceNetworkListItem(t *testing.T) {

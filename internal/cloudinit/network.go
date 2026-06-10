@@ -25,6 +25,13 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 			Addresses: []string{ip + internalNetworkAddressCIDR},
 		},
 	}
+	if len(manifest.InternalNetwork.DNSSearch) > 0 {
+		internal := ethernets[internalNetworkInterface]
+		internal.Nameservers = &nameserverDef{
+			Search: append([]string(nil), manifest.InternalNetwork.DNSSearch...),
+		}
+		ethernets[internalNetworkInterface] = internal
+	}
 
 	if userMAC := manifest.InternalNetwork.UserMAC(instanceIndex); userMAC != "" {
 		ethernets[externalNetworkInterface] = ethernetDef{

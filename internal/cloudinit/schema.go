@@ -41,11 +41,16 @@ type netConfigBody struct {
 }
 
 type ethernetDef struct {
-	Match     matchDef `yaml:"match"`
-	DHCP4     bool     `yaml:"dhcp4"`
-	Addresses []string `yaml:"addresses,omitempty"`
+	Match       matchDef       `yaml:"match"`
+	DHCP4       bool           `yaml:"dhcp4"`
+	Addresses   []string       `yaml:"addresses,omitempty"`
+	Nameservers *nameserverDef `yaml:"nameservers,omitempty"`
 }
 
 type matchDef struct {
 	MACAddress string `yaml:"macaddress"`
+}
+
+type nameserverDef struct {
+	Search []string `yaml:"search,omitempty"`
 }
