@@ -196,11 +196,6 @@ func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 			wantHint:    "cloud_init.runcmd",
 		},
 		{
-			instruction: "HEALTHCHECK",
-			dockerfile:  "FROM alpine:3.21\nHEALTHCHECK ignored\n",
-			wantHint:    "services.<name>.healthcheck",
-		},
-		{
 			instruction: "ADD",
 			dockerfile:  "FROM alpine:3.21\nADD ignored\n",
 			wantHint:    "use COPY",
@@ -225,6 +220,103 @@ func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 			}
 			assertContains(t, err.Error(), tc.instruction)
 			assertContains(t, err.Error(), tc.wantHint)
+		})
+	}
+}
+
+func TestParseHealthcheckShellForm(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, `FROM alpine:3.21
+HEALTHCHECK --interval=5s --timeout=2s --start-period=10s --start-interval=1s --retries=4 CMD curl -f http://localhost/health || exit 1
+`)
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	hc := result.Healthcheck
+	if hc == nil {
+		t.Fatal("Healthcheck = nil, want parsed config")
+	}
+	wantTest := []string{healthcheckShellCommand, healthcheckShellFlag, "curl -f http://localhost/health || exit 1"}
+	if !slices.Equal(hc.Test, wantTest) {
+		t.Fatalf("Healthcheck.Test = %v, want %v", hc.Test, wantTest)
+	}
+	if hc.IntervalSec != 5 || hc.TimeoutSec != 2 || hc.StartPeriodSec != 10 || hc.StartIntervalSec != 1 || hc.Retries != 4 {
+		t.Fatalf("Healthcheck timing = %+v, want interval=5 timeout=2 start_period=10 start_interval=1 retries=4", hc)
+	}
+}
+
+func TestParseHealthcheckExecForm(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, `FROM alpine:3.21
+HEALTHCHECK --interval=7s CMD ["curl", "-f", "http://localhost/health"]
+`)
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	hc := result.Healthcheck
+	if hc == nil {
+		t.Fatal("Healthcheck = nil, want parsed config")
+	}
+	wantTest := []string{"curl", "-f", "http://localhost/health"}
+	if !slices.Equal(hc.Test, wantTest) {
+		t.Fatalf("Healthcheck.Test = %v, want %v", hc.Test, wantTest)
+	}
+	if hc.IntervalSec != 7 || hc.StartIntervalSec != 7 {
+		t.Fatalf("Healthcheck interval = %+v, want interval and start_interval 7", hc)
+	}
+}
+
+func TestParseHealthcheckNoneClearsPreviousHealthcheck(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, `FROM alpine:3.21
+HEALTHCHECK CMD curl -f http://localhost/health
+HEALTHCHECK NONE
+`)
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if result.Healthcheck != nil {
+		t.Fatalf("Healthcheck = %+v, want nil after NONE", result.Healthcheck)
+	}
+}
+
+func TestParseHealthcheckRejectsInvalidForms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		dockerfile string
+		want       string
+	}{
+		{name: "missing command", dockerfile: "FROM alpine\nHEALTHCHECK CMD\n", want: "requires a command"},
+		{name: "missing cmd", dockerfile: "FROM alpine\nHEALTHCHECK curl -f http://localhost\n", want: "requires CMD or NONE"},
+		{name: "unsupported option", dockerfile: "FROM alpine\nHEALTHCHECK --bogus=1 CMD true\n", want: "unsupported HEALTHCHECK option"},
+		{name: "bad duration", dockerfile: "FROM alpine\nHEALTHCHECK --interval=soon CMD true\n", want: "--interval"},
+		{name: "bad retries", dockerfile: "FROM alpine\nHEALTHCHECK --retries=0 CMD true\n", want: "--retries must be >= 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			dfPath := writeDockerfile(t, dir, tt.dockerfile)
+			_, err := Parse(dfPath, dir)
+			if err == nil {
+				t.Fatalf("Parse error = nil, want %q", tt.want)
+			}
+			assertContains(t, err.Error(), tt.want)
 		})
 	}
 }

@@ -113,6 +113,71 @@ func TestResolveDockerfileBuildAdoptsFromImage(t *testing.T) {
 	assertStringSliceFirst(t, "runcmd", manifest.CloudInit.RunCmd, "bash /var/lib/holos/build.sh")
 }
 
+func TestResolveDockerfileBuildAdoptsHealthcheck(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app: %v", err)
+	}
+	writeTestImage(t, dir)
+	writeTestFile(t, appDir, "Dockerfile", `FROM alpine
+HEALTHCHECK --interval=5s --timeout=2s --start-period=10s --start-interval=1s --retries=4 CMD curl -f http://localhost/health
+`)
+	yamlDoc := `
+name: dfhealth
+services:
+  api:
+    image: ./base.qcow2
+    build: ./app
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+	hc := project.Services[testComposeAPIService].Healthcheck
+	if hc == nil {
+		t.Fatal("healthcheck = nil, want Dockerfile healthcheck")
+	}
+	assertStringSliceEqual(t, "healthcheck test", hc.Test, []string{"sh", "-c", "curl -f http://localhost/health"})
+	assertHealthcheckTiming(t, hc, testHealthcheckTimingWant{
+		intervalSec:      5,
+		retries:          4,
+		startPeriodSec:   10,
+		startIntervalSec: 1,
+		timeoutSec:       2,
+	})
+}
+
+func TestResolveComposeHealthcheckOverridesDockerfileHealthcheck(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app: %v", err)
+	}
+	writeTestImage(t, dir)
+	writeTestFile(t, appDir, "Dockerfile", "FROM alpine\nHEALTHCHECK CMD false\n")
+	yamlDoc := `
+name: dfhealthoverride
+services:
+  api:
+    image: ./base.qcow2
+    build: ./app
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 2s
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+	hc := project.Services[testComposeAPIService].Healthcheck
+	if hc == nil {
+		t.Fatal("healthcheck = nil, want compose healthcheck")
+	}
+	assertStringSliceEqual(t, "healthcheck test", hc.Test, testCMDTrueHealthcheck())
+	if hc.IntervalSec != 2 {
+		t.Fatalf("IntervalSec = %d, want compose override 2", hc.IntervalSec)
+	}
+}
+
 func TestComposeBuildUnmarshalAcceptsKnownFields(t *testing.T) {
 	t.Parallel()
 

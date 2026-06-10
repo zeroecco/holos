@@ -48,9 +48,9 @@ func hasInlineDockerfile(build ComposeBuild) bool {
 	return !isBlankScalarString(build.DockerfileInline)
 }
 
-func resolveDockerfileBuild(svc *Service, baseDir string) ([]config.WriteFile, []string, error) {
+func resolveDockerfileBuild(svc *Service, baseDir string) ([]config.WriteFile, []string, *config.HealthcheckConfig, error) {
 	if svc.Dockerfile == "" && !svc.Build.isSet() {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 
 	dfPath, dfContext := resolveStandaloneDockerfilePath(baseDir, svc.Dockerfile)
@@ -59,10 +59,10 @@ func resolveDockerfileBuild(svc *Service, baseDir string) ([]config.WriteFile, [
 		var err error
 		dfPath, dfContext, ok, err = svc.Build.dockerfilePath(baseDir)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if !ok {
-			return nil, nil, fmt.Errorf("build: dockerfile path is required")
+			return nil, nil, nil, fmt.Errorf("build: dockerfile path is required")
 		}
 	}
 	if dfContext == "" {
@@ -77,12 +77,12 @@ func resolveDockerfileBuild(svc *Service, baseDir string) ([]config.WriteFile, [
 		result, err = dockerfile.Parse(dfPath, dfContext)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("dockerfile: %w", err)
+		return nil, nil, nil, fmt.Errorf("dockerfile: %w", err)
 	}
 	if svc.Image == "" && result.FromImage != "" {
 		svc.Image = result.FromImage
 	}
-	return result.WriteFiles, []string{dockerfile.BuildCommand()}, nil
+	return result.WriteFiles, []string{dockerfile.BuildCommand()}, result.Healthcheck, nil
 }
 
 func resolveStandaloneDockerfilePath(baseDir string, dockerfilePath string) (path string, contextDir string) {

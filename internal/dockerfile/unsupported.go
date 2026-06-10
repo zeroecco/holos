@@ -19,8 +19,6 @@ func unsupportedInstructionError(cmd string) error {
 		return fmt.Errorf("Dockerfile %s is not supported; use cloud_init.runcmd or a systemd unit inside the guest to start long-running processes", cmd)
 	case "EXPOSE":
 		return fmt.Errorf("Dockerfile EXPOSE is not supported; publish ports in holos.yaml with services.<name>.ports")
-	case "HEALTHCHECK":
-		return fmt.Errorf("Dockerfile HEALTHCHECK is not supported; use services.<name>.healthcheck in holos.yaml")
 	case "LABEL", "ONBUILD", "SHELL", "STOPSIGNAL", "USER", "VOLUME":
 		return fmt.Errorf("Dockerfile %s is not supported by holos's cloud-init provisioning model", cmd)
 	default:

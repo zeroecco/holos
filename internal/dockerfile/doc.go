@@ -8,12 +8,13 @@
 //   - A shell script assembled from RUN, ENV, and WORKDIR instructions.
 //   - A set of [config.WriteFile] entries from COPY instructions (file
 //     sources only; directories are not supported).
+//   - A [config.HealthcheckConfig] from HEALTHCHECK when present.
 //
 // The generated script is written into the VM at /var/lib/holos/build.sh
 // and executed via cloud-init runcmd before any user-specified commands.
 //
 // Unsupported instructions (CMD, ENTRYPOINT, EXPOSE, LABEL, VOLUME,
-// HEALTHCHECK, STOPSIGNAL, SHELL, ONBUILD, ARG, USER, ADD) are rejected with
+// STOPSIGNAL, SHELL, ONBUILD, ARG, USER, ADD) are rejected with
 // an error so Dockerfile behavior is never silently dropped.
 // Multi-stage builds (COPY --from=) are also rejected.
 package dockerfile

@@ -57,7 +57,6 @@ cloud-init fields.
 Useful next steps:
 
 - Translate `EXPOSE` into suggested or optional port metadata.
-- Translate `HEALTHCHECK` into service `healthcheck`.
 - Consider limited `ADD` support for local files while preserving build-context
   escape checks.
 

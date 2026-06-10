@@ -19,9 +19,10 @@ const (
 
 // Result holds the cloud-init artifacts extracted from a Dockerfile.
 type Result struct {
-	FromImage  string             // base image from FROM, empty if not present
-	Script     string             // shell script generated from RUN/ENV/WORKDIR
-	WriteFiles []config.WriteFile // files from COPY instructions + the build script itself
+	FromImage   string                    // base image from FROM, empty if not present
+	Script      string                    // shell script generated from RUN/ENV/WORKDIR
+	WriteFiles  []config.WriteFile        // files from COPY instructions + the build script itself
+	Healthcheck *config.HealthcheckConfig // optional Dockerfile HEALTHCHECK
 }
 
 // Parse reads a Dockerfile and converts it into cloud-init artifacts.
@@ -88,6 +89,13 @@ func parse(r io.Reader, contextDir string) (*Result, error) {
 			dir := strings.TrimSpace(args)
 			quoted := shellQuote(dir)
 			fmt.Fprintf(&script, "mkdir -p %s && cd %s\n", quoted, quoted)
+
+		case instructionHealth:
+			healthcheck, err := parseHealthcheck(args)
+			if err != nil {
+				return nil, err
+			}
+			result.Healthcheck = healthcheck
 
 		default:
 			return nil, unsupportedInstructionError(cmd)

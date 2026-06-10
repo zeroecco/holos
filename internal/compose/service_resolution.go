@@ -24,7 +24,8 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 
 	var dfWriteFiles []config.WriteFile
 	var dfRunCmd []string
-	dfWriteFiles, dfRunCmd, err = resolveDockerfileBuild(&svc, baseDir)
+	var dfHealthcheck *config.HealthcheckConfig
+	dfWriteFiles, dfRunCmd, dfHealthcheck, err = resolveDockerfileBuild(&svc, baseDir)
 	if err != nil {
 		return config.Manifest{}, err
 	}
@@ -61,7 +62,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		return config.Manifest{}, err
 	}
 
-	healthcheck, err := resolveHealthcheck(svc.Healthcheck)
+	healthcheck, err := resolveServiceHealthcheck(svc.Healthcheck, dfHealthcheck)
 	if err != nil {
 		return config.Manifest{}, err
 	}

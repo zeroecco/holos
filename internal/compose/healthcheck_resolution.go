@@ -38,6 +38,13 @@ func resolveHealthcheck(h *Healthcheck) (*config.HealthcheckConfig, error) {
 	return healthcheckConfig(h, intervalSec, healthcheckRetries(h.Retries), startSec, startIntervalSec, timeoutSec), nil
 }
 
+func resolveServiceHealthcheck(composeHealthcheck *Healthcheck, dockerfileHealthcheck *config.HealthcheckConfig) (*config.HealthcheckConfig, error) {
+	if composeHealthcheck != nil {
+		return resolveHealthcheck(composeHealthcheck)
+	}
+	return dockerfileHealthcheck, nil
+}
+
 func healthcheckRetries(retries int) int {
 	if retries == 0 {
 		return config.DefaultHealthRetries
