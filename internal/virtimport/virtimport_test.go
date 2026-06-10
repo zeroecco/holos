@@ -71,7 +71,7 @@ func assertServiceDevicePCIs(t *testing.T, svc compose.Service, want []string) {
 func TestConvertFullDomain(t *testing.T) {
 	t.Parallel()
 
-	name, svc, warns, err := Convert([]byte(fullDomainXML))
+	name, svc, volumes, warns, err := ConvertWithVolumes([]byte(fullDomainXML))
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -100,11 +100,19 @@ func TestConvertFullDomain(t *testing.T) {
 	if svc.ImageFormat != "qcow2" {
 		t.Errorf("image_format = %q, want qcow2", svc.ImageFormat)
 	}
+	if len(svc.Volumes) != 1 {
+		t.Fatalf("service volumes = %+v, want imported extra disk", svc.Volumes)
+	}
+	if got := svc.Volumes[0]; got.Type != "volume" || got.Source != "my-web-server-vdb" || got.Target != "/mnt/vdb" {
+		t.Fatalf("service volume = %+v, want imported vdb volume", got)
+	}
+	if len(volumes) != 1 || volumes[0].Name != "my-web-server-vdb" || volumes[0].SourcePath != "/var/lib/libvirt/images/my-web-server-data.qcow2" {
+		t.Fatalf("imported volumes = %+v, want vdb source", volumes)
+	}
 	assertServiceDevicePCIs(t, svc, []string{"0000:01:00.0"})
 
 	wantWarnings := []string{
 		"renamed domain",       // sanitised name
-		"extra disk",           // second qcow2
 		"hostdev type \"usb\"", // unsupported passthrough
 		"interface",            // bridged/network NIC dropped
 	}

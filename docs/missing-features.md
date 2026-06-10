@@ -35,12 +35,12 @@ stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 ### Broader Device Import
 
 `holos import` maps vCPU, memory, machine type, host CPU mode, UEFI loader, the
-first file disk, and PCI host devices. It reports warnings for extra disks,
-bridged NICs, USB passthrough, and custom emulators.
+first file disk, extra qcow2 file disks as named volumes, and PCI host devices.
+It reports warnings for extra disks that cannot be mapped, bridged NICs, USB
+passthrough, and custom emulators.
 
 Useful next steps:
 
-- Convert additional file disks into named volumes when possible.
 - Map bridged NIC intent into a future bridge/tap network backend.
 - Represent USB passthrough if QEMU support is added to the VM schema.
 

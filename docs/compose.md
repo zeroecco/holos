@@ -156,7 +156,9 @@ Top-level `volumes:` declares named data stores under
 `state_dir/volumes/<project>/<name>.qcow2`. They survive `holos down`; teardown
 only removes per-instance symlinks. Docker Compose volume metadata fields such
 as `name`, `driver`, `driver_opts`, `external`, and `labels` are accepted for
-compatibility; Holos uses `size` for the qcow2 backing file.
+compatibility; Holos uses `size` for the qcow2 backing file. When
+`driver_opts.source` is set, Holos copies that qcow2 into the named-volume
+backing file the first time the volume is created.
 
 ```yaml
 name: demo

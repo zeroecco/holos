@@ -20,7 +20,7 @@ func newImportAccumulator() *importAccumulator {
 }
 
 func (a *importAccumulator) addDomain(label string, data []byte) error {
-	name, svc, warns, err := virtimport.Convert(data)
+	name, svc, volumes, warns, err := virtimport.ConvertWithVolumes(data)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
@@ -28,11 +28,26 @@ func (a *importAccumulator) addDomain(label string, data []byte) error {
 		return fmt.Errorf("%s: service name %q already imported (rename the source domain)", label, name)
 	}
 	a.file.Services[name] = svc
+	a.addImportedVolumeDeclarations(volumes)
 	a.order = append(a.order, name)
 	for _, w := range warns {
 		a.warnings = append(a.warnings, fmt.Sprintf("%s: %s", name, w))
 	}
 	return nil
+}
+
+func (a *importAccumulator) addImportedVolumeDeclarations(volumes []virtimport.ImportedVolume) {
+	if len(volumes) == 0 {
+		return
+	}
+	if a.file.Volumes == nil {
+		a.file.Volumes = map[string]compose.Volume{}
+	}
+	for _, volume := range volumes {
+		a.file.Volumes[volume.Name] = compose.Volume{
+			DriverOpts: map[string]string{"source": volume.SourcePath},
+		}
+	}
 }
 
 func (a *importAccumulator) composeFile(projectName string) compose.File {

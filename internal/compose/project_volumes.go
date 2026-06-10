@@ -41,7 +41,14 @@ func (f *File) resolveVolumes(services map[string]config.Manifest) (map[string]V
 		if !namePattern.MatchString(name) {
 			return nil, fmt.Errorf("volume name %q must match %s", name, namePattern.String())
 		}
-		out[name] = VolumeSpec{Name: name, SizeBytes: size}
+		out[name] = VolumeSpec{Name: name, SizeBytes: size, SourcePath: volumeSourcePath(f.Volumes[name])}
 	}
 	return out, nil
+}
+
+func volumeSourcePath(volume Volume) string {
+	if volume.DriverOpts == nil {
+		return ""
+	}
+	return volume.DriverOpts["source"]
 }

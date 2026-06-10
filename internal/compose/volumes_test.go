@@ -58,6 +58,7 @@ volumes:
     driver: local
     driver_opts:
       type: none
+      source: /var/lib/libvirt/images/data.qcow2
     external:
       name: shared-data
     labels:
@@ -67,6 +68,9 @@ volumes:
 	project := resolveTestCompose(t, dir, yamlDoc)
 	if got := project.Volumes[testComposeVolumeName].SizeBytes; got != testComposeMetadataSizeByte {
 		t.Fatalf("volume size = %d, want %s", got, testComposeMetadataSize)
+	}
+	if got := project.Volumes[testComposeVolumeName].SourcePath; got != "/var/lib/libvirt/images/data.qcow2" {
+		t.Fatalf("volume source path = %q, want imported source", got)
 	}
 }
 

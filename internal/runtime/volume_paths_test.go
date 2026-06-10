@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/qemu"
 )
@@ -81,6 +82,35 @@ func TestVolumeCreateArgs(t *testing.T) {
 		"10485760",
 	}
 	assertStringSliceEqual(t, "volumeCreateArgs", got, want)
+}
+
+func TestEnsureProjectVolumesImportsSourceBacking(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	source := filepath.Join(t.TempDir(), "imported.qcow2")
+	if err := os.WriteFile(source, []byte("imported-volume"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	manager := NewManager(stateDir)
+	project := &compose.Project{
+		Name: testVolumeProject,
+		Volumes: map[string]compose.VolumeSpec{
+			testVolumeName: {Name: testVolumeName, SourcePath: source},
+		},
+	}
+
+	if err := manager.ensureProjectVolumes(project); err != nil {
+		t.Fatalf("ensureProjectVolumes: %v", err)
+	}
+	backing := volumeBackingPath(stateDir, testVolumeProject, testVolumeName)
+	payload, err := os.ReadFile(backing)
+	if err != nil {
+		t.Fatalf("read imported backing: %v", err)
+	}
+	if string(payload) != "imported-volume" {
+		t.Fatalf("imported backing = %q, want source payload", string(payload))
+	}
 }
 
 func TestVolumeAttachmentForMount(t *testing.T) {

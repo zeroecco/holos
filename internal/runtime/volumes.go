@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,11 +54,6 @@ func (m *Manager) ensureProjectVolumes(project *compose.Project) error {
 		return fmt.Errorf("create volumes dir: %w", err)
 	}
 
-	qemuImg, err := m.qemuImgBinary()
-	if err != nil {
-		return err
-	}
-
 	for _, spec := range project.Volumes {
 		path := volumeBackingPath(m.stateDir, project.Name, spec.Name)
 		if _, err := os.Stat(path); err == nil {
@@ -66,6 +62,18 @@ func (m *Manager) ensureProjectVolumes(project *compose.Project) error {
 			return fmt.Errorf("stat volume %s: %w", path, err)
 		}
 
+		if spec.SourcePath != "" {
+			if err := importVolumeBacking(spec.SourcePath, path); err != nil {
+				_ = os.Remove(path)
+				return fmt.Errorf("import volume %s from %s: %w", spec.Name, spec.SourcePath, err)
+			}
+			continue
+		}
+
+		qemuImg, err := m.qemuImgBinary()
+		if err != nil {
+			return err
+		}
 		if output, err := exec.Command(qemuImg, volumeCreateArgs(path, spec.SizeBytes)...).CombinedOutput(); err != nil {
 			_ = os.Remove(path)
 			return fmt.Errorf("create volume %s: %w: %s",
@@ -77,6 +85,25 @@ func (m *Manager) ensureProjectVolumes(project *compose.Project) error {
 
 func volumeCreateArgs(path string, sizeBytes int64) []string {
 	return []string{qemuImgCreateSubcommand, qemuImgFormatFlag, config.ImageFormatQCOW2, path, byteSizeArg(sizeBytes)}
+}
+
+func importVolumeBacking(source, destination string) error {
+	src, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("copy source: %w", err)
+	}
+	return nil
 }
 
 // materializeInstanceVolumes turns a service's named-volume mounts into

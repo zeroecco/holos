@@ -169,8 +169,9 @@ type Project struct {
 
 // VolumeSpec is the resolved form of a top-level named volume.
 type VolumeSpec struct {
-	Name      string
-	SizeBytes int64
+	Name       string
+	SizeBytes  int64
+	SourcePath string
 }
 
 // NetworkPlan describes the internal network assigned to a project.

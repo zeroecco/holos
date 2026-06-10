@@ -156,6 +156,45 @@ func TestImportAccumulatorPrefixesWarningsWithServiceName(t *testing.T) {
 	assertStringSliceEqual(t, "warnings", acc.warnings, []string{want})
 }
 
+func TestImportAccumulatorDeclaresImportedExtraDiskVolumes(t *testing.T) {
+	t.Parallel()
+
+	acc := newImportAccumulator()
+	xml := []byte(`
+<domain type='kvm'>
+  <name>web</name>
+  <devices>
+    <disk type='file' device='disk'>
+      <driver type='qcow2'/>
+      <source file='/var/lib/libvirt/images/web.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver type='qcow2'/>
+      <source file='/var/lib/libvirt/images/web-data.qcow2'/>
+      <target dev='vdb' bus='virtio'/>
+    </disk>
+  </devices>
+</domain>
+`)
+
+	if err := acc.addDomain("web.xml", xml); err != nil {
+		t.Fatalf("addDomain: %v", err)
+	}
+	file := acc.composeFile("")
+	svc := file.Services["web"]
+	if len(svc.Volumes) != 1 || svc.Volumes[0].Source != "web-vdb" || svc.Volumes[0].Target != "/mnt/vdb" {
+		t.Fatalf("service volumes = %+v, want imported vdb mount", svc.Volumes)
+	}
+	volume, ok := file.Volumes["web-vdb"]
+	if !ok {
+		t.Fatalf("top-level volumes = %+v, missing web-vdb", file.Volumes)
+	}
+	if got := volume.DriverOpts["source"]; got != "/var/lib/libvirt/images/web-data.qcow2" {
+		t.Fatalf("volume source = %q, want imported disk path", got)
+	}
+}
+
 func assertImportedComposeYAML(t *testing.T, got string) {
 	t.Helper()
 

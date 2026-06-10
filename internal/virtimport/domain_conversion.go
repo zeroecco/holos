@@ -36,9 +36,11 @@ func applyDomainVMConfig(svc *compose.Service, d Domain) {
 	}
 }
 
-func applyDomainDisks(svc *compose.Service, d Domain) []string {
+func applyDomainDisks(serviceName string, svc *compose.Service, d Domain) ([]ImportedVolume, []string) {
+	var volumes []ImportedVolume
 	var warnings []string
 	primaryFound := false
+	extraDiskIndex := 0
 	for _, disk := range d.Devices.Disks {
 		path, warning, ok := domainDiskImagePath(disk)
 		if warning != "" {
@@ -55,14 +57,41 @@ func applyDomainDisks(svc *compose.Service, d Domain) []string {
 			primaryFound = true
 			continue
 		}
-		warnings = append(warnings, fmt.Sprintf(
-			"extra disk %q skipped; declare it under top-level volumes: and reference it from the service",
-			path))
+		if disk.Driver != nil && disk.Driver.Type != "" && disk.Driver.Type != "qcow2" {
+			warnings = append(warnings, fmt.Sprintf(
+				"extra disk %q has format %q; only qcow2 extra disks are imported as named volumes",
+				path, disk.Driver.Type))
+			continue
+		}
+		extraDiskIndex++
+		volumeName := importedDiskVolumeName(serviceName, disk, extraDiskIndex)
+		svc.Volumes = append(svc.Volumes, compose.ComposeVolume{
+			Type:   "volume",
+			Source: volumeName,
+			Target: importedDiskMountTarget(disk, extraDiskIndex),
+		})
+		volumes = append(volumes, ImportedVolume{Name: volumeName, SourcePath: path})
 	}
 	if !primaryFound {
 		warnings = append(warnings, "no file-backed disk found; set image: by hand before running `holos up`")
 	}
-	return warnings
+	return volumes, warnings
+}
+
+func importedDiskVolumeName(serviceName string, disk Disk, index int) string {
+	suffix := sanitizeName(disk.Target.Dev)
+	if suffix == "" {
+		suffix = fmt.Sprintf("disk-%d", index)
+	}
+	return sanitizeName(serviceName + "-" + suffix)
+}
+
+func importedDiskMountTarget(disk Disk, index int) string {
+	name := sanitizeName(disk.Target.Dev)
+	if name == "" {
+		name = fmt.Sprintf("disk-%d", index)
+	}
+	return "/mnt/" + name
 }
 
 func applyDomainHostDevices(svc *compose.Service, d Domain) []string {
