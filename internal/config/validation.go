@@ -8,6 +8,7 @@ import (
 var serviceNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 var userNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
 var pciAddressPattern = regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`)
+var macAddressPattern = regexp.MustCompile(`^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$`)
 
 const (
 	minManifestReplicas   = 1
@@ -46,6 +47,9 @@ func (m Manifest) Validate() error {
 	if m.Network.Mode != DefaultNetworkMode {
 		return fmt.Errorf("network.mode %q is unsupported; only %s is implemented", m.Network.Mode, DefaultNetworkMode)
 	}
+	if err := validateInternalNetwork(m.InternalNetwork); err != nil {
+		return err
+	}
 	if err := ValidateUserName(m.CloudInit.User); err != nil {
 		return fmt.Errorf("cloud_init.user: %w", err)
 	}
@@ -68,6 +72,19 @@ func (m Manifest) Validate() error {
 	}
 	if err := validateWriteFiles(m.CloudInit.WriteFiles); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateInternalNetwork(network *InternalNetworkConfig) error {
+	if network == nil {
+		return nil
+	}
+	if err := ValidateMACAddress(network.BaseMAC); err != nil {
+		return fmt.Errorf("internal_network.base_mac: %w", err)
+	}
+	if err := ValidateMACAddress(network.UserBaseMAC); err != nil {
+		return fmt.Errorf("internal_network.user_base_mac: %w", err)
 	}
 	return nil
 }

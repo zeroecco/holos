@@ -49,6 +49,7 @@ services:
   web:
     image: ./base.qcow2
     replicas: 2
+    mac_address: 02:42:ac:11:00:02
     depends_on:
       - api
     ports:

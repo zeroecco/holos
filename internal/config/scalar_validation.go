@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // ValidateUserName checks the guest account name holos asks cloud-init to
 // create. Keep this deliberately aligned with the systemd User= validation:
@@ -25,6 +29,26 @@ func ValidatePCIAddress(addr string) error {
 	}
 	if !pciAddressPattern.MatchString(addr) {
 		return fmt.Errorf("must match 0000:01:00.0")
+	}
+	return nil
+}
+
+// ValidateMACAddress checks a canonical six-octet unicast MAC address. QEMU can
+// enforce these on virtio NICs, while multicast addresses are not valid station
+// addresses for guests.
+func ValidateMACAddress(addr string) error {
+	if emptyScalar(addr) {
+		return fmt.Errorf("address is empty")
+	}
+	if !macAddressPattern.MatchString(addr) {
+		return fmt.Errorf("must match 02:42:ac:11:00:02")
+	}
+	firstOctet, err := strconv.ParseUint(strings.Split(addr, ":")[0], 16, 8)
+	if err != nil {
+		return fmt.Errorf("must match 02:42:ac:11:00:02")
+	}
+	if firstOctet&1 == 1 {
+		return fmt.Errorf("must be a unicast address")
 	}
 	return nil
 }

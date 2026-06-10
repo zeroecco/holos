@@ -123,7 +123,53 @@ networks:
   backend:
     internal: true
 `
-	resolveTestCompose(t, dir, yamlDoc)
+	project := resolveTestCompose(t, dir, yamlDoc)
+	if got := project.Services["api"].InternalNetwork.BaseMAC; got != "02:42:ac:14:00:0a" {
+		t.Fatalf("api base MAC = %q, want network attachment MAC", got)
+	}
+}
+
+func TestResolveRejectsConflictingMACAddresses(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: macconflict
+services:
+  api:
+    image: ./base.qcow2
+    mac_address: 02:42:ac:11:00:02
+    networks:
+      frontend:
+        mac_address: 02:42:ac:11:00:03
+networks:
+  frontend: {}
+`
+	_, err := loadTestCompose(t, dir, yamlDoc).Resolve(dir, testStateDir(dir))
+	if err == nil {
+		t.Fatal("resolve conflicting MACs err = nil, want error")
+	}
+	assertErrorContains(t, err, `network "frontend" mac_address "02:42:ac:11:00:03" conflicts with service mac_address "02:42:ac:11:00:02"`)
+}
+
+func TestResolveRejectsInvalidMACAddress(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: invalidmac
+services:
+  api:
+    image: ./base.qcow2
+    mac_address: 01:42:ac:11:00:02
+`
+	_, err := loadTestCompose(t, dir, yamlDoc).Resolve(dir, testStateDir(dir))
+	if err == nil {
+		t.Fatal("resolve invalid MAC err = nil, want error")
+	}
+	assertErrorContains(t, err, `mac_address "01:42:ac:11:00:02": must be a unicast address`)
 }
 
 func TestDecodeServiceNetworkListItem(t *testing.T) {

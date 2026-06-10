@@ -24,7 +24,6 @@ Useful next steps:
 
 - Map named networks to distinct internal VM segments.
 - Honor per-service aliases and DNS search behavior.
-- Support explicit service MAC addresses where QEMU can enforce them safely.
 - Add a bridge/tap backend for users who need LAN-visible guests.
 
 This is in scope because predictable VM networking is core to multi-service

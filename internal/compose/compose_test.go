@@ -79,6 +79,9 @@ func TestLoadAndResolve(t *testing.T) {
 	if len(web.InternalNetwork.InstanceIPs) != testComposeWebReplicas {
 		t.Fatalf("expected %d instance IPs for web, got %d", testComposeWebReplicas, len(web.InternalNetwork.InstanceIPs))
 	}
+	if got := web.InternalNetwork.BaseMAC; got != "02:42:ac:11:00:02" {
+		t.Fatalf("web base MAC = %q, want explicit service MAC", got)
+	}
 
 	if len(project.Network.Hosts) == 0 {
 		t.Fatal("expected hosts map to be populated")

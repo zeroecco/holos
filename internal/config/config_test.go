@@ -627,6 +627,21 @@ func TestValidatePCIAddress(t *testing.T) {
 	}
 }
 
+func TestValidateMACAddress(t *testing.T) {
+	t.Parallel()
+
+	for _, addr := range []string{"02:42:ac:11:00:02", "52:54:00:ab:cd:ef", "AA:BB:CC:DD:EE:F0"} {
+		if err := ValidateMACAddress(addr); err != nil {
+			t.Fatalf("ValidateMACAddress(%q): %v", addr, err)
+		}
+	}
+	for _, addr := range []string{"", "02:42:ac:11:00", "02-42-ac-11-00-02", "01:42:ac:11:00:02", "ff:ff:ff:ff:ff:ff"} {
+		if err := ValidateMACAddress(addr); err == nil {
+			t.Fatalf("ValidateMACAddress(%q) succeeded, want error", addr)
+		}
+	}
+}
+
 func TestEmptyScalar(t *testing.T) {
 	t.Parallel()
 

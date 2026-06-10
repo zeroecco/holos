@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/zeroecco/holos/internal/config"
 )
@@ -44,7 +45,10 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	}
 	hostname := resolveServiceHostname(svc)
 
-	baseMAC := generateMAC(0x00, f.Name, name)
+	baseMAC, err := resolveServiceInternalMAC(svc, generateMAC(0x00, f.Name, name))
+	if err != nil {
+		return config.Manifest{}, err
+	}
 
 	writeFiles, err := resolveServiceWriteFiles(baseDir, svc, dfWriteFiles, f.Configs, f.Secrets)
 	if err != nil {
@@ -133,4 +137,26 @@ func copyExtraHosts(dst map[string]string, src map[string]string) {
 	for host, addr := range src {
 		dst[host] = addr
 	}
+}
+
+func resolveServiceInternalMAC(svc Service, generated string) (string, error) {
+	explicit := strings.ToLower(svc.MacAddress)
+	for networkName, network := range svc.Networks {
+		if network.MacAddress == "" {
+			continue
+		}
+		mac := strings.ToLower(network.MacAddress)
+		if explicit != "" && explicit != mac {
+			return "", fmt.Errorf("network %q mac_address %q conflicts with service mac_address %q",
+				networkName, network.MacAddress, svc.MacAddress)
+		}
+		explicit = mac
+	}
+	if explicit == "" {
+		return generated, nil
+	}
+	if err := config.ValidateMACAddress(explicit); err != nil {
+		return "", fmt.Errorf("mac_address %q: %w", explicit, err)
+	}
+	return explicit, nil
 }
