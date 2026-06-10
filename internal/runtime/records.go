@@ -23,8 +23,15 @@ type ProjectRecord struct {
 	Name      string          `json:"name"`
 	SpecHash  string          `json:"spec_hash"`
 	Services  []ServiceRecord `json:"services"`
+	Volumes   []VolumeRecord  `json:"volumes,omitempty"`
 	Network   NetworkState    `json:"network"`
 	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+// VolumeRecord tracks the declared size of a persistent named volume.
+type VolumeRecord struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 // NetworkState records the internal network configuration for a project.

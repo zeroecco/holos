@@ -34,12 +34,12 @@ stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
 ### Snapshots And Volume Lifecycle Commands
 
-Named volumes are qcow2-backed and survive `holos down`, but there is no CLI to
-list, snapshot, resize, export, or remove them safely.
+Named volumes are qcow2-backed and survive `holos down`, and `holos volumes`
+lists their path, size, and attachment state. There is still no CLI to snapshot,
+resize, export, or remove them safely.
 
 Useful next steps:
 
-- Add `holos volumes` listing with project, size, path, and attachment state.
 - Add explicit remove/export commands that refuse active attachments.
 - Consider snapshot commands for root overlays and named volumes.
 

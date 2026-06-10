@@ -30,6 +30,7 @@ var commandOrder = []string{
 	"pull",
 	"verify",
 	"images",
+	"volumes",
 	"devices",
 	"doctor",
 	"install",
@@ -103,6 +104,11 @@ var commands = map[string]command{
 		run:         runImages,
 		usage:       "holos images",
 		description: "list available images",
+	},
+	"volumes": {
+		run:         runVolumes,
+		usage:       "holos volumes [-f holos.yaml] [--json]",
+		description: "list named volumes",
 	},
 	"devices": {
 		run:         runDevices,

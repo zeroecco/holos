@@ -198,6 +198,10 @@ read-only volumes, holos skips formatting and writes `ro,nofail` to fstab. If a
 guest mount fails, the cloud-init command exits non-zero and writes a
 `holos: failed to mount volume ...` error to the instance console log.
 
+Use `holos volumes` to list named volume backing files, declared size, path, and
+the instances that currently reference each volume. Add `--json` for structured
+output, or `-f holos.yaml` to limit the list to one project.
+
 ## Healthchecks And `depends_on`
 
 A service with a healthcheck blocks dependents from starting until the probe

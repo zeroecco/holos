@@ -62,6 +62,7 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 	augmented := augmentServicesWithExecKey(project.Services, pubKey)
 
 	record.SpecHash = project.SpecHash
+	record.Volumes = volumeRecordsForProject(project)
 	record.Network = NetworkState{
 		MulticastGroup: project.Network.MulticastGroup,
 		MulticastPort:  project.Network.MulticastPort,

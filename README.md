@@ -101,6 +101,8 @@ holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image
 holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
+holos volumes [-f holos.yaml] [--json]
+                                     list named volumes
 holos devices [--gpu]                list PCI devices and IOMMU groups
 holos doctor [--json]                check host dependencies
 holos install [-f holos.yaml] [--system] [--enable]
