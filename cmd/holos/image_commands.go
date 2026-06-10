@@ -1,11 +1,17 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 
+	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/images"
 )
 
@@ -13,6 +19,7 @@ const (
 	pullMissingImageErrorMsg    = "pull requires an image name (e.g. alpine, ubuntu:noble)"
 	verifyAllWithArgsErrorMsg   = "verify --all does not accept image arguments"
 	verifyMissingTargetErrorMsg = "verify requires an image name, local path, or --all"
+	defaultImageLockName        = "holos.images.lock"
 )
 
 func runPull(args []string) error {
@@ -89,8 +96,132 @@ func formatVerifySuccess(ref string, res images.Verification) string {
 	return fmt.Sprintf("%s: verified %s:%s %s", ref, res.Algorithm, res.HashDisplay(), res.Path)
 }
 
-func runImages(_ []string) error {
+func runImages(args []string) error {
+	if len(args) > 0 && args[0] == "lock" {
+		return runImagesLock(args[1:])
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("usage: holos images | holos images lock -f holos.yaml [-o %s]", defaultImageLockName)
+	}
 	return writeImagesTable(os.Stdout, images.ListAvailable())
+}
+
+type imageLockfile struct {
+	Version int              `json:"version"`
+	Project string           `json:"project"`
+	Images  []imageLockEntry `json:"images"`
+}
+
+type imageLockEntry struct {
+	Service   string `json:"service"`
+	Path      string `json:"path"`
+	Format    string `json:"format"`
+	SizeBytes int64  `json:"size_bytes"`
+	SHA256    string `json:"sha256"`
+}
+
+func runImagesLock(args []string) error {
+	flags := newFlagSet("images lock")
+	projectFlags := addProjectFlags(flags, "path to holos.yaml")
+	output := flags.String("o", "", "output lockfile path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 || *projectFlags.filePath == "" {
+		return fmt.Errorf("usage: holos images lock -f holos.yaml [-o %s]", defaultImageLockName)
+	}
+
+	project, composePath, err := loadProjectWithPath(*projectFlags.filePath, *projectFlags.stateDir)
+	if err != nil {
+		return err
+	}
+	lockfile, err := imageLockfileForProject(project)
+	if err != nil {
+		return err
+	}
+	outputPath := imageLockOutputPath(*output, composePath)
+	if err := writeImageLockfile(outputPath, lockfile); err != nil {
+		return err
+	}
+	fmt.Printf("wrote %s\n", outputPath)
+	return nil
+}
+
+func imageLockOutputPath(outputPath, composePath string) string {
+	if outputPath != "" {
+		return outputPath
+	}
+	return filepath.Join(filepath.Dir(composePath), defaultImageLockName)
+}
+
+func imageLockfileForProject(project *compose.Project) (imageLockfile, error) {
+	services := make([]string, 0, len(project.Services))
+	for name := range project.Services {
+		services = append(services, name)
+	}
+	sort.Strings(services)
+
+	entries := make([]imageLockEntry, 0, len(services))
+	for _, service := range services {
+		manifest := project.Services[service]
+		entry, err := imageLockEntryForService(service, manifest.Image, manifest.ImageFormat)
+		if err != nil {
+			return imageLockfile{}, err
+		}
+		entries = append(entries, entry)
+	}
+	return imageLockfile{
+		Version: 1,
+		Project: project.Name,
+		Images:  entries,
+	}, nil
+}
+
+func imageLockEntryForService(service, path, format string) (imageLockEntry, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return imageLockEntry{}, fmt.Errorf("stat image for service %q: %w", service, err)
+	}
+	if info.IsDir() {
+		return imageLockEntry{}, fmt.Errorf("image for service %q is a directory: %s", service, path)
+	}
+	sum, err := sha256File(path)
+	if err != nil {
+		return imageLockEntry{}, fmt.Errorf("hash image for service %q: %w", service, err)
+	}
+	return imageLockEntry{
+		Service:   service,
+		Path:      path,
+		Format:    format,
+		SizeBytes: info.Size(),
+		SHA256:    sum,
+	}, nil
+}
+
+func sha256File(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func writeImageLockfile(path string, lockfile imageLockfile) error {
+	payload, err := json.MarshalIndent(lockfile, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode image lockfile: %w", err)
+	}
+	payload = append(payload, '\n')
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		return fmt.Errorf("write image lockfile %s: %w", path, err)
+	}
+	return nil
 }
 
 func writeImagesTable(output io.Writer, available []images.Image) error {

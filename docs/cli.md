@@ -102,11 +102,15 @@ holos verify --all
 ```
 
 `holos images` shows the guest OS metadata and hash algorithm used for each
-built-in entry. Local image paths are not trusted by name; set `image_format`
-and `image_os` in compose, or `--image-os` with `holos run`, when a custom image
-does not match the defaults. For private qcow2 images, keep a project checksum
-manifest such as `images/SHA256SUMS` or `holos.images.lock` and verify it before
-launching; the [threat model](./threat-model.md) has a fuller checklist.
+built-in entry. `holos images lock -f holos.yaml` writes `holos.images.lock`
+next to the compose file with each service's resolved image path, format, size,
+and SHA-256 digest. Use `-o <path>` to choose a different lockfile path.
+
+Local image paths are not trusted by name; set `image_format` and `image_os` in
+compose, or `--image-os` with `holos run`, when a custom image does not match
+the defaults. For private qcow2 images, keep the generated project lockfile in
+source control and verify it before launching; the [threat model](./threat-model.md)
+has a fuller checklist.
 
 ## Reboot Survival
 

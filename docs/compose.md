@@ -292,6 +292,8 @@ the image checksum before `holos up`, and consider keeping an
 `images/SHA256SUMS` or `holos.images.lock` file next to `holos.yaml` so teams
 can review exactly which private image build a project was tested against. See
 the [threat model](./threat-model.md) for verification and lockfile guidance.
+Use `holos images lock -f holos.yaml` to generate `holos.images.lock` from the
+resolved service images.
 
 ## Dockerfile Provisioning
 

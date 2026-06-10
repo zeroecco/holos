@@ -108,8 +108,8 @@ var commands = map[string]command{
 	},
 	"images": {
 		run:         runImages,
-		usage:       "holos images",
-		description: "list available images",
+		usage:       "holos images | holos images lock -f holos.yaml [-o holos.images.lock]",
+		description: "list available images or write an image lockfile",
 	},
 	"volumes": {
 		run:         runVolumes,

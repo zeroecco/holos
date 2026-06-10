@@ -45,14 +45,14 @@ Useful next steps:
 
 ### Image Lockfile Workflow
 
-Docs recommend keeping private image checksums next to a project, but holos
-does not generate or enforce a project image lockfile.
+Docs recommend keeping private image checksums next to a project, and `holos
+images lock -f holos.yaml` generates `holos.images.lock` with resolved paths,
+formats, sizes, and SHA-256 digests. Holos does not yet enforce the lock before
+`up`.
 
 Useful next steps:
 
-- Add `holos images lock -f holos.yaml`.
 - Verify local/private image paths against the lock before `up`.
-- Record image size, format, digest, and resolved path.
 
 ## Hardware And Import Coverage
 

@@ -2,11 +2,17 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/zeroecco/holos/internal/compose"
+	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/images"
 )
 
@@ -78,6 +84,94 @@ func TestImageCommandArgumentErrorMessages(t *testing.T) {
 	}
 }
 
+func TestImageLockOutputPath(t *testing.T) {
+	t.Parallel()
+
+	composePath := filepath.Join("/work", "stack", "holos.yaml")
+	if got, want := imageLockOutputPath("", composePath), filepath.Join("/work", "stack", defaultImageLockName); got != want {
+		t.Fatalf("default lock path = %q, want %q", got, want)
+	}
+	if got := imageLockOutputPath("/tmp/custom.lock", composePath); got != "/tmp/custom.lock" {
+		t.Fatalf("explicit lock path = %q, want explicit", got)
+	}
+}
+
+func TestImageLockfileForProject(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	apiPath := writeImageLockTestFile(t, dir, "api.qcow2", "api-image")
+	webPath := writeImageLockTestFile(t, dir, "web.raw", "web-image")
+	project := &compose.Project{
+		Name: "demo",
+		Services: map[string]config.Manifest{
+			"web": {Image: webPath, ImageFormat: config.ImageFormatRaw},
+			"api": {Image: apiPath, ImageFormat: config.ImageFormatQCOW2},
+		},
+	}
+
+	lockfile, err := imageLockfileForProject(project)
+	if err != nil {
+		t.Fatalf("imageLockfileForProject: %v", err)
+	}
+	if lockfile.Version != 1 || lockfile.Project != "demo" {
+		t.Fatalf("lockfile identity = %+v, want version 1 project demo", lockfile)
+	}
+	if len(lockfile.Images) != 2 {
+		t.Fatalf("lockfile images = %+v, want two", lockfile.Images)
+	}
+	assertImageLockEntry(t, lockfile.Images[0], imageLockEntry{
+		Service:   "api",
+		Path:      apiPath,
+		Format:    config.ImageFormatQCOW2,
+		SizeBytes: int64(len("api-image")),
+		SHA256:    testSHA256("api-image"),
+	})
+	assertImageLockEntry(t, lockfile.Images[1], imageLockEntry{
+		Service:   "web",
+		Path:      webPath,
+		Format:    config.ImageFormatRaw,
+		SizeBytes: int64(len("web-image")),
+		SHA256:    testSHA256("web-image"),
+	})
+}
+
+func TestRunImagesLockWritesLockfile(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := writeImageLockTestFile(t, dir, "base.qcow2", "base-image")
+	composePath := filepath.Join(dir, "holos.yaml")
+	body := "name: demo\nservices:\n  web:\n    image: ./base.qcow2\n"
+	if err := os.WriteFile(composePath, []byte(body), 0o644); err != nil {
+		t.Fatalf("write compose: %v", err)
+	}
+	outputPath := filepath.Join(dir, "custom.images.lock")
+
+	out, err := captureStdout(t, func() error {
+		return runImages([]string{"lock", "-f", composePath, "-o", outputPath, "--state-dir", filepath.Join(dir, "state")})
+	})
+	if err != nil {
+		t.Fatalf("runImages lock: %v", err)
+	}
+	if !strings.Contains(out, "wrote "+outputPath) {
+		t.Fatalf("lock stdout = %q, want output path", out)
+	}
+
+	payload, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read lockfile: %v", err)
+	}
+	var lockfile imageLockfile
+	if err := json.Unmarshal(payload, &lockfile); err != nil {
+		t.Fatalf("decode lockfile: %v", err)
+	}
+	if len(lockfile.Images) != 1 {
+		t.Fatalf("lockfile images = %+v, want one", lockfile.Images)
+	}
+	if lockfile.Images[0].Path != imagePath || lockfile.Images[0].SHA256 != testSHA256("base-image") {
+		t.Fatalf("lockfile image = %+v, want path %q digest", lockfile.Images[0], imagePath)
+	}
+}
+
 func TestFormatVerifyLines(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +210,29 @@ func TestFormatVerifyLines(t *testing.T) {
 				t.Fatalf("verify line = %q, want %q", tt.got, tt.want)
 			}
 		})
+	}
+}
+
+func writeImageLockTestFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write image %s: %v", name, err)
+	}
+	return path
+}
+
+func testSHA256(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func assertImageLockEntry(t *testing.T, got, want imageLockEntry) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("image lock entry = %+v, want %+v", got, want)
 	}
 }
 

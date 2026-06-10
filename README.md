@@ -103,6 +103,8 @@ holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image
 holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
+holos images lock -f holos.yaml [-o holos.images.lock]
+                                     write project image lockfile
 holos volumes [-f holos.yaml] [--json]
                                      list named volumes
 holos volumes rm <project> <volume>  remove a detached named volume
