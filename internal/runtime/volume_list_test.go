@@ -297,6 +297,86 @@ func TestSnapshotVolumeRejectsInvalidSnapshotName(t *testing.T) {
 	assertErrorContains(t, err, "invalid snapshot name")
 }
 
+func TestResizeVolumeResizesDetachedVolumeAndUpdatesRecord(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	if err := manager.saveProject(&ProjectRecord{
+		Name:    testVolumeProject,
+		Volumes: []VolumeRecord{{Name: testVolumeName, SizeBytes: testVolumeDeclaredSize}},
+	}); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+	logPath := installQEMUImgVolumeMock(t)
+
+	const newSize = int64(30 << 20)
+	if err := manager.ResizeVolume(testVolumeProject, testVolumeName, newSize, false); err != nil {
+		t.Fatalf("ResizeVolume: %v", err)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read qemu-img log: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"resize", backing, "31457280"}
+	assertStringSliceEqual(t, "qemu-img args", args, want)
+
+	record, err := manager.loadProject(testVolumeProject)
+	if err != nil {
+		t.Fatalf("load project: %v", err)
+	}
+	if len(record.Volumes) != 1 || record.Volumes[0].Name != testVolumeName || record.Volumes[0].SizeBytes != newSize {
+		t.Fatalf("record volumes = %+v, want resized %s", record.Volumes, testVolumeName)
+	}
+}
+
+func TestResizeVolumeRefusesAttachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	workDir := testVolumeWorkDir(stateDir)
+	if err := os.MkdirAll(workDir, stateDirPerm); err != nil {
+		t.Fatalf("create workdir: %v", err)
+	}
+	if err := os.Symlink(backing, volumeLinkPath(workDir, testVolumeName)); err != nil {
+		t.Fatalf("symlink volume: %v", err)
+	}
+	if err := manager.saveProject(&ProjectRecord{
+		Name: testVolumeProject,
+		Services: []ServiceRecord{
+			{
+				Name: testVolumeService,
+				Instances: []InstanceRecord{
+					{Name: instanceDirName(testVolumeService, 0), Status: InstanceStatusRunning, WorkDir: workDir},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+
+	err := manager.ResizeVolume(testVolumeProject, testVolumeName, 30<<20, false)
+	assertErrorContains(t, err, "attached", instanceDirName(testVolumeService, 0))
+}
+
+func TestResizeVolumeRejectsInvalidSize(t *testing.T) {
+	t.Parallel()
+
+	err := NewManager(t.TempDir()).ResizeVolume(testVolumeProject, testVolumeName, 0, false)
+	assertErrorContains(t, err, "positive")
+}
+
+func TestVolumeResizeArgsAllowsExplicitShrink(t *testing.T) {
+	t.Parallel()
+
+	got := volumeResizeArgs("/volumes/data.qcow2", 10<<20, true)
+	want := []string{"resize", "--shrink", "/volumes/data.qcow2", "10485760"}
+	assertStringSliceEqual(t, "resize args", got, want)
+}
+
 func TestVolumeNameFromLink(t *testing.T) {
 	t.Parallel()
 

@@ -206,7 +206,9 @@ fails while any instance workdir still references the volume. Use
 `holos volumes export <project> <volume> <path>` to copy a detached volume
 backing file to a new destination without overwriting existing files. Use
 `holos volumes snapshot <project> <volume> <snapshot>` to create an internal
-qcow2 snapshot on a detached named volume.
+qcow2 snapshot on a detached named volume. Use
+`holos volumes resize <project> <volume> <size>` to grow a detached named
+volume's virtual size; pass `--shrink` only when intentionally reducing it.
 
 ## Healthchecks And `depends_on`
 

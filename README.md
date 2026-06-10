@@ -112,6 +112,8 @@ holos volumes export <project> <volume> <path>
                                      export a detached named volume
 holos volumes snapshot <project> <volume> <snapshot>
                                      snapshot a detached named volume
+holos volumes resize [--shrink] <project> <volume> <size>
+                                     resize a detached named volume
 holos devices [--gpu]                list PCI devices and IOMMU groups
 holos doctor [--json]                check host dependencies
 holos install [-f holos.yaml] [--system] [--enable]

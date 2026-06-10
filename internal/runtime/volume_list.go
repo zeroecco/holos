@@ -359,3 +359,71 @@ func (m *Manager) snapshotVolumeLocked(projectName, volumeName, snapshotName str
 func volumeSnapshotCreateArgs(snapshotName, path string) []string {
 	return []string{qemuImgSnapshotSubcommand, qemuImgSnapshotCreateFlag, snapshotName, path}
 }
+
+// ResizeVolume changes the virtual size of a detached named-volume backing
+// file and updates the saved project volume record when one exists.
+func (m *Manager) ResizeVolume(projectName, volumeName string, sizeBytes int64, allowShrink bool) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	if sizeBytes <= 0 {
+		return fmt.Errorf("volume size must be positive")
+	}
+	return m.withProjectLock(projectName, func() error {
+		return m.resizeVolumeLocked(projectName, volumeName, sizeBytes, allowShrink)
+	})
+}
+
+func (m *Manager) resizeVolumeLocked(projectName, volumeName string, sizeBytes int64, allowShrink bool) error {
+	volume, ok, err := m.findVolume(projectName, volumeName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+	}
+	if len(volume.Attachments) > 0 {
+		return fmt.Errorf("volume %q in project %q is attached to %s", volumeName, projectName, volumeAttachmentSummary(volume.Attachments))
+	}
+
+	qemuImg, err := m.qemuImgBinary()
+	if err != nil {
+		return err
+	}
+	path := volumeBackingPath(m.stateDir, projectName, volumeName)
+	if output, err := exec.Command(qemuImg, volumeResizeArgs(path, sizeBytes, allowShrink)...).CombinedOutput(); err != nil {
+		return fmt.Errorf("resize volume %q in project %q: %w: %s",
+			volumeName, projectName, err, strings.TrimSpace(string(output)))
+	}
+	return m.updateVolumeRecordSize(projectName, volumeName, sizeBytes)
+}
+
+func volumeResizeArgs(path string, sizeBytes int64, allowShrink bool) []string {
+	args := []string{qemuImgResizeSubcommand}
+	if allowShrink {
+		args = append(args, qemuImgResizeShrinkFlag)
+	}
+	return append(args, path, byteSizeArg(sizeBytes))
+}
+
+func (m *Manager) updateVolumeRecordSize(projectName, volumeName string, sizeBytes int64) error {
+	record, err := m.loadProject(projectName)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	updated := false
+	for i := range record.Volumes {
+		if record.Volumes[i].Name == volumeName {
+			record.Volumes[i].SizeBytes = sizeBytes
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		record.Volumes = append(record.Volumes, VolumeRecord{Name: volumeName, SizeBytes: sizeBytes})
+	}
+	return m.saveUpdatedProject(record)
+}

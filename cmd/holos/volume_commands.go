@@ -19,6 +19,9 @@ func runVolumes(args []string) error {
 	if len(args) > 0 && args[0] == "snapshot" {
 		return runVolumeSnapshot(args[1:])
 	}
+	if len(args) > 0 && args[0] == "resize" {
+		return runVolumeResize(args[1:])
+	}
 
 	flags := newFlagSet("volumes")
 	projectFlags := addProjectFlags(flags, "path to holos.yaml (limits output to that one project)")
@@ -96,6 +99,27 @@ func runVolumeSnapshot(args []string) error {
 	manager := runtime.NewManager(*stateDir)
 	applyLockFlags(manager, lock)
 	return manager.SnapshotVolume(flags.Arg(0), flags.Arg(1), flags.Arg(2))
+}
+
+func runVolumeResize(args []string) error {
+	flags := newFlagSet("volumes resize")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	shrink := flags.Bool("shrink", false, "allow destructive volume shrink")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 3 {
+		return fmt.Errorf("usage: holos volumes resize <project> <volume> <size>")
+	}
+
+	sizeBytes, err := parseByteSize(flags.Arg(2))
+	if err != nil {
+		return err
+	}
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	return manager.ResizeVolume(flags.Arg(0), flags.Arg(1), sizeBytes, *shrink)
 }
 
 func filterVolumesByProject(volumes []runtime.VolumeInfo, project string) []runtime.VolumeInfo {

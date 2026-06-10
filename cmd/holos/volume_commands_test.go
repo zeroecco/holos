@@ -123,6 +123,72 @@ func TestRunVolumeSnapshotRequiresProjectVolumeAndName(t *testing.T) {
 	}
 }
 
+func TestRunVolumeResizeResizesDetachedVolume(t *testing.T) {
+	stateDir := t.TempDir()
+	backing := filepath.Join(stateDir, "volumes", testVolumeCommandProject, "data.qcow2")
+	if err := os.MkdirAll(filepath.Dir(backing), 0o700); err != nil {
+		t.Fatalf("mkdir volume dir: %v", err)
+	}
+	if err := os.WriteFile(backing, []byte("volume"), 0o600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	logPath := installQEMUImgCommandMock(t)
+
+	err := runVolumeResize([]string{"--state-dir", stateDir, testVolumeCommandProject, "data", "30M"})
+	if err != nil {
+		t.Fatalf("runVolumeResize: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read qemu-img log: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"resize", backing, "31457280"}
+	assertStringSliceEqual(t, "qemu-img args", args, want)
+}
+
+func TestRunVolumeResizeRequiresProjectVolumeAndSize(t *testing.T) {
+	t.Parallel()
+
+	err := runVolumeResize(nil)
+	if err == nil || !strings.Contains(err.Error(), "usage: holos volumes resize") {
+		t.Fatalf("runVolumeResize(nil) err = %v, want usage", err)
+	}
+}
+
+func TestRunVolumeResizeRejectsInvalidSize(t *testing.T) {
+	t.Parallel()
+
+	err := runVolumeResize([]string{testVolumeCommandProject, "data", "tiny"})
+	if err == nil || !strings.Contains(err.Error(), "invalid size") {
+		t.Fatalf("runVolumeResize invalid size err = %v, want invalid size", err)
+	}
+}
+
+func TestRunVolumeResizeAllowsExplicitShrink(t *testing.T) {
+	stateDir := t.TempDir()
+	backing := filepath.Join(stateDir, "volumes", testVolumeCommandProject, "data.qcow2")
+	if err := os.MkdirAll(filepath.Dir(backing), 0o700); err != nil {
+		t.Fatalf("mkdir volume dir: %v", err)
+	}
+	if err := os.WriteFile(backing, []byte("volume"), 0o600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	logPath := installQEMUImgCommandMock(t)
+
+	err := runVolumeResize([]string{"--state-dir", stateDir, "--shrink", testVolumeCommandProject, "data", "20M"})
+	if err != nil {
+		t.Fatalf("runVolumeResize shrink: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read qemu-img log: %v", err)
+	}
+	args := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"resize", "--shrink", backing, "20971520"}
+	assertStringSliceEqual(t, "qemu-img args", args, want)
+}
+
 func TestFilterVolumesByProject(t *testing.T) {
 	t.Parallel()
 

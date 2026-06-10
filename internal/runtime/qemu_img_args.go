@@ -4,6 +4,8 @@ import "fmt"
 
 const (
 	qemuImgCreateSubcommand   = "create"
+	qemuImgResizeSubcommand   = "resize"
+	qemuImgResizeShrinkFlag   = "--shrink"
 	qemuImgSnapshotSubcommand = "snapshot"
 	qemuImgSnapshotCreateFlag = "-c"
 	qemuImgFormatFlag         = "-f"

@@ -38,12 +38,12 @@ Named volumes are qcow2-backed and survive `holos down`. `holos volumes` lists
 their path, size, and attachment state. `holos volumes rm` removes detached
 volumes, `holos volumes export` copies detached backing files without
 overwriting existing files, and `holos volumes snapshot` creates internal qcow2
-snapshots for detached volumes. There is still no CLI to resize volumes.
+snapshots for detached volumes. `holos volumes resize` changes the virtual size
+of detached named volumes.
 
 Useful next steps:
 
 - Consider snapshot commands for root overlays.
-- Add explicit resize commands for named volumes.
 
 ## Hardware And Import Coverage
 

@@ -113,8 +113,8 @@ var commands = map[string]command{
 	},
 	"volumes": {
 		run:         runVolumes,
-		usage:       "holos volumes [-f holos.yaml] [--json] | holos volumes rm <project> <volume> | holos volumes export <project> <volume> <path> | holos volumes snapshot <project> <volume> <snapshot>",
-		description: "list, remove, export, or snapshot named volumes",
+		usage:       "holos volumes [-f holos.yaml] [--json] | holos volumes rm <project> <volume> | holos volumes export <project> <volume> <path> | holos volumes snapshot <project> <volume> <snapshot> | holos volumes resize [--shrink] <project> <volume> <size>",
+		description: "list, remove, export, snapshot, or resize named volumes",
 	},
 	"devices": {
 		run:         runDevices,
