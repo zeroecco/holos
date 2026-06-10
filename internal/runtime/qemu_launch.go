@@ -13,7 +13,7 @@ import (
 
 const (
 	qemuHostForwardMarker = "hostfwd"
-	qemuStartupProbeDelay = 300 * time.Millisecond
+	qemuStartupProbeDelay = time.Second
 	qemuLogPerm           = os.FileMode(0o644)
 )
 
