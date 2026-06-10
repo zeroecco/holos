@@ -179,7 +179,9 @@ volumes:
 
 Top-level `networks` and per-service `networks` are accepted for Docker
 Compose compatibility. Holos currently uses its own internal VM network plan,
-so these declarations do not alter runtime networking.
+so these declarations do not alter runtime networking. `holos import` preserves
+libvirt NIC source, model, and MAC intent in network `driver_opts` and service
+network metadata for future bridge/tap support.
 
 Top-level `configs`/`secrets` and per-service references are distributed into
 guests as cloud-init write files. `file`, `content` (configs), and

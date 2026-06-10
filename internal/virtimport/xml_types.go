@@ -108,6 +108,7 @@ type Interface struct {
 	Type   string          `xml:"type,attr,omitempty"`
 	Source *InterfaceSrc   `xml:"source,omitempty"`
 	Model  *InterfaceModel `xml:"model,omitempty"`
+	MAC    *InterfaceMAC   `xml:"mac,omitempty"`
 }
 
 // InterfaceSrc captures whichever of network/bridge/dev is set.
@@ -120,6 +121,11 @@ type InterfaceSrc struct {
 // InterfaceModel is <model type="virtio"/>.
 type InterfaceModel struct {
 	Type string `xml:"type,attr,omitempty"`
+}
+
+// InterfaceMAC is <mac address="..."/>.
+type InterfaceMAC struct {
+	Address string `xml:"address,attr,omitempty"`
 }
 
 // HostDev is a passthrough device. Only PCI maps cleanly to holos.

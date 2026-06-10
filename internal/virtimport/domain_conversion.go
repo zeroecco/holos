@@ -111,13 +111,72 @@ func applyDomainHostDevices(svc *compose.Service, d Domain) []string {
 	return warnings
 }
 
-func interfaceWarnings(d Domain) []string {
+func applyDomainInterfaces(serviceName string, svc *compose.Service, d Domain) ([]ImportedNetwork, []string) {
+	var networks []ImportedNetwork
 	warnings := make([]string, 0, len(d.Devices.Interfaces))
-	for _, iface := range d.Devices.Interfaces {
+	for i, iface := range d.Devices.Interfaces {
 		desc := describeInterface(iface)
+		source, ok := interfaceSourceValue(iface)
+		if ok {
+			networkName := importedInterfaceNetworkName(serviceName, iface, i)
+			if svc.Networks == nil {
+				svc.Networks = compose.ServiceNetworks{}
+			}
+			svc.Networks[networkName] = compose.ServiceNetwork{
+				MacAddress: interfaceMACAddress(iface),
+			}
+			networks = append(networks, ImportedNetwork{
+				Name:   networkName,
+				Type:   iface.Type,
+				Source: source,
+				Model:  interfaceModel(iface),
+			})
+			warnings = append(warnings, fmt.Sprintf(
+				"interface %s preserved as network %q metadata; bridge/tap runtime support still needs review",
+				desc, networkName))
+			continue
+		}
 		warnings = append(warnings, fmt.Sprintf(
 			"interface %s not imported. holos services share an internal subnet; expose with ports: instead",
 			desc))
 	}
-	return warnings
+	return networks, warnings
+}
+
+func importedInterfaceNetworkName(serviceName string, iface Interface, index int) string {
+	source, ok := interfaceSourceValue(iface)
+	if !ok {
+		source = fmt.Sprintf("net-%d", index+1)
+	}
+	return sanitizeName(serviceName + "-" + source)
+}
+
+func interfaceSourceValue(iface Interface) (string, bool) {
+	if iface.Source == nil {
+		return "", false
+	}
+	switch {
+	case iface.Source.Bridge != "":
+		return iface.Source.Bridge, true
+	case iface.Source.Dev != "":
+		return iface.Source.Dev, true
+	case iface.Source.Network != "":
+		return iface.Source.Network, true
+	default:
+		return "", false
+	}
+}
+
+func interfaceMACAddress(iface Interface) string {
+	if iface.MAC == nil {
+		return ""
+	}
+	return strings.TrimSpace(iface.MAC.Address)
+}
+
+func interfaceModel(iface Interface) string {
+	if iface.Model == nil {
+		return ""
+	}
+	return strings.TrimSpace(iface.Model.Type)
 }

@@ -195,6 +195,47 @@ func TestImportAccumulatorDeclaresImportedExtraDiskVolumes(t *testing.T) {
 	}
 }
 
+func TestImportAccumulatorDeclaresImportedBridgeNetworks(t *testing.T) {
+	t.Parallel()
+
+	acc := newImportAccumulator()
+	xml := []byte(`
+<domain type='kvm'>
+  <name>web</name>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/web.qcow2'/>
+    </disk>
+    <interface type='bridge'>
+      <mac address='52:54:00:00:00:01'/>
+      <source bridge='br0'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>
+`)
+
+	if err := acc.addDomain("web.xml", xml); err != nil {
+		t.Fatalf("addDomain: %v", err)
+	}
+	file := acc.composeFile("")
+	svc := file.Services["web"]
+	if got := svc.Networks["web-br0"].MacAddress; got != "52:54:00:00:00:01" {
+		t.Fatalf("service network mac = %q, want imported mac", got)
+	}
+	network, ok := file.Networks["web-br0"]
+	if !ok {
+		t.Fatalf("top-level networks = %+v, missing web-br0", file.Networks)
+	}
+	if got := network.DriverOpts["holos.import.source"]; got != "br0" {
+		t.Fatalf("network source = %q, want br0", got)
+	}
+	wantWarning := `web: interface (type=bridge, bridge=br0) preserved as network "web-br0" metadata`
+	if len(acc.warnings) != 1 || !strings.Contains(acc.warnings[0], wantWarning) {
+		t.Fatalf("warnings = %+v, want %q", acc.warnings, wantWarning)
+	}
+}
+
 func assertImportedComposeYAML(t *testing.T, got string) {
 	t.Helper()
 

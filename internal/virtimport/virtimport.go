@@ -27,6 +27,15 @@ type ImportedVolume struct {
 	SourcePath string
 }
 
+// ImportedNetwork describes a libvirt NIC preserved as Compose network
+// metadata for a future bridge/tap backend.
+type ImportedNetwork struct {
+	Name   string
+	Type   string
+	Source string
+	Model  string
+}
+
 // Convert turns one libvirt domain XML blob into a compose.Service plus
 // a sanitised service name and a list of human-readable warnings about
 // anything we couldn't translate. The error return is reserved for
@@ -40,14 +49,21 @@ func Convert(xmlBytes []byte) (name string, svc compose.Service, warnings []stri
 // ConvertWithVolumes is like Convert but also returns top-level named-volume
 // declarations needed for extra imported file disks.
 func ConvertWithVolumes(xmlBytes []byte) (name string, svc compose.Service, volumes []ImportedVolume, warnings []string, err error) {
+	name, svc, volumes, _, warnings, err = ConvertWithResources(xmlBytes)
+	return name, svc, volumes, warnings, err
+}
+
+// ConvertWithResources returns every top-level Compose resource needed by the
+// imported service.
+func ConvertWithResources(xmlBytes []byte) (name string, svc compose.Service, volumes []ImportedVolume, networks []ImportedNetwork, warnings []string, err error) {
 	var d Domain
 	if err := xml.Unmarshal(xmlBytes, &d); err != nil {
-		return "", compose.Service{}, nil, nil, fmt.Errorf("parse libvirt xml: %w", err)
+		return "", compose.Service{}, nil, nil, nil, fmt.Errorf("parse libvirt xml: %w", err)
 	}
 
 	name = sanitizeName(d.Name)
 	if name == "" {
-		return "", compose.Service{}, nil, nil, fmt.Errorf("domain has no usable name")
+		return "", compose.Service{}, nil, nil, nil, fmt.Errorf("domain has no usable name")
 	}
 	if name != d.Name {
 		warnings = append(warnings, renamedDomainWarning(d.Name, name))
@@ -58,9 +74,11 @@ func ConvertWithVolumes(xmlBytes []byte) (name string, svc compose.Service, volu
 	volumes = append(volumes, importedVolumes...)
 	warnings = append(warnings, diskWarnings...)
 	warnings = append(warnings, applyDomainHostDevices(&svc, d)...)
-	warnings = append(warnings, interfaceWarnings(d)...)
+	importedNetworks, networkWarnings := applyDomainInterfaces(name, &svc, d)
+	networks = append(networks, importedNetworks...)
+	warnings = append(warnings, networkWarnings...)
 
-	return name, svc, volumes, warnings, nil
+	return name, svc, volumes, networks, warnings, nil
 }
 
 func renamedDomainWarning(original, sanitized string) string {

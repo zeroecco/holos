@@ -71,7 +71,7 @@ func assertServiceDevicePCIs(t *testing.T, svc compose.Service, want []string) {
 func TestConvertFullDomain(t *testing.T) {
 	t.Parallel()
 
-	name, svc, volumes, warns, err := ConvertWithVolumes([]byte(fullDomainXML))
+	name, svc, volumes, networks, warns, err := ConvertWithResources([]byte(fullDomainXML))
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
@@ -109,14 +109,52 @@ func TestConvertFullDomain(t *testing.T) {
 	if len(volumes) != 1 || volumes[0].Name != "my-web-server-vdb" || volumes[0].SourcePath != "/var/lib/libvirt/images/my-web-server-data.qcow2" {
 		t.Fatalf("imported volumes = %+v, want vdb source", volumes)
 	}
+	if len(networks) != 1 || networks[0].Name != "my-web-server-default" || networks[0].Type != "network" || networks[0].Source != "default" || networks[0].Model != "virtio" {
+		t.Fatalf("imported networks = %+v, want default virtio network", networks)
+	}
+	if got := svc.Networks["my-web-server-default"].MacAddress; got != "52:54:00:00:00:01" {
+		t.Fatalf("service network mac = %q, want imported mac", got)
+	}
 	assertServiceDevicePCIs(t, svc, []string{"0000:01:00.0"})
 
 	wantWarnings := []string{
 		"renamed domain",       // sanitised name
 		"hostdev type \"usb\"", // unsupported passthrough
-		"interface",            // bridged/network NIC dropped
+		"interface",            // bridged/network NIC preserved as metadata
 	}
 	assertWarningsContain(t, warns, wantWarnings...)
+}
+
+func TestConvertPreservesBridgeInterfaceIntent(t *testing.T) {
+	t.Parallel()
+
+	xml := []byte(`
+<domain type='kvm'>
+  <name>bridgevm</name>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/bridgevm.qcow2'/>
+    </disk>
+    <interface type='bridge'>
+      <mac address='52:54:00:aa:bb:cc'/>
+      <source bridge='br0'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>
+`)
+
+	_, svc, _, networks, warns, err := ConvertWithResources(xml)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if len(networks) != 1 || networks[0].Name != "bridgevm-br0" || networks[0].Type != "bridge" || networks[0].Source != "br0" {
+		t.Fatalf("imported networks = %+v, want br0 bridge", networks)
+	}
+	if got := svc.Networks["bridgevm-br0"].MacAddress; got != "52:54:00:aa:bb:cc" {
+		t.Fatalf("network mac = %q, want libvirt mac", got)
+	}
+	assertWarningsContain(t, warns, `preserved as network "bridgevm-br0" metadata`)
 }
 
 const minimalDomainXML = `
