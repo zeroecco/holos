@@ -11,36 +11,29 @@ Compose while keeping VMs as the isolation boundary. The missing features below
 fit that goal because they improve authoring, migration from compose files, or
 day-to-day operation of local VM stacks without adding a cluster control plane.
 
-## Highest Leverage
+## Current Status
 
-### Real Compose Network Semantics
+No highest-leverage product gaps are currently tracked here.
 
-Named `networks`, per-service attachments, aliases, `dns_search`, `mac_address`,
-explicit bridge-backed networks, and managed tap-backed networks now affect VM
-networking. `network_mode`, `dns`, `dns_opt`, `links`, and `external_links` are
-still compatibility metadata.
+Recent coverage added:
 
-Useful next steps:
+- Compose network semantics: named internal VM segments, per-service network
+  aliases, `dns_search`, explicit service MAC addresses, bridge-backed
+  networks, and managed tap-backed networks.
+- Device/import coverage: extra qcow2 disks as named volumes, imported NIC
+  source/MAC intent, imported USB hostdev metadata, and GPU passthrough
+  diagnostics.
 
-- Decide whether Compose `network_mode` should map to additional VM networking
-  modes or remain metadata.
+The remaining accepted Docker Compose fields such as `network_mode`, `dns`,
+`dns_opt`, `links`, and `external_links` stay compatibility metadata unless a
+future single-host VM workflow needs different behavior. They are not tracked as
+active gaps today.
 
-This is in scope because predictable VM networking is core to multi-service
-stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
-
-## Hardware And Import Coverage
-
-### Broader Device Import
-
-`holos import` maps vCPU, memory, machine type, host CPU mode, UEFI loader, the
-first file disk, extra qcow2 file disks as named volumes, and PCI host devices.
-It preserves libvirt NIC source and MAC intent as Compose network metadata, and
-preserves USB passthrough vendor/product intent as service device metadata. It
-reports warnings for extra disks that cannot be mapped and custom emulators.
+Add new entries here when a concrete missing feature fits holos' single-host KVM
+compose goal and has a clear testable runtime or authoring behavior.
 
 ## Explicit Non-Goals
 
-The missing features above should not expand holos into Kubernetes or libvirt.
-The project should continue to avoid multi-host clustering, live migration,
-service meshes, overlay networks, schedulers, CRDs, and quorum-managed control
-planes.
+Future missing features should not expand holos into Kubernetes or libvirt. The
+project should continue to avoid multi-host clustering, live migration, service
+meshes, overlay networks, schedulers, CRDs, and quorum-managed control planes.
