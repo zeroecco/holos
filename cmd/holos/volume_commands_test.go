@@ -55,6 +55,41 @@ func TestRunVolumeRemoveRequiresProjectAndVolume(t *testing.T) {
 	}
 }
 
+func TestRunVolumeExportCopiesDetachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	backing := filepath.Join(stateDir, "volumes", testVolumeCommandProject, "data.qcow2")
+	if err := os.MkdirAll(filepath.Dir(backing), 0o700); err != nil {
+		t.Fatalf("mkdir volume dir: %v", err)
+	}
+	if err := os.WriteFile(backing, []byte("volume"), 0o600); err != nil {
+		t.Fatalf("write volume: %v", err)
+	}
+	destination := filepath.Join(t.TempDir(), "data.qcow2")
+
+	err := runVolumeExport([]string{"--state-dir", stateDir, testVolumeCommandProject, "data", destination})
+	if err != nil {
+		t.Fatalf("runVolumeExport: %v", err)
+	}
+	payload, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read export: %v", err)
+	}
+	if string(payload) != "volume" {
+		t.Fatalf("export payload = %q, want volume", string(payload))
+	}
+}
+
+func TestRunVolumeExportRequiresProjectVolumeAndPath(t *testing.T) {
+	t.Parallel()
+
+	err := runVolumeExport(nil)
+	if err == nil || !strings.Contains(err.Error(), "usage: holos volumes export") {
+		t.Fatalf("runVolumeExport(nil) err = %v, want usage", err)
+	}
+}
+
 func TestFilterVolumesByProject(t *testing.T) {
 	t.Parallel()
 

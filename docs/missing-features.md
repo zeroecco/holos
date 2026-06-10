@@ -36,11 +36,11 @@ stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
 Named volumes are qcow2-backed and survive `holos down`. `holos volumes` lists
 their path, size, and attachment state, and `holos volumes rm` removes detached
-volumes. There is still no CLI to snapshot, resize, or export them safely.
+volumes. `holos volumes export` copies detached backing files without
+overwriting existing files. There is still no CLI to snapshot or resize volumes.
 
 Useful next steps:
 
-- Add export commands that refuse active attachments.
 - Consider snapshot commands for root overlays and named volumes.
 
 ### Richer Status And Inspection

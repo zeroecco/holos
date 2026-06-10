@@ -162,6 +162,83 @@ func TestRemoveVolumeRejectsInvalidName(t *testing.T) {
 	assertErrorContains(t, err, "invalid volume name")
 }
 
+func TestExportVolumeCopiesDetachedBackingFile(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	writeTestVolumeBacking(t, stateDir, testVolumeName)
+	destination := filepath.Join(t.TempDir(), "data-export.qcow2")
+
+	if err := manager.ExportVolume(testVolumeProject, testVolumeName, destination); err != nil {
+		t.Fatalf("ExportVolume: %v", err)
+	}
+	payload, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read export: %v", err)
+	}
+	if string(payload) != testVolumePayload {
+		t.Fatalf("export payload = %q, want %q", string(payload), testVolumePayload)
+	}
+}
+
+func TestExportVolumeRefusesExistingDestination(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	writeTestVolumeBacking(t, stateDir, testVolumeName)
+	destination := filepath.Join(t.TempDir(), "data-export.qcow2")
+	if err := os.WriteFile(destination, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("seed export destination: %v", err)
+	}
+
+	err := manager.ExportVolume(testVolumeProject, testVolumeName, destination)
+	assertErrorContains(t, err, "already exists")
+	payload, readErr := os.ReadFile(destination)
+	if readErr != nil {
+		t.Fatalf("read destination: %v", readErr)
+	}
+	if string(payload) != "existing" {
+		t.Fatalf("destination payload = %q, want existing", string(payload))
+	}
+}
+
+func TestExportVolumeRefusesAttachedVolume(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	workDir := testVolumeWorkDir(stateDir)
+	if err := os.MkdirAll(workDir, stateDirPerm); err != nil {
+		t.Fatalf("create workdir: %v", err)
+	}
+	if err := os.Symlink(backing, volumeLinkPath(workDir, testVolumeName)); err != nil {
+		t.Fatalf("symlink volume: %v", err)
+	}
+	if err := manager.saveProject(&ProjectRecord{
+		Name: testVolumeProject,
+		Services: []ServiceRecord{
+			{
+				Name: testVolumeService,
+				Instances: []InstanceRecord{
+					{Name: instanceDirName(testVolumeService, 0), Status: InstanceStatusRunning, WorkDir: workDir},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("save project: %v", err)
+	}
+
+	destination := filepath.Join(t.TempDir(), "data-export.qcow2")
+	err := manager.ExportVolume(testVolumeProject, testVolumeName, destination)
+	assertErrorContains(t, err, "attached", instanceDirName(testVolumeService, 0))
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("destination stat err = %v, want not exist", statErr)
+	}
+}
+
 func TestVolumeNameFromLink(t *testing.T) {
 	t.Parallel()
 

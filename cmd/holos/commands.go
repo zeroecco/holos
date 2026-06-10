@@ -107,8 +107,8 @@ var commands = map[string]command{
 	},
 	"volumes": {
 		run:         runVolumes,
-		usage:       "holos volumes [-f holos.yaml] [--json] | holos volumes rm <project> <volume>",
-		description: "list or remove named volumes",
+		usage:       "holos volumes [-f holos.yaml] [--json] | holos volumes rm <project> <volume> | holos volumes export <project> <volume> <path>",
+		description: "list, remove, or export named volumes",
 	},
 	"devices": {
 		run:         runDevices,

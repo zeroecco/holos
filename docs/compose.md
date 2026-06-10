@@ -202,7 +202,9 @@ Use `holos volumes` to list named volume backing files, declared size, path, and
 the instances that currently reference each volume. Add `--json` for structured
 output, or `-f holos.yaml` to limit the list to one project. Use
 `holos volumes rm <project> <volume>` to remove a detached named volume; removal
-fails while any instance workdir still references the volume.
+fails while any instance workdir still references the volume. Use
+`holos volumes export <project> <volume> <path>` to copy a detached volume
+backing file to a new destination without overwriting existing files.
 
 ## Healthchecks And `depends_on`
 

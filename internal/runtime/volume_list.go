@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -263,4 +264,55 @@ func volumeAttachmentSummary(attachments []VolumeAttachmentInfo) string {
 		parts[i] = attachment.Instance + ":" + attachment.Status
 	}
 	return strings.Join(parts, ",")
+}
+
+// ExportVolume copies a detached named-volume backing file to destination.
+// It refuses to overwrite existing files.
+func (m *Manager) ExportVolume(projectName, volumeName, destination string) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	if destination == "" {
+		return fmt.Errorf("export destination is required")
+	}
+	return m.withProjectLock(projectName, func() error {
+		return m.exportVolumeLocked(projectName, volumeName, destination)
+	})
+}
+
+func (m *Manager) exportVolumeLocked(projectName, volumeName, destination string) error {
+	volume, ok, err := m.findVolume(projectName, volumeName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+	}
+	if len(volume.Attachments) > 0 {
+		return fmt.Errorf("volume %q in project %q is attached to %s", volumeName, projectName, volumeAttachmentSummary(volume.Attachments))
+	}
+
+	src, err := os.Open(volumeBackingPath(m.stateDir, projectName, volumeName))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+		}
+		return fmt.Errorf("open volume %q in project %q: %w", volumeName, projectName, err)
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("export destination %q already exists", destination)
+		}
+		return fmt.Errorf("create export destination %q: %w", destination, err)
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("copy volume %q to %q: %w", volumeName, destination, err)
+	}
+	return nil
 }
