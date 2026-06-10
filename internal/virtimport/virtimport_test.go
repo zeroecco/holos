@@ -58,14 +58,31 @@ const fullDomainXML = `
 func assertServiceDevicePCIs(t *testing.T, svc compose.Service, want []string) {
 	t.Helper()
 
-	if len(svc.Devices) != len(want) {
-		t.Fatalf("devices len = %d, want %d: %+v", len(svc.Devices), len(want), svc.Devices)
-	}
-	for i, wantPCI := range want {
-		if svc.Devices[i].PCI != wantPCI {
-			t.Fatalf("devices[%d].PCI = %q, want %q: %+v", i, svc.Devices[i].PCI, wantPCI, svc.Devices)
+	var pcis []string
+	for _, device := range svc.Devices {
+		if device.PCI != "" {
+			pcis = append(pcis, device.PCI)
 		}
 	}
+	for i, wantPCI := range want {
+		if i >= len(pcis) || pcis[i] != wantPCI {
+			t.Fatalf("device pcis = %+v, want %+v: all devices %+v", pcis, want, svc.Devices)
+		}
+	}
+	if len(pcis) != len(want) {
+		t.Fatalf("device pcis = %+v, want %+v: all devices %+v", pcis, want, svc.Devices)
+	}
+}
+
+func assertServiceUSBDevice(t *testing.T, svc compose.Service, want string) {
+	t.Helper()
+
+	for _, device := range svc.Devices {
+		if device.Source == want && device.Target == want && device.Permissions == "rwm" {
+			return
+		}
+	}
+	t.Fatalf("devices = %+v, missing USB metadata %q", svc.Devices, want)
 }
 
 func TestConvertFullDomain(t *testing.T) {
@@ -116,13 +133,39 @@ func TestConvertFullDomain(t *testing.T) {
 		t.Fatalf("service network mac = %q, want imported mac", got)
 	}
 	assertServiceDevicePCIs(t, svc, []string{"0000:01:00.0"})
+	assertServiceUSBDevice(t, svc, "usb:1d6b:0002")
 
 	wantWarnings := []string{
-		"renamed domain",       // sanitised name
-		"hostdev type \"usb\"", // unsupported passthrough
-		"interface",            // bridged/network NIC preserved as metadata
+		"renamed domain", // sanitised name
+		"hostdev usb",    // USB passthrough preserved as metadata
+		"interface",      // bridged/network NIC preserved as metadata
 	}
 	assertWarningsContain(t, warns, wantWarnings...)
+}
+
+func TestConvertPreservesUSBHostDeviceMetadata(t *testing.T) {
+	t.Parallel()
+
+	xml := []byte(`
+<domain type='kvm'>
+  <name>usbvm</name>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/usbvm.qcow2'/>
+    </disk>
+    <hostdev mode='subsystem' type='usb'>
+      <source><vendor id='0x0781'/><product id='0x5581'/></source>
+    </hostdev>
+  </devices>
+</domain>
+`)
+
+	_, svc, _, _, warns, err := ConvertWithResources(xml)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	assertServiceUSBDevice(t, svc, "usb:0781:5581")
+	assertWarningsContain(t, warns, "hostdev usb usb:0781:5581 preserved as device metadata")
 }
 
 func TestConvertPreservesBridgeInterfaceIntent(t *testing.T) {

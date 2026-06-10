@@ -37,12 +37,8 @@ stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 `holos import` maps vCPU, memory, machine type, host CPU mode, UEFI loader, the
 first file disk, extra qcow2 file disks as named volumes, and PCI host devices.
 It preserves libvirt NIC source and MAC intent as Compose network metadata, and
-reports warnings for extra disks that cannot be mapped, USB passthrough, and
-custom emulators.
-
-Useful next steps:
-
-- Represent USB passthrough if QEMU support is added to the VM schema.
+preserves USB passthrough vendor/product intent as service device metadata. It
+reports warnings for extra disks that cannot be mapped and custom emulators.
 
 ### GPU Convenience
 

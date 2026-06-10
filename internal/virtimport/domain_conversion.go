@@ -97,6 +97,18 @@ func importedDiskMountTarget(disk Disk, index int) string {
 func applyDomainHostDevices(svc *compose.Service, d Domain) []string {
 	var warnings []string
 	for _, hd := range d.Devices.HostDevs {
+		if hd.Type == "usb" {
+			device, ok := importedUSBDevice(hd)
+			if !ok {
+				warnings = append(warnings, `hostdev type "usb" is missing vendor/product ids`)
+				continue
+			}
+			svc.Devices = append(svc.Devices, device)
+			warnings = append(warnings, fmt.Sprintf(
+				"hostdev usb %s preserved as device metadata; USB passthrough runtime support still needs review",
+				device.Source))
+			continue
+		}
 		if hd.Type != "pci" {
 			warnings = append(warnings, fmt.Sprintf("hostdev type %q is not supported (only pci passthrough imports)", hd.Type))
 			continue
@@ -109,6 +121,27 @@ func applyDomainHostDevices(svc *compose.Service, d Domain) []string {
 		})
 	}
 	return warnings
+}
+
+func importedUSBDevice(hd HostDev) (compose.ComposeDevice, bool) {
+	vendor := usbIDValue(hd.Source.Vendor)
+	product := usbIDValue(hd.Source.Product)
+	if vendor == "" || product == "" {
+		return compose.ComposeDevice{}, false
+	}
+	id := "usb:" + vendor + ":" + product
+	return compose.ComposeDevice{
+		Source:      id,
+		Target:      id,
+		Permissions: "rwm",
+	}, true
+}
+
+func usbIDValue(id *USBID) string {
+	if id == nil {
+		return ""
+	}
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(id.ID)), "0x")
 }
 
 func applyDomainInterfaces(serviceName string, svc *compose.Service, d Domain) ([]ImportedNetwork, []string) {

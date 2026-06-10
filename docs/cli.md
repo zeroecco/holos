@@ -155,9 +155,9 @@ holos import --connect qemu:///system api
 ```
 
 It maps vCPU, memory, machine type, host CPU mode, UEFI loader, the first file
-disk, and PCI host devices. Extra disks, bridged NICs, USB passthrough, and
-custom emulators are reported as warnings so you can edit the generated compose
-file before `holos up`.
+disk, extra qcow2 file disks, PCI host devices, bridged NIC intent, and USB
+hostdev metadata. Unsupported or review-needed parts are reported as warnings
+so you can edit the generated compose file before `holos up`.
 
 ## Doctor
 

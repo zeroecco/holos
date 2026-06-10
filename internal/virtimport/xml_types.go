@@ -138,6 +138,8 @@ type HostDev struct {
 // HostDevSource pulls the PCI address out of <source><address .../></source>.
 type HostDevSource struct {
 	Address *PCIAddress `xml:"address,omitempty"`
+	Vendor  *USBID      `xml:"vendor,omitempty"`
+	Product *USBID      `xml:"product,omitempty"`
 }
 
 // PCIAddress holds a libvirt-formatted (hex, 0x-prefixed) PCI address.
@@ -146,4 +148,9 @@ type PCIAddress struct {
 	Bus      string `xml:"bus,attr,omitempty"`
 	Slot     string `xml:"slot,attr,omitempty"`
 	Function string `xml:"function,attr,omitempty"`
+}
+
+// USBID holds libvirt's hex USB vendor/product id attributes.
+type USBID struct {
+	ID string `xml:"id,attr,omitempty"`
 }

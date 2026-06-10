@@ -279,6 +279,11 @@ instance, sets NVIDIA-friendly machine options, and accepts optional `rom_file`
 paths for custom VBIOS ROMs. You still need host IOMMU setup and the relevant
 devices bound to `vfio-pci`.
 
+`holos import` also preserves libvirt USB hostdev vendor/product intent as
+non-PCI service device metadata such as `source: usb:0781:5581`; this is
+reviewable in generated compose but not launched until USB passthrough runtime
+support exists.
+
 ## Images
 
 Use built-in image aliases or local paths:

@@ -236,6 +236,38 @@ func TestImportAccumulatorDeclaresImportedBridgeNetworks(t *testing.T) {
 	}
 }
 
+func TestImportAccumulatorPreservesUSBHostDeviceMetadata(t *testing.T) {
+	t.Parallel()
+
+	acc := newImportAccumulator()
+	xml := []byte(`
+<domain type='kvm'>
+  <name>web</name>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/var/lib/libvirt/images/web.qcow2'/>
+    </disk>
+    <hostdev mode='subsystem' type='usb'>
+      <source><vendor id='0x0781'/><product id='0x5581'/></source>
+    </hostdev>
+  </devices>
+</domain>
+`)
+
+	if err := acc.addDomain("web.xml", xml); err != nil {
+		t.Fatalf("addDomain: %v", err)
+	}
+	file := acc.composeFile("")
+	devices := file.Services["web"].Devices
+	if len(devices) != 1 || devices[0].Source != "usb:0781:5581" || devices[0].Target != "usb:0781:5581" || devices[0].Permissions != "rwm" {
+		t.Fatalf("devices = %+v, want imported USB metadata", devices)
+	}
+	wantWarning := `web: hostdev usb usb:0781:5581 preserved as device metadata`
+	if len(acc.warnings) != 1 || !strings.Contains(acc.warnings[0], wantWarning) {
+		t.Fatalf("warnings = %+v, want %q", acc.warnings, wantWarning)
+	}
+}
+
 func assertImportedComposeYAML(t *testing.T, got string) {
 	t.Helper()
 
