@@ -97,6 +97,8 @@ holos console <project> [<inst>]     attach serial console
 holos exec <project> [<inst>] [-- cmd...]
                                      SSH into an instance
 holos logs <project> [<svc|inst>]    show console logs
+holos inspect [-f holos.yaml] [project|instance]
+                                     inspect state as JSON
 holos validate [-f holos.yaml]       validate compose file
 holos pull <image>                   pull a cloud image
 holos verify <image>|--all           verify cached image checksums

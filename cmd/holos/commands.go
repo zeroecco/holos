@@ -26,6 +26,7 @@ var commandOrder = []string{
 	"console",
 	"exec",
 	"logs",
+	"inspect",
 	"validate",
 	"pull",
 	"verify",
@@ -84,6 +85,11 @@ var commands = map[string]command{
 		run:         runLogs,
 		usage:       "holos logs [-f holos.yaml] <svc|inst>",
 		description: "show logs for a service (all replicas) or one instance",
+	},
+	"inspect": {
+		run:         runInspect,
+		usage:       "holos inspect [-f holos.yaml] [project|instance]",
+		description: "inspect project or instance state as JSON",
 	},
 	"validate": {
 		run:         runValidate,

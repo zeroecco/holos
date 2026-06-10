@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +35,48 @@ func TestStartLaunchSpecUsesInstancePaths(t *testing.T) {
 	assertLaunchSpecIdentity(t, spec, instanceName, instanceIndex)
 	assertLaunchSpecPaths(t, spec, paths.overlay, seedPath, paths.consoleLog, paths.serialSocket, paths.qmpSocket)
 	assertLaunchSpecVolumes(t, spec, volumes)
+}
+
+func TestInspectLaunchSpecReconstructsSavedInstance(t *testing.T) {
+	t.Parallel()
+
+	instancePorts := []qemu.PortMapping{{HostPort: 8080, GuestPort: 80, Protocol: config.ProtocolTCP}}
+	workDir := filepath.Join("/state/instances", testPathProject, testPathService, testInstanceName(testPathService, 0))
+	instance := InstanceRecord{
+		Name:        testInstanceName(testPathService, 0),
+		Index:       0,
+		WorkDir:     workDir,
+		OverlayPath: filepath.Join(workDir, "root.qcow2"),
+		SeedPath:    filepath.Join(workDir, "seed.iso"),
+		LogPath:     filepath.Join(workDir, "console.log"),
+		SerialPath:  filepath.Join(workDir, "serial.sock"),
+		QMPPath:     filepath.Join(workDir, "qmp.sock"),
+		Ports:       instancePorts,
+		SSHPort:     2222,
+	}
+	manifest := config.Manifest{
+		VM: config.VMConfig{UEFI: true},
+		Mounts: []config.Mount{
+			{Kind: config.MountKindBind, Target: "/srv"},
+			{Kind: config.MountKindVolume, VolumeName: testVolumeName, ReadOnly: true},
+		},
+	}
+
+	spec := InspectLaunchSpec(manifest, instance)
+
+	assertLaunchSpecIdentity(t, spec, instance.Name, instance.Index)
+	assertLaunchSpecPaths(t, spec, instance.OverlayPath, instance.SeedPath, instance.LogPath, instance.SerialPath, instance.QMPPath)
+	if !slices.Equal(spec.Ports, instance.Ports) || spec.SSHPort != instance.SSHPort {
+		t.Fatalf("ports = %+v ssh=%d, want ports=%+v ssh=%d", spec.Ports, spec.SSHPort, instance.Ports, instance.SSHPort)
+	}
+	assertLaunchSpecVolumes(t, spec, []qemu.VolumeAttachment{{
+		Name:     testVolumeName,
+		DiskPath: filepath.Join(workDir, "vol-"+testVolumeName+".qcow2"),
+		ReadOnly: true,
+	}})
+	if spec.OVMFVars != filepath.Join(workDir, "OVMF_VARS.fd") {
+		t.Fatalf("OVMFVars = %q, want workdir OVMF vars", spec.OVMFVars)
+	}
 }
 
 func TestStartedInstanceRecordUsesLaunchResultAndInstancePaths(t *testing.T) {

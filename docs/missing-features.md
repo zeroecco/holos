@@ -43,18 +43,6 @@ Useful next steps:
 
 - Consider snapshot commands for root overlays and named volumes.
 
-### Richer Status And Inspection
-
-`holos ps`, logs, and state files expose useful information, but there is no
-single inspection command for the resolved manifest, QEMU args, host forwards,
-volume paths, health state, and generated SSH endpoint.
-
-Useful next steps:
-
-- Add `holos inspect <project|instance>`.
-- Include JSON output for automation.
-- Keep sensitive generated key material out of output.
-
 ### Image Lockfile Workflow
 
 Docs recommend keeping private image checksums next to a project, but holos

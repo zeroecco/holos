@@ -89,6 +89,43 @@ func startLaunchSpec(instanceName string, index int, paths instancePaths, seedPa
 	}
 }
 
+// InspectLaunchSpec reconstructs the per-instance QEMU launch inputs from a
+// saved instance record and a matching resolved manifest. It does not allocate
+// ports, create files, or otherwise mutate state.
+func InspectLaunchSpec(manifest config.Manifest, instance InstanceRecord) qemu.LaunchSpec {
+	volumes := inspectVolumeAttachments(instance.WorkDir, manifest.Mounts)
+	spec := qemu.LaunchSpec{
+		Name:        instance.Name,
+		Index:       instance.Index,
+		OverlayPath: instance.OverlayPath,
+		SeedPath:    instance.SeedPath,
+		LogPath:     instance.LogPath,
+		SerialPath:  instance.SerialPath,
+		QMPPath:     instance.QMPPath,
+		Ports:       instance.Ports,
+		SSHPort:     instance.SSHPort,
+		Volumes:     volumes,
+	}
+	if manifest.VM.UEFI && instance.WorkDir != "" {
+		spec.OVMFVars = newInstancePaths(instance.WorkDir).ovmfVars
+	}
+	return spec
+}
+
+func inspectVolumeAttachments(workDir string, mounts []config.Mount) []qemu.VolumeAttachment {
+	if workDir == "" {
+		return nil
+	}
+	var volumes []qemu.VolumeAttachment
+	for _, mount := range mounts {
+		if mount.Kind != config.MountKindVolume {
+			continue
+		}
+		volumes = append(volumes, volumeAttachmentForMount(mount, volumeLinkPath(workDir, mount.VolumeName)))
+	}
+	return volumes
+}
+
 func startedInstanceRecord(instanceName string, index int, workDir string, paths instancePaths, seedPath string, manifest config.Manifest, pid int, ports []qemu.PortMapping, sshPort int, startedAt time.Time) InstanceRecord {
 	record := InstanceRecord{
 		Name:               instanceName,

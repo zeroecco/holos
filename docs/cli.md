@@ -73,6 +73,23 @@ holos down --no-wait demo
 Lock errors include the lock path and last recorded holder metadata when
 available.
 
+## Inspection
+
+`holos inspect` emits JSON for a project or instance:
+
+```bash
+holos inspect demo
+holos inspect web-0
+holos inspect -f holos.yaml
+holos inspect -f holos.yaml web-0
+```
+
+Without `-f`, inspect reads runtime state: services, instances, host forwards,
+generated SSH endpoint, logs, QMP socket, and named-volume inventory. With
+`-f`, inspect also includes the resolved service manifest; instance inspection
+adds the QEMU argument vector reconstructed from the resolved manifest and saved
+instance paths. It does not read or print generated private key files.
+
 ## Image Verification
 
 Built-in images carry checksum metadata. `holos pull`, `holos up`, and
