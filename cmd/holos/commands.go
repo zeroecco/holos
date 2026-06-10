@@ -31,6 +31,7 @@ var commandOrder = []string{
 	"pull",
 	"verify",
 	"images",
+	"snapshots",
 	"volumes",
 	"devices",
 	"doctor",
@@ -110,6 +111,11 @@ var commands = map[string]command{
 		run:         runImages,
 		usage:       "holos images | holos images lock -f holos.yaml [-o holos.images.lock]",
 		description: "list available images or write an image lockfile",
+	},
+	"snapshots": {
+		run:         runSnapshots,
+		usage:       "holos snapshots create <project> <instance> <snapshot>",
+		description: "snapshot stopped instance root overlays",
 	},
 	"volumes": {
 		run:         runVolumes,

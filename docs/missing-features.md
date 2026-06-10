@@ -30,21 +30,6 @@ Useful next steps:
 This is in scope because predictable VM networking is core to multi-service
 stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
-## VM Operations
-
-### Snapshots And Volume Lifecycle Commands
-
-Named volumes are qcow2-backed and survive `holos down`. `holos volumes` lists
-their path, size, and attachment state. `holos volumes rm` removes detached
-volumes, `holos volumes export` copies detached backing files without
-overwriting existing files, and `holos volumes snapshot` creates internal qcow2
-snapshots for detached volumes. `holos volumes resize` changes the virtual size
-of detached named volumes.
-
-Useful next steps:
-
-- Consider snapshot commands for root overlays.
-
 ## Hardware And Import Coverage
 
 ### Broader Device Import

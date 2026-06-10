@@ -349,14 +349,14 @@ func (m *Manager) snapshotVolumeLocked(projectName, volumeName, snapshotName str
 		return err
 	}
 	path := volumeBackingPath(m.stateDir, projectName, volumeName)
-	if output, err := exec.Command(qemuImg, volumeSnapshotCreateArgs(snapshotName, path)...).CombinedOutput(); err != nil {
+	if output, err := exec.Command(qemuImg, diskSnapshotCreateArgs(snapshotName, path)...).CombinedOutput(); err != nil {
 		return fmt.Errorf("snapshot volume %q in project %q: %w: %s",
 			volumeName, projectName, err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
 
-func volumeSnapshotCreateArgs(snapshotName, path string) []string {
+func diskSnapshotCreateArgs(snapshotName, path string) []string {
 	return []string{qemuImgSnapshotSubcommand, qemuImgSnapshotCreateFlag, snapshotName, path}
 }
 

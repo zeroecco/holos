@@ -210,6 +210,10 @@ qcow2 snapshot on a detached named volume. Use
 `holos volumes resize <project> <volume> <size>` to grow a detached named
 volume's virtual size; pass `--shrink` only when intentionally reducing it.
 
+Use `holos snapshots create <project> <instance> <snapshot>` to create an
+internal qcow2 snapshot on a stopped instance's root overlay. Root overlay
+snapshots are refused while the instance is running.
+
 ## Healthchecks And `depends_on`
 
 A service with a healthcheck blocks dependents from starting until the probe

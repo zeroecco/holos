@@ -90,6 +90,18 @@ generated SSH endpoint, logs, QMP socket, and named-volume inventory. With
 adds the QEMU argument vector reconstructed from the resolved manifest and saved
 instance paths. It does not read or print generated private key files.
 
+## Snapshots
+
+Stopped instances can snapshot their root overlay with qemu-img:
+
+```bash
+holos stop -f holos.yaml web
+holos snapshots create demo web-0 before-upgrade
+```
+
+The command refuses running instances because mutating an active qcow2 overlay
+outside QEMU is unsafe.
+
 ## Image Verification
 
 Built-in images carry checksum metadata. `holos pull`, `holos up`, and
