@@ -279,6 +279,11 @@ instance, sets NVIDIA-friendly machine options, and accepts optional `rom_file`
 paths for custom VBIOS ROMs. You still need host IOMMU setup and the relevant
 devices bound to `vfio-pci`.
 
+Use `holos devices --gpu` before launch to list VGA/3D devices with their
+drivers, IOMMU groups, peer devices, same-slot audio pairing, and NVIDIA UEFI or
+ROM review hints. The diagnostics print suggested host setup commands, but do
+not bind devices or modify the host automatically.
+
 `holos import` also preserves libvirt USB hostdev vendor/product intent as
 non-PCI service device metadata such as `source: usb:0781:5581`; this is
 reviewable in generated compose but not launched until USB passthrough runtime

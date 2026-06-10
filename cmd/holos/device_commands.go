@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/zeroecco/holos/internal/vfio"
 )
@@ -16,15 +17,16 @@ func runDevices(args []string) error {
 	}
 
 	if *gpuOnly {
-		gpus, err := vfio.ListGPUs()
+		groups, err := vfio.ListIOMMUGroups()
 		if err != nil {
 			return err
 		}
-		if len(gpus) == 0 {
+		diagnostics := vfio.DiagnoseGPUs(groups)
+		if len(diagnostics) == 0 {
 			writeNoGPUsFound(os.Stdout)
 			return nil
 		}
-		return writeGPUTable(os.Stdout, gpus)
+		return writeGPUTable(os.Stdout, diagnostics)
 	}
 
 	groups, err := vfio.ListIOMMUGroups()
@@ -35,14 +37,22 @@ func runDevices(args []string) error {
 	return nil
 }
 
-func writeGPUTable(output io.Writer, gpus []vfio.PCIDevice) error {
+func writeGPUTable(output io.Writer, gpus []vfio.GPUDiagnostic) error {
 	writer := newTableWriter(output)
-	fmt.Fprintln(writer, "PCI\tTYPE\tVENDOR:DEVICE\tDRIVER\tIOMMU")
+	fmt.Fprintln(writer, "PCI\tTYPE\tVENDOR:DEVICE\tDRIVER\tIOMMU\tDIAGNOSTICS")
 	for _, gpu := range gpus {
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%d\n",
-			gpu.Address, gpu.ClassName, pciVendorDevice(gpu), gpu.Driver, gpu.IOMMUGroup)
+		dev := gpu.Device
+		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%d\t%s\n",
+			dev.Address, dev.ClassName, pciVendorDevice(dev), dev.Driver, dev.IOMMUGroup, formatGPUDiagnostics(gpu.Notes))
 	}
 	return writer.Flush()
+}
+
+func formatGPUDiagnostics(notes []string) string {
+	if len(notes) == 0 {
+		return tablePlaceholder
+	}
+	return strings.Join(notes, "; ")
 }
 
 func writeNoGPUsFound(output io.Writer) {

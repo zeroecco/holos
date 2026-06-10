@@ -170,3 +170,15 @@ holos doctor --json
 
 It verifies Linux/KVM availability, QEMU tools, a cloud-init seed builder, SSH,
 optional OVMF firmware for UEFI and PCI passthrough, and state-dir writability.
+
+## Devices
+
+`holos devices --gpu` lists VGA and 3D PCI devices with passthrough diagnostics:
+
+```bash
+holos devices --gpu
+```
+
+The output includes current driver binding, IOMMU group peers, same-slot audio
+pairing, NVIDIA UEFI/ROM hints, and suggested `vfio-pci` setup commands. It does
+not apply host changes.

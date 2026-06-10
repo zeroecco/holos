@@ -31,22 +31,28 @@ const (
 func TestWriteGPUTable(t *testing.T) {
 	t.Parallel()
 
-	gpus := []vfio.PCIDevice{
+	gpus := []vfio.GPUDiagnostic{
 		{
-			Address:    testPCINvidiaAddress,
-			ClassName:  "VGA",
-			Vendor:     testPCINvidiaVendor,
-			DeviceID:   testPCINvidiaDevice,
-			Driver:     testPCINvidiaDriver,
-			IOMMUGroup: testNvidiaIOMMUGroup,
+			Device: vfio.PCIDevice{
+				Address:    testPCINvidiaAddress,
+				ClassName:  "VGA",
+				Vendor:     testPCINvidiaVendor,
+				DeviceID:   testPCINvidiaDevice,
+				Driver:     testPCINvidiaDriver,
+				IOMMUGroup: testNvidiaIOMMUGroup,
+			},
+			Notes: []string{"driver=nvidia", "NVIDIA GPU"},
 		},
 		{
-			Address:    testPCIAMDAddress,
-			ClassName:  "3D Controller",
-			Vendor:     testPCIAMDVendor,
-			DeviceID:   testPCIAMDDevice,
-			Driver:     testPCIAMDDriver,
-			IOMMUGroup: testAMDIOMMUGroup,
+			Device: vfio.PCIDevice{
+				Address:    testPCIAMDAddress,
+				ClassName:  "3D Controller",
+				Vendor:     testPCIAMDVendor,
+				DeviceID:   testPCIAMDDevice,
+				Driver:     testPCIAMDDriver,
+				IOMMUGroup: testAMDIOMMUGroup,
+			},
+			Notes: []string{"ready"},
 		},
 	}
 
@@ -54,11 +60,22 @@ func TestWriteGPUTable(t *testing.T) {
 	if err := writeGPUTable(&out, gpus); err != nil {
 		t.Fatalf("writeGPUTable: %v", err)
 	}
-	want := "PCI           TYPE           VENDOR:DEVICE  DRIVER    IOMMU\n" +
-		"0000:01:00.0  VGA            10de:2204      nvidia    12\n" +
-		"0000:02:00.0  3D Controller  1002:73bf      vfio-pci  14\n"
+	want := "PCI           TYPE           VENDOR:DEVICE  DRIVER    IOMMU  DIAGNOSTICS\n" +
+		"0000:01:00.0  VGA            10de:2204      nvidia    12     driver=nvidia; NVIDIA GPU\n" +
+		"0000:02:00.0  3D Controller  1002:73bf      vfio-pci  14     ready\n"
 	if got := out.String(); got != want {
 		t.Fatalf("gpu table = %q, want %q", got, want)
+	}
+}
+
+func TestFormatGPUDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	if got, want := formatGPUDiagnostics(nil), "-"; got != want {
+		t.Fatalf("empty diagnostics = %q, want %q", got, want)
+	}
+	if got, want := formatGPUDiagnostics([]string{"driver=nvidia", "NVIDIA GPU"}), "driver=nvidia; NVIDIA GPU"; got != want {
+		t.Fatalf("joined diagnostics = %q, want %q", got, want)
 	}
 }
 

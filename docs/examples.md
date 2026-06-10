@@ -53,6 +53,10 @@ curl http://localhost:11434/api/generate \
 holos down simple-inference
 ```
 
+Review the `holos devices --gpu` diagnostics for driver binding, IOMMU group
+peers, paired audio functions, and NVIDIA UEFI/ROM hints before copying PCI
+addresses into the manifest.
+
 Use this when you want a useful local model-serving VM backed by a physical GPU.
 
 ## `examples/minecraft-server`

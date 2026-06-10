@@ -40,17 +40,6 @@ It preserves libvirt NIC source and MAC intent as Compose network metadata, and
 preserves USB passthrough vendor/product intent as service device metadata. It
 reports warnings for extra disks that cannot be mapped and custom emulators.
 
-### GPU Convenience
-
-PCI passthrough is supported, but users still need to discover IOMMU groups and
-bind devices to `vfio-pci` themselves.
-
-Useful next steps:
-
-- Add guided diagnostics for GPU pairs, drivers, and IOMMU group safety.
-- Emit suggested host setup commands without applying them automatically.
-- Detect common NVIDIA ROM and UEFI pitfalls before launch.
-
 ## Explicit Non-Goals
 
 The missing features above should not expand holos into Kubernetes or libvirt.
