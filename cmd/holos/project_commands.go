@@ -17,8 +17,11 @@ func runUp(args []string) error {
 		return err
 	}
 
-	project, err := loadProject(*projectFlags.filePath, *projectFlags.stateDir)
+	project, composePath, err := loadProjectWithPath(*projectFlags.filePath, *projectFlags.stateDir)
 	if err != nil {
+		return err
+	}
+	if err := verifyProjectImageLock(composePath, project); err != nil {
 		return err
 	}
 

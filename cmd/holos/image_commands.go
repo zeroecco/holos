@@ -224,6 +224,75 @@ func writeImageLockfile(path string, lockfile imageLockfile) error {
 	return nil
 }
 
+func verifyProjectImageLock(composePath string, project *compose.Project) error {
+	lockPath := imageLockOutputPath("", composePath)
+	lockfile, ok, err := loadImageLockfile(lockPath)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	current, err := imageLockfileForProject(project)
+	if err != nil {
+		return err
+	}
+	if err := compareImageLockfiles(lockfile, current); err != nil {
+		return fmt.Errorf("image lockfile %s: %w", lockPath, err)
+	}
+	return nil
+}
+
+func loadImageLockfile(path string) (imageLockfile, bool, error) {
+	payload, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return imageLockfile{}, false, nil
+	}
+	if err != nil {
+		return imageLockfile{}, false, fmt.Errorf("read image lockfile %s: %w", path, err)
+	}
+	var lockfile imageLockfile
+	if err := json.Unmarshal(payload, &lockfile); err != nil {
+		return imageLockfile{}, false, fmt.Errorf("decode image lockfile %s: %w", path, err)
+	}
+	return lockfile, true, nil
+}
+
+func compareImageLockfiles(locked, current imageLockfile) error {
+	if locked.Version != current.Version {
+		return fmt.Errorf("version = %d, want %d", locked.Version, current.Version)
+	}
+	if locked.Project != current.Project {
+		return fmt.Errorf("project = %q, want %q", locked.Project, current.Project)
+	}
+	lockedByService := imageLockEntriesByService(locked.Images)
+	for _, currentEntry := range current.Images {
+		lockedEntry, ok := lockedByService[currentEntry.Service]
+		if !ok {
+			return fmt.Errorf("missing service %q", currentEntry.Service)
+		}
+		if lockedEntry != currentEntry {
+			return fmt.Errorf("service %q drifted: lock has %+v, current is %+v", currentEntry.Service, lockedEntry, currentEntry)
+		}
+		delete(lockedByService, currentEntry.Service)
+	}
+	for service := range lockedByService {
+		return fmt.Errorf("stale service %q", service)
+	}
+	if len(locked.Images) != len(current.Images) {
+		return fmt.Errorf("contains %d image entries, want %d", len(locked.Images), len(current.Images))
+	}
+	return nil
+}
+
+func imageLockEntriesByService(entries []imageLockEntry) map[string]imageLockEntry {
+	out := make(map[string]imageLockEntry, len(entries))
+	for _, entry := range entries {
+		out[entry.Service] = entry
+	}
+	return out
+}
+
 func writeImagesTable(output io.Writer, available []images.Image) error {
 	writer := newTableWriter(output)
 	fmt.Fprintln(writer, "NAME\tTAG\tFORMAT\tOS\tVERIFY")

@@ -172,6 +172,102 @@ func TestRunImagesLockWritesLockfile(t *testing.T) {
 	}
 }
 
+func TestVerifyProjectImageLockPassesMatchingLockfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	imagePath := writeImageLockTestFile(t, dir, "base.qcow2", "base-image")
+	project := &compose.Project{
+		Name: "demo",
+		Services: map[string]config.Manifest{
+			"web": {Image: imagePath, ImageFormat: config.ImageFormatQCOW2},
+		},
+	}
+	lockfile, err := imageLockfileForProject(project)
+	if err != nil {
+		t.Fatalf("imageLockfileForProject: %v", err)
+	}
+	composePath := filepath.Join(dir, "holos.yaml")
+	if err := writeImageLockfile(imageLockOutputPath("", composePath), lockfile); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	if err := verifyProjectImageLock(composePath, project); err != nil {
+		t.Fatalf("verifyProjectImageLock: %v", err)
+	}
+}
+
+func TestVerifyProjectImageLockSkipsMissingLockfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	imagePath := writeImageLockTestFile(t, dir, "base.qcow2", "base-image")
+	project := &compose.Project{
+		Name: "demo",
+		Services: map[string]config.Manifest{
+			"web": {Image: imagePath, ImageFormat: config.ImageFormatQCOW2},
+		},
+	}
+
+	if err := verifyProjectImageLock(filepath.Join(dir, "holos.yaml"), project); err != nil {
+		t.Fatalf("verifyProjectImageLock missing lockfile: %v", err)
+	}
+}
+
+func TestVerifyProjectImageLockRejectsDigestDrift(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	imagePath := writeImageLockTestFile(t, dir, "base.qcow2", "base-image")
+	project := &compose.Project{
+		Name: "demo",
+		Services: map[string]config.Manifest{
+			"web": {Image: imagePath, ImageFormat: config.ImageFormatQCOW2},
+		},
+	}
+	lockfile, err := imageLockfileForProject(project)
+	if err != nil {
+		t.Fatalf("imageLockfileForProject: %v", err)
+	}
+	composePath := filepath.Join(dir, "holos.yaml")
+	if err := writeImageLockfile(imageLockOutputPath("", composePath), lockfile); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	if err := os.WriteFile(imagePath, []byte("changed-image"), 0o644); err != nil {
+		t.Fatalf("mutate image: %v", err)
+	}
+
+	err = verifyProjectImageLock(composePath, project)
+	if err == nil || !strings.Contains(err.Error(), "drifted") {
+		t.Fatalf("verifyProjectImageLock err = %v, want drift", err)
+	}
+}
+
+func TestCompareImageLockfilesRejectsMissingAndStaleServices(t *testing.T) {
+	t.Parallel()
+
+	current := imageLockfile{
+		Version: 1,
+		Project: "demo",
+		Images:  []imageLockEntry{{Service: "web", Path: "/web.qcow2", Format: config.ImageFormatQCOW2, SizeBytes: 1, SHA256: strings.Repeat("a", 64)}},
+	}
+	missing := imageLockfile{Version: 1, Project: "demo"}
+	if err := compareImageLockfiles(missing, current); err == nil || !strings.Contains(err.Error(), `missing service "web"`) {
+		t.Fatalf("missing compare err = %v, want missing service error", err)
+	}
+	stale := imageLockfile{
+		Version: 1,
+		Project: "demo",
+		Images: []imageLockEntry{
+			current.Images[0],
+			{Service: "old", Path: "/old.qcow2", Format: config.ImageFormatQCOW2, SizeBytes: 1, SHA256: strings.Repeat("b", 64)},
+		},
+	}
+	if err := compareImageLockfiles(stale, current); err == nil || !strings.Contains(err.Error(), `stale service "old"`) {
+		t.Fatalf("stale compare err = %v, want stale service error", err)
+	}
+}
+
 func TestFormatVerifyLines(t *testing.T) {
 	t.Parallel()
 

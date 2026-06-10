@@ -288,12 +288,14 @@ defaults.
 
 For local or private qcow2 images, holos treats the file as an
 operator-supplied artifact. Set `image_format` and `image_os` explicitly, verify
-the image checksum before `holos up`, and consider keeping an
+the image checksum before first use, and consider keeping an
 `images/SHA256SUMS` or `holos.images.lock` file next to `holos.yaml` so teams
 can review exactly which private image build a project was tested against. See
 the [threat model](./threat-model.md) for verification and lockfile guidance.
 Use `holos images lock -f holos.yaml` to generate `holos.images.lock` from the
-resolved service images.
+resolved service images. When that lockfile exists next to the compose file,
+`holos up` verifies the resolved image path, format, size, and SHA-256 digest
+before launching anything.
 
 ## Dockerfile Provisioning
 

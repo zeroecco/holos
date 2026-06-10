@@ -43,17 +43,6 @@ Useful next steps:
 
 - Consider snapshot commands for root overlays and named volumes.
 
-### Image Lockfile Workflow
-
-Docs recommend keeping private image checksums next to a project, and `holos
-images lock -f holos.yaml` generates `holos.images.lock` with resolved paths,
-formats, sizes, and SHA-256 digests. Holos does not yet enforce the lock before
-`up`.
-
-Useful next steps:
-
-- Verify local/private image paths against the lock before `up`.
-
 ## Hardware And Import Coverage
 
 ### Broader Device Import
