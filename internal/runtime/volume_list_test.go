@@ -63,8 +63,7 @@ func TestListVolumesCombinesBackingFilesRecordsAndAttachments(t *testing.T) {
 				Instances: []InstanceRecord{
 					{
 						Name:    instanceDirName(testVolumeService, 0),
-						PID:     os.Getpid(),
-						Status:  InstanceStatusRunning,
+						Status:  InstanceStatusStopped,
 						WorkDir: workDir,
 					},
 				},
@@ -89,7 +88,7 @@ func TestListVolumesCombinesBackingFilesRecordsAndAttachments(t *testing.T) {
 		SizeBytes: testVolumeDeclaredSize,
 		Path:      backing,
 		Attachments: []VolumeAttachmentInfo{
-			{Service: testVolumeService, Instance: instanceDirName(testVolumeService, 0), Status: InstanceStatusRunning},
+			{Service: testVolumeService, Instance: instanceDirName(testVolumeService, 0), Status: InstanceStatusStopped},
 		},
 	})
 	assertVolumeInfo(t, volumes[1], VolumeInfo{
