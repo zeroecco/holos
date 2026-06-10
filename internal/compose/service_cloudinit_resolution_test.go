@@ -157,7 +157,7 @@ func TestResolveServiceWriteFilesOrder(t *testing.T) {
 		},
 	}
 
-	got, err := resolveServiceWriteFiles(t.TempDir(), svc, dockerfileWriteFiles)
+	got, err := resolveServiceWriteFiles(t.TempDir(), svc, dockerfileWriteFiles, nil, nil)
 	if err != nil {
 		t.Fatalf("resolveServiceWriteFiles: %v", err)
 	}

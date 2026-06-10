@@ -26,7 +26,7 @@ func resolveServiceUser(svc Service, resolver composeImageResolver) string {
 	return config.DefaultUser
 }
 
-func resolveServiceWriteFiles(baseDir string, svc Service, dockerfileWriteFiles []config.WriteFile) ([]config.WriteFile, error) {
+func resolveServiceWriteFiles(baseDir string, svc Service, dockerfileWriteFiles []config.WriteFile, configs map[string]Config, secrets map[string]Secret) ([]config.WriteFile, error) {
 	writeFiles := make([]config.WriteFile, 0, len(dockerfileWriteFiles)+len(svc.CloudInit.WriteFiles))
 	writeFiles = append(writeFiles, dockerfileWriteFiles...)
 
@@ -37,6 +37,12 @@ func resolveServiceWriteFiles(baseDir string, svc Service, dockerfileWriteFiles 
 	if envFile, ok := environmentFile(env); ok {
 		writeFiles = append(writeFiles, envFile)
 	}
+
+	resourceFiles, err := resolveResourceWriteFiles(baseDir, svc, configs, secrets)
+	if err != nil {
+		return nil, err
+	}
+	writeFiles = append(writeFiles, resourceFiles...)
 
 	writeFiles = append(writeFiles, normalizeComposeWriteFiles(svc.CloudInit.WriteFiles)...)
 	return writeFiles, nil

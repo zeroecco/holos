@@ -200,12 +200,11 @@ func TestDecodeServiceNetworkMapValue(t *testing.T) {
 }
 
 func TestResolveAcceptsComposeConfigsAndSecretsSyntax(t *testing.T) {
-	t.Parallel()
-
 	dir := t.TempDir()
 	writeTestImage(t, dir)
 	writeTestFile(t, dir, "app.conf", "fake")
 	writeTestFile(t, dir, "token.txt", "fake")
+	t.Setenv("API_TOKEN", "fake")
 	yamlDoc := `
 name: configsecrets
 services:
@@ -239,7 +238,7 @@ secrets:
       region: test
     template_driver: golang
   api_token:
-    external: true
+    environment: API_TOKEN
 `
 	resolveTestCompose(t, dir, yamlDoc)
 }

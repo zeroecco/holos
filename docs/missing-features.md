@@ -30,22 +30,6 @@ Useful next steps:
 This is in scope because predictable VM networking is core to multi-service
 stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
-### Guest Distribution For `configs` And `secrets`
-
-Top-level `configs` and `secrets` plus per-service references are parsed for
-Compose compatibility, but they are not materialized inside guests. Users must
-currently model those files with `cloud_init.write_files`.
-
-Useful next steps:
-
-- Resolve config and secret references into generated cloud-init files.
-- Preserve ownership, mode, and target path semantics where Compose provides
-  them.
-- Keep secret file permissions restrictive in the state directory and generated
-  seed.
-
-This is in scope because VM stacks need repeatable configuration injection.
-
 ### Runtime Lifecycle Hooks
 
 `post_start` is translated into first-boot commands, but `pre_stop` cannot run

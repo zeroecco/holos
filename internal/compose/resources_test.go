@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"os"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/config"
@@ -133,6 +134,212 @@ func TestDecodeServiceResource(t *testing.T) {
 			}
 			assertServiceResource(t, got, tt.wantSource, tt.wantTarget)
 		})
+	}
+}
+
+func TestResolveResourceWriteFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "app.conf", "from file\n")
+	writeTestFile(t, dir, "password.txt", "secret file\n")
+	t.Setenv("INLINE_SECRET", "from env\n")
+
+	svc := Service{
+		Configs: ServiceResources{
+			{Source: "file_config", Target: "/etc/app.conf", UID: "1000", GID: "1001", Mode: 0440},
+			{Source: "inline_config"},
+		},
+		Secrets: ServiceResources{
+			{Source: "password"},
+			{Source: "token", Target: "api_token", UID: "app", Mode: "0440"},
+		},
+	}
+	configs := map[string]Config{
+		"file_config":   {File: "./app.conf"},
+		"inline_config": {Content: "inline\n"},
+	}
+	secrets := map[string]Secret{
+		"password": {File: "./password.txt"},
+		"token":    {Environment: "INLINE_SECRET"},
+	}
+
+	got, err := resolveResourceWriteFiles(dir, svc, configs, secrets)
+	if err != nil {
+		t.Fatalf("resolveResourceWriteFiles: %v", err)
+	}
+	want := []config.WriteFile{
+		{Path: "/etc/app.conf", Content: "from file\n", Permissions: "0440", Owner: "1000:1001"},
+		{Path: "/inline_config", Content: "inline\n", Permissions: configDefaultPermissions, Owner: config.DefaultFileOwner},
+		{Path: "/run/secrets/password", Content: "secret file\n", Permissions: secretDefaultPermissions, Owner: config.DefaultFileOwner},
+		{Path: "/run/secrets/api_token", Content: "from env\n", Permissions: "0440", Owner: "app:root"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("resource write_files len = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("resource write_files[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestResolveResourceWriteFilesErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		svc     Service
+		configs map[string]Config
+		secrets map[string]Secret
+		wantErr string
+	}{
+		{
+			name:    "missing config declaration",
+			svc:     Service{Configs: ServiceResources{{Source: "missing"}}},
+			wantErr: `config "missing" is not declared`,
+		},
+		{
+			name:    "external config",
+			svc:     Service{Configs: ServiceResources{{Source: "external"}}},
+			configs: map[string]Config{"external": {External: true}},
+			wantErr: `config "external" is external`,
+		},
+		{
+			name:    "missing secret environment",
+			svc:     Service{Secrets: ServiceResources{{Source: "token"}}},
+			secrets: map[string]Secret{"token": {Environment: "MISSING_SECRET_ENV"}},
+			wantErr: `environment variable "MISSING_SECRET_ENV" is not set`,
+		},
+		{
+			name:    "invalid mode",
+			svc:     Service{Secrets: ServiceResources{{Source: "token", Mode: "bad"}}},
+			secrets: map[string]Secret{"token": {Environment: "TOKEN_ENV"}},
+			wantErr: `mode "bad" must be octal`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TOKEN_ENV", "secret")
+
+			_, err := resolveResourceWriteFiles(t.TempDir(), tt.svc, tt.configs, tt.secrets)
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestResolveComposeConfigsAndSecretsIntoWriteFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	writeTestFile(t, dir, "app.conf", "file config\n")
+	t.Setenv("DB_PASSWORD", "env secret\n")
+	yamlDoc := `
+name: configsecrets
+services:
+  api:
+    image: ./base.qcow2
+    configs:
+      - source: app_config
+        target: /etc/app.conf
+        uid: "1000"
+        gid: "1000"
+        mode: 0440
+    secrets:
+      - source: db_password
+        target: /run/secrets/db_password
+configs:
+  app_config:
+    file: ./app.conf
+secrets:
+  db_password:
+    environment: DB_PASSWORD
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+	writeFiles := project.Services[testComposeAPIService].CloudInit.WriteFiles
+	assertWriteFileContains(t, testComposeAPIService, "/etc/app.conf", writeFiles, "file config")
+	assertWriteFileContains(t, testComposeAPIService, "/run/secrets/db_password", writeFiles, "env secret")
+	assertWriteFileMetadata(t, "/etc/app.conf", writeFiles, "0440", "1000:1000")
+	assertWriteFileMetadata(t, "/run/secrets/db_password", writeFiles, secretDefaultPermissions, config.DefaultFileOwner)
+}
+
+func assertWriteFileMetadata(t *testing.T, path string, writeFiles []config.WriteFile, permissions, owner string) {
+	t.Helper()
+
+	for _, file := range writeFiles {
+		if file.Path != path {
+			continue
+		}
+		if file.Permissions != permissions || file.Owner != owner {
+			t.Fatalf("%s metadata = permissions %q owner %q, want %q %q", path, file.Permissions, file.Owner, permissions, owner)
+		}
+		return
+	}
+	t.Fatalf("missing write file %s", path)
+}
+
+func TestResourcePermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		mode     any
+		fallback string
+		want     string
+		wantErr  string
+	}{
+		{name: "nil", fallback: "0444", want: "0444"},
+		{name: "yaml octal int", mode: 0440, want: "0440"},
+		{name: "string", mode: "440", want: "0440"},
+		{name: "empty string", mode: " ", fallback: "0400", want: "0400"},
+		{name: "bad string", mode: "bad", wantErr: "must be octal"},
+		{name: "float", mode: 1.5, wantErr: "must be an integer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := resourcePermissions(tt.mode, tt.fallback)
+			if tt.wantErr != "" {
+				assertErrorContains(t, err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				t.Fatalf("resourcePermissions: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("resourcePermissions = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResourceExternal(t *testing.T) {
+	t.Parallel()
+
+	if resourceExternal(nil) {
+		t.Fatal("nil external = true, want false")
+	}
+	if resourceExternal(false) {
+		t.Fatal("false external = true, want false")
+	}
+	if !resourceExternal(true) {
+		t.Fatal("true external = false, want true")
+	}
+	if !resourceExternal(map[string]string{"name": "prod"}) {
+		t.Fatal("map external = false, want true")
+	}
+}
+
+func TestReadResourceFileUsesAbsolutePath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "resource.txt", "body")
+	got, err := readResourceFile("/wrong/base", path)
+	if err != nil {
+		t.Fatalf("readResourceFile absolute: %v", err)
+	}
+	if got != "body" {
+		t.Fatalf("readResourceFile = %q, want body", got)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("fixture path disappeared: %v", err)
 	}
 }
 

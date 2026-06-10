@@ -177,10 +177,13 @@ Top-level `networks` and per-service `networks` are accepted for Docker
 Compose compatibility. Holos currently uses its own internal VM network plan,
 so these declarations do not alter runtime networking.
 
-Top-level `configs`/`secrets` and per-service references are also accepted for
-Docker Compose compatibility. Holos does not currently distribute these
-resources into guests; use `cloud_init.write_files` for files that must be
-created inside the VM. Config `template_driver` is accepted as metadata.
+Top-level `configs`/`secrets` and per-service references are distributed into
+guests as cloud-init write files. `file`, `content` (configs), and
+`environment` sources are supported. Service-level `target`, `uid`, `gid`, and
+`mode` control the generated file path, owner, and permissions. Configs default
+to `0444`; secrets default to `0400` under `/run/secrets/<name>`. External
+configs and secrets are rejected when referenced because holos has no external
+secrets backend. Config `template_driver` is accepted as metadata.
 
 Top-level `models` and per-service `models` references are accepted for Docker
 Compose compatibility, including `model`, `context_size`, and `runtime_flags`.

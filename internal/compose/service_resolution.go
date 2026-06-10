@@ -43,7 +43,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 
 	baseMAC := generateMAC(0x00, f.Name, name)
 
-	writeFiles, err := resolveServiceWriteFiles(baseDir, svc, dfWriteFiles)
+	writeFiles, err := resolveServiceWriteFiles(baseDir, svc, dfWriteFiles, f.Configs, f.Secrets)
 	if err != nil {
 		return config.Manifest{}, err
 	}
