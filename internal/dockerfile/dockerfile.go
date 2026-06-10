@@ -22,6 +22,7 @@ type Result struct {
 	FromImage   string                    // base image from FROM, empty if not present
 	Script      string                    // shell script generated from RUN/ENV/WORKDIR
 	WriteFiles  []config.WriteFile        // files from COPY instructions + the build script itself
+	Ports       []config.PortForward      // guest ports declared by EXPOSE
 	Healthcheck *config.HealthcheckConfig // optional Dockerfile HEALTHCHECK
 }
 
@@ -91,6 +92,16 @@ func parse(r io.Reader, contextDir string) (*Result, error) {
 			for _, pair := range parseEnv(args) {
 				fmt.Fprintf(&script, "export %s=%s\n", pair[0], shellQuote(pair[1]))
 			}
+
+		case instructionExpose:
+			ports, err := parseExpose(args)
+			if err != nil {
+				return nil, fmt.Errorf("%s %s: %w", cmd, args, err)
+			}
+			for i := range ports {
+				ports[i].Name = exposeName(len(result.Ports) + i)
+			}
+			result.Ports = append(result.Ports, ports...)
 
 		case instructionWorkdir:
 			dir := strings.TrimSpace(args)

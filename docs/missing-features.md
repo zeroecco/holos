@@ -30,22 +30,6 @@ Useful next steps:
 This is in scope because predictable VM networking is core to multi-service
 stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.
 
-## Compose Compatibility Gaps
-
-### More Dockerfile Instruction Coverage
-
-The Dockerfile translator supports `FROM`, `RUN`, `COPY`, local-file `ADD`,
-`ENV`, `WORKDIR`, and `HEALTHCHECK`. Unsupported instructions fail loudly. Some
-common instructions have clear Holos equivalents, but users must currently
-rewrite them into compose or cloud-init fields.
-
-Useful next steps:
-
-- Translate `EXPOSE` into suggested or optional port metadata.
-
-Dockerfile `CMD` and `ENTRYPOINT` are better represented by service
-`command`/`entrypoint`, which holos already supports.
-
 ## VM Operations
 
 ### Snapshots And Volume Lifecycle Commands

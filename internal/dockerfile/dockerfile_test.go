@@ -172,6 +172,57 @@ func TestParseWorkdirTrimsAndQuotesPath(t *testing.T) {
 	assertContains(t, result.Script, want)
 }
 
+func TestParseExpose(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, "FROM alpine:3.21\nEXPOSE 80 443/tcp\nEXPOSE 53/UDP\n")
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	want := []config.PortForward{
+		{Name: "expose-0", GuestPort: 80, Protocol: config.ProtocolTCP},
+		{Name: "expose-1", GuestPort: 443, Protocol: config.ProtocolTCP},
+		{Name: "expose-2", GuestPort: 53, Protocol: config.ProtocolUDP},
+	}
+	if !slices.Equal(result.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v", result.Ports, want)
+	}
+}
+
+func TestParseExposeRejectsInvalidPorts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		instruction string
+		want        string
+	}{
+		{name: "empty", instruction: "EXPOSE", want: "requires at least one port"},
+		{name: "non numeric", instruction: "EXPOSE http", want: "out of range"},
+		{name: "zero", instruction: "EXPOSE 0", want: "out of range"},
+		{name: "too large", instruction: "EXPOSE 65536", want: "out of range"},
+		{name: "unsupported protocol", instruction: "EXPOSE 80/sctp", want: "unsupported"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			dfPath := writeDockerfile(t, dir, "FROM alpine:3.21\n"+tt.instruction+"\n")
+
+			_, err := Parse(dfPath, dir)
+			if err == nil {
+				t.Fatalf("Parse succeeded, want error containing %q", tt.want)
+			}
+			assertContains(t, err.Error(), tt.want)
+		})
+	}
+}
+
 func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 	t.Parallel()
 
@@ -180,11 +231,6 @@ func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 		dockerfile  string
 		wantHint    string
 	}{
-		{
-			instruction: "EXPOSE",
-			dockerfile:  "FROM alpine:3.21\nEXPOSE ignored\n",
-			wantHint:    "publish ports in holos.yaml",
-		},
 		{
 			instruction: "CMD",
 			dockerfile:  "FROM alpine:3.21\nCMD [\"echo\", \"hi\"]\n",

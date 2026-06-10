@@ -310,21 +310,22 @@ metadata such as `args`, `cache_from`, `extra_hosts`, `isolation`, `labels`,
 both map syntax and `NAME=VALUE` list syntax.
 
 Supported instructions are `FROM`, `RUN`, `COPY`, local-file `ADD`, `ENV`,
-`WORKDIR`, and `HEALTHCHECK`.
-Unsupported instructions fail loudly. For example, use `services.<name>.ports`
-instead of `EXPOSE`, and guest systemd units or `cloud_init.runcmd` instead of
-`CMD` / `ENTRYPOINT`.
+`WORKDIR`, `EXPOSE`, and `HEALTHCHECK`.
+Unsupported instructions fail loudly. For example, use guest systemd units or
+`cloud_init.runcmd` instead of `CMD` / `ENTRYPOINT`.
 
 When `image` is omitted, the base image is taken from the Dockerfile's `FROM`
 line. Dockerfile instructions run before `cloud_init.runcmd`.
 
 `HEALTHCHECK` maps to the service healthcheck when the compose service does not
 define one explicitly. `HEALTHCHECK NONE` disables the Dockerfile-provided
-healthcheck. `COPY` and `ADD` sources are resolved relative to the build context
-for `build`, or the Dockerfile directory for `dockerfile`. They must stay inside
-the context and must be files. `ADD` remote URLs and automatic archive
-extraction are not supported; use `RUN` or `cloud_init.runcmd` for downloads and
-extraction. Use volumes for directories.
+healthcheck. `EXPOSE` maps to guest-only port metadata when the compose service
+does not define `ports`; explicit compose ports override Dockerfile exposure.
+`COPY` and `ADD` sources are resolved relative to the build context for `build`,
+or the Dockerfile directory for `dockerfile`. They must stay inside the context
+and must be files. `ADD` remote URLs and automatic archive extraction are not
+supported; use `RUN` or `cloud_init.runcmd` for downloads and extraction. Use
+volumes for directories.
 
 ## Extra QEMU Arguments
 

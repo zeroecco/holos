@@ -9,13 +9,14 @@
 //   - A set of [config.WriteFile] entries from COPY and local-file ADD
 //     instructions (file sources only; directories and remote ADD URLs are not
 //     supported).
+//   - Guest port metadata from EXPOSE.
 //   - A [config.HealthcheckConfig] from HEALTHCHECK when present.
 //
 // The generated script is written into the VM at /var/lib/holos/build.sh
 // and executed via cloud-init runcmd before any user-specified commands.
 //
-// Unsupported instructions (CMD, ENTRYPOINT, EXPOSE, LABEL, VOLUME,
-// STOPSIGNAL, SHELL, ONBUILD, ARG, USER) are rejected with
-// an error so Dockerfile behavior is never silently dropped.
+// Unsupported instructions (CMD, ENTRYPOINT, LABEL, VOLUME, STOPSIGNAL,
+// SHELL, ONBUILD, ARG, USER) are rejected with an error so Dockerfile
+// behavior is never silently dropped.
 // Multi-stage builds (COPY --from=) are also rejected.
 package dockerfile

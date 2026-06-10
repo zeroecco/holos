@@ -18,6 +18,7 @@ const (
 	instructionRun     = "RUN"
 	instructionCopy    = "COPY"
 	instructionEnv     = "ENV"
+	instructionExpose  = "EXPOSE"
 	instructionHealth  = "HEALTHCHECK"
 	instructionWorkdir = "WORKDIR"
 )
@@ -28,6 +29,7 @@ var supportedInstructionNames = []string{
 	instructionRun,
 	instructionCopy,
 	instructionEnv,
+	instructionExpose,
 	instructionHealth,
 	instructionWorkdir,
 }

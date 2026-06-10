@@ -24,11 +24,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 
 	var dfWriteFiles []config.WriteFile
 	var dfRunCmd []string
+	var dfPorts []config.PortForward
 	var dfHealthcheck *config.HealthcheckConfig
-	dfWriteFiles, dfRunCmd, dfHealthcheck, err = resolveDockerfileBuild(&svc, baseDir)
+	dfWriteFiles, dfRunCmd, dfPorts, dfHealthcheck, err = resolveDockerfileBuild(&svc, baseDir)
 	if err != nil {
 		return config.Manifest{}, err
 	}
+	ports = resolveServicePorts(ports, dfPorts)
 
 	image, imageFormat, err := resolveImage(svc.Image, svc.ImageFormat, baseDir, cacheDir, resolver)
 	if err != nil {
@@ -111,6 +113,13 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		PreStopCommands:    servicePreStopCmd(svc),
 		DependsOn:          append([]string(nil), svc.DependsOn...),
 	}, nil
+}
+
+func resolveServicePorts(composePorts []config.PortForward, dockerfilePorts []config.PortForward) []config.PortForward {
+	if len(composePorts) > 0 {
+		return composePorts
+	}
+	return dockerfilePorts
 }
 
 func resolveServiceExtraHosts(projectHosts map[string]string, serviceHosts ExtraHosts) map[string]string {

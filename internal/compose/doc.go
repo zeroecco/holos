@@ -21,6 +21,7 @@
 //   - Generates deterministic MAC addresses from the project and service names.
 //   - Auto-enables UEFI when PCI devices are attached.
 //   - Merges Dockerfile instructions (RUN, COPY, ENV, WORKDIR) into cloud-init.
+//   - Adopts Dockerfile EXPOSE ports when the service has no explicit ports.
 //
 // # Spec hashing
 //

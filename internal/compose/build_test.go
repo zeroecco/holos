@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zeroecco/holos/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -176,6 +177,55 @@ services:
 	if hc.IntervalSec != 2 {
 		t.Fatalf("IntervalSec = %d, want compose override 2", hc.IntervalSec)
 	}
+}
+
+func TestResolveDockerfileBuildAdoptsExposePorts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app: %v", err)
+	}
+	writeTestImage(t, dir)
+	writeTestFile(t, appDir, "Dockerfile", "FROM alpine\nEXPOSE 80 53/udp\n")
+	yamlDoc := `
+name: dfexpose
+services:
+  api:
+    image: ./base.qcow2
+    build: ./app
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+	assertPortForwards(t, "dockerfile expose ports", project.Services[testComposeAPIService].Ports, []config.PortForward{
+		{Name: "expose-0", HostPort: 0, GuestPort: 80, Protocol: config.ProtocolTCP},
+		{Name: "expose-1", HostPort: 0, GuestPort: 53, Protocol: config.ProtocolUDP},
+	})
+}
+
+func TestResolveComposePortsOverrideDockerfileExpose(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	appDir := filepath.Join(dir, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("mkdir app: %v", err)
+	}
+	writeTestImage(t, dir)
+	writeTestFile(t, appDir, "Dockerfile", "FROM alpine\nEXPOSE 80\n")
+	yamlDoc := `
+name: dfexposeoverride
+services:
+  api:
+    image: ./base.qcow2
+    build: ./app
+    ports:
+      - "8080:8080"
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+	assertPortForwards(t, "compose ports", project.Services[testComposeAPIService].Ports, []config.PortForward{
+		{Name: "port-0", HostPort: 8080, GuestPort: 8080, Protocol: config.ProtocolTCP},
+	})
 }
 
 func TestComposeBuildUnmarshalAcceptsKnownFields(t *testing.T) {
