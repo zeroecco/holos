@@ -11,8 +11,6 @@ func supportedInstructionList() string {
 
 func unsupportedInstructionError(cmd string) error {
 	switch cmd {
-	case "ADD":
-		return fmt.Errorf("Dockerfile ADD is not supported; use COPY for local files and cloud_init.runcmd for downloads or archive extraction")
 	case "ARG":
 		return fmt.Errorf("Dockerfile ARG is not supported; set concrete values with ENV or cloud_init.runcmd")
 	case "CMD", "ENTRYPOINT":

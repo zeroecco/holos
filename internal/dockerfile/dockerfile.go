@@ -73,6 +73,13 @@ func parse(r io.Reader, contextDir string) (*Result, error) {
 			script.WriteString(parseRun(args))
 			script.WriteString("\n")
 
+		case instructionAdd:
+			wf, err := parseAdd(args, contextDir)
+			if err != nil {
+				return nil, fmt.Errorf("%s %s: %w", cmd, args, err)
+			}
+			result.WriteFiles = append(result.WriteFiles, wf)
+
 		case instructionCopy:
 			wf, err := parseCopy(args, contextDir)
 			if err != nil {

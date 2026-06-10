@@ -13,6 +13,7 @@ const (
 )
 
 const (
+	instructionAdd     = "ADD"
 	instructionFrom    = "FROM"
 	instructionRun     = "RUN"
 	instructionCopy    = "COPY"
@@ -22,6 +23,7 @@ const (
 )
 
 var supportedInstructionNames = []string{
+	instructionAdd,
 	instructionFrom,
 	instructionRun,
 	instructionCopy,

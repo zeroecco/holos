@@ -196,11 +196,6 @@ func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 			wantHint:    "cloud_init.runcmd",
 		},
 		{
-			instruction: "ADD",
-			dockerfile:  "FROM alpine:3.21\nADD ignored\n",
-			wantHint:    "use COPY",
-		},
-		{
 			instruction: "USER",
 			dockerfile:  "FROM alpine:3.21\nUSER ignored\n",
 			wantHint:    "not supported",
@@ -222,6 +217,65 @@ func TestParseRejectsUnsupportedInstructions(t *testing.T) {
 			assertContains(t, err.Error(), tc.wantHint)
 		})
 	}
+}
+
+func TestParseAddLocalFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "app.conf"), []byte("enabled=true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dfPath := writeDockerfile(t, dir, `FROM alpine:3.21
+ADD --chown=app:app --chmod=0640 app.conf /etc/app/
+`)
+
+	result, err := Parse(dfPath, dir)
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+	if len(result.WriteFiles) < 1 {
+		t.Fatal("no write_files from ADD")
+	}
+	assertWriteFile(t, "ADD", result.WriteFiles[0], testWriteFileWant{
+		path:        "/etc/app/app.conf",
+		content:     "enabled=true\n",
+		permissions: "0640",
+		owner:       testCopyOwner,
+	})
+}
+
+func TestParseAddRejectsRemoteURL(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dfPath := writeDockerfile(t, dir, "FROM alpine:3.21\nADD https://example.com/app.tar.gz /opt/app.tar.gz\n")
+
+	_, err := Parse(dfPath, dir)
+	if err == nil {
+		t.Fatal("expected remote ADD URL to be rejected")
+	}
+	assertContains(t, err.Error(), "remote URL sources are not supported")
+}
+
+func TestParseAddRejectsEscapingSource(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "secret"), []byte("sensitive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contextDir := filepath.Join(root, "ctx")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dfPath := writeDockerfile(t, contextDir, "FROM alpine:3.21\nADD ../secret /opt/exfil\n")
+
+	_, err := Parse(dfPath, contextDir)
+	if err == nil {
+		t.Fatal("expected ADD escape to be rejected")
+	}
+	assertContains(t, err.Error(), "escapes build context")
 }
 
 func TestParseHealthcheckShellForm(t *testing.T) {

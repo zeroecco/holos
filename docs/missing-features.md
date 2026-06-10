@@ -49,16 +49,14 @@ VM, not orchestration scope creep.
 
 ### More Dockerfile Instruction Coverage
 
-The Dockerfile translator supports `FROM`, `RUN`, `COPY`, `ENV`, and `WORKDIR`.
-Unsupported instructions fail loudly. Some common instructions have clear
-Holos equivalents, but users must currently rewrite them into compose or
-cloud-init fields.
+The Dockerfile translator supports `FROM`, `RUN`, `COPY`, local-file `ADD`,
+`ENV`, `WORKDIR`, and `HEALTHCHECK`. Unsupported instructions fail loudly. Some
+common instructions have clear Holos equivalents, but users must currently
+rewrite them into compose or cloud-init fields.
 
 Useful next steps:
 
 - Translate `EXPOSE` into suggested or optional port metadata.
-- Consider limited `ADD` support for local files while preserving build-context
-  escape checks.
 
 Dockerfile `CMD` and `ENTRYPOINT` are better represented by service
 `command`/`entrypoint`, which holos already supports.

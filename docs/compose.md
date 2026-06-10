@@ -307,8 +307,8 @@ metadata such as `args`, `cache_from`, `extra_hosts`, `isolation`, `labels`,
 `dockerfile_inline` affect provisioning today. `additional_contexts` accepts
 both map syntax and `NAME=VALUE` list syntax.
 
-Supported instructions are `FROM`, `RUN`, `COPY`, `ENV`, `WORKDIR`, and
-`HEALTHCHECK`.
+Supported instructions are `FROM`, `RUN`, `COPY`, local-file `ADD`, `ENV`,
+`WORKDIR`, and `HEALTHCHECK`.
 Unsupported instructions fail loudly. For example, use `services.<name>.ports`
 instead of `EXPOSE`, and guest systemd units or `cloud_init.runcmd` instead of
 `CMD` / `ENTRYPOINT`.
@@ -318,9 +318,11 @@ line. Dockerfile instructions run before `cloud_init.runcmd`.
 
 `HEALTHCHECK` maps to the service healthcheck when the compose service does not
 define one explicitly. `HEALTHCHECK NONE` disables the Dockerfile-provided
-healthcheck. `COPY` sources are resolved relative to the build context for
-`build`, or the Dockerfile directory for `dockerfile`. They must stay inside the
-context and must be files. Use volumes for directories.
+healthcheck. `COPY` and `ADD` sources are resolved relative to the build context
+for `build`, or the Dockerfile directory for `dockerfile`. They must stay inside
+the context and must be files. `ADD` remote URLs and automatic archive
+extraction are not supported; use `RUN` or `cloud_init.runcmd` for downloads and
+extraction. Use volumes for directories.
 
 ## Extra QEMU Arguments
 

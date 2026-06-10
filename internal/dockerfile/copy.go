@@ -2,6 +2,7 @@ package dockerfile
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,17 @@ const (
 	defaultCopyOwner       = "root:root"
 	defaultCopyPermissions = "0644"
 )
+
+func parseAdd(args string, contextDir string) (config.WriteFile, error) {
+	source, err := firstCopyLikeSource(args)
+	if err != nil {
+		return config.WriteFile{}, err
+	}
+	if isRemoteAddSource(source) {
+		return config.WriteFile{}, fmt.Errorf("remote URL sources are not supported; use RUN curl/wget or cloud_init.runcmd")
+	}
+	return parseCopy(args, contextDir)
+}
 
 func parseCopy(args string, contextDir string) (config.WriteFile, error) {
 	var owner, perms string
@@ -86,6 +98,22 @@ func parseCopy(args string, contextDir string) (config.WriteFile, error) {
 		Permissions: perms,
 		Owner:       owner,
 	}, nil
+}
+
+func firstCopyLikeSource(args string) (string, error) {
+	fields := strings.Fields(args)
+	for _, f := range fields {
+		if strings.HasPrefix(f, copyOptionPrefix) {
+			continue
+		}
+		return f, nil
+	}
+	return "", fmt.Errorf("requires source and destination")
+}
+
+func isRemoteAddSource(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && parsed.Scheme != "" && parsed.Host != ""
 }
 
 // resolveCopySource turns a COPY source into an absolute path while
