@@ -82,6 +82,8 @@ type InternalNetworkConfig struct {
 	BaseMAC        string                   `json:"base_mac"`
 	UserBaseMAC    string                   `json:"user_base_mac"`
 	DNSSearch      []string                 `json:"dns_search,omitempty"`
+	Backend        string                   `json:"backend,omitempty"`
+	BridgeName     string                   `json:"bridge_name,omitempty"`
 	Segments       []InternalNetworkSegment `json:"segments,omitempty"`
 }
 
@@ -94,6 +96,8 @@ type InternalNetworkSegment struct {
 	Subnet         string   `json:"subnet"`
 	InstanceIPs    []string `json:"instance_ips"`
 	BaseMAC        string   `json:"base_mac"`
+	Backend        string   `json:"backend,omitempty"`
+	BridgeName     string   `json:"bridge_name,omitempty"`
 }
 
 // InstanceMAC returns the internal NIC MAC address for the given replica index.

@@ -69,11 +69,12 @@ func writeValidateReport(output io.Writer, project *compose.Project) error {
 		fmt.Fprintln(output, "segments:")
 		for _, name := range sortedNetworkSegmentNames(project.Network.Segments) {
 			segment := project.Network.Segments[name]
-			fmt.Fprintf(output, "  %s: %s (mcast %s:%d)\n",
+			fmt.Fprintf(output, "  %s: %s (mcast %s:%d%s)\n",
 				name,
 				segment.Subnet,
 				segment.MulticastGroup,
 				segment.MulticastPort,
+				networkSegmentBackendSuffix(segment),
 			)
 		}
 	}
@@ -82,6 +83,13 @@ func writeValidateReport(output io.Writer, project *compose.Project) error {
 		fmt.Fprintf(output, "  %s -> %s\n", host, ip)
 	}
 	return nil
+}
+
+func networkSegmentBackendSuffix(segment compose.NetworkSegmentPlan) string {
+	if segment.Backend == "bridge" && segment.BridgeName != "" {
+		return ", bridge " + segment.BridgeName
+	}
+	return ""
 }
 
 func sortedNetworkSegmentNames(segments map[string]compose.NetworkSegmentPlan) []string {

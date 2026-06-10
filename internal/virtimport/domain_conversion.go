@@ -164,9 +164,15 @@ func applyDomainInterfaces(serviceName string, svc *compose.Service, d Domain) (
 				Source: source,
 				Model:  interfaceModel(iface),
 			})
-			warnings = append(warnings, fmt.Sprintf(
-				"interface %s preserved as network %q metadata; bridge/tap runtime support still needs review",
-				desc, networkName))
+			if iface.Type == "bridge" {
+				warnings = append(warnings, fmt.Sprintf(
+					"interface %s imported as bridge network %q; host qemu-bridge-helper access to %q is required",
+					desc, networkName, source))
+			} else {
+				warnings = append(warnings, fmt.Sprintf(
+					"interface %s preserved as network %q metadata; non-bridge NIC runtime support still needs review",
+					desc, networkName))
+			}
 			continue
 		}
 		warnings = append(warnings, fmt.Sprintf(

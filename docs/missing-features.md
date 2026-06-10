@@ -15,15 +15,15 @@ day-to-day operation of local VM stacks without adding a cluster control plane.
 
 ### Real Compose Network Semantics
 
-Named `networks`, per-service attachments, aliases, `dns_search`, and
-`mac_address` now affect internal VM networking. `network_mode`, `dns`,
-`dns_opt`, `links`, and `external_links` are still compatibility metadata, and
-holos still uses socket-multicast VM segments plus host port forwards rather
-than host bridge/tap devices.
+Named `networks`, per-service attachments, aliases, `dns_search`, `mac_address`,
+and explicit bridge-backed networks now affect VM networking. `network_mode`,
+`dns`, `dns_opt`, `links`, and `external_links` are still compatibility
+metadata.
 
 Useful next steps:
 
-- Add a bridge/tap backend for users who need LAN-visible guests.
+- Add direct tap backend management for users who need Holos to provision host
+  tap devices itself.
 
 This is in scope because predictable VM networking is core to multi-service
 stacks. Multi-host overlays, service meshes, and schedulers remain non-goals.

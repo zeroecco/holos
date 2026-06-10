@@ -15,12 +15,12 @@ func networkArgs(manifest config.Manifest, spec LaunchSpec, userNetdev string) [
 
 	mac := manifest.InternalNetwork.InstanceMAC(spec.Index)
 	args = append(args,
-		"-netdev", socketNetdev(manifest.InternalNetwork),
+		"-netdev", internalNetdev(socketNetdevID, manifest.InternalNetwork),
 		qemuArgDevice, virtioNetDevice(socketNetdevID, mac))
 	for i, segment := range manifest.InternalNetwork.Segments {
 		netdevID := segmentNetdevID(i)
 		args = append(args,
-			"-netdev", socketSegmentNetdev(netdevID, segment),
+			"-netdev", segmentNetdev(netdevID, segment),
 			qemuArgDevice, virtioNetDevice(netdevID, segment.SegmentMAC(spec.Index)))
 	}
 	return args
@@ -39,6 +39,13 @@ func socketNetdev(network *config.InternalNetworkConfig) string {
 		socketMulticastTarget(network))
 }
 
+func internalNetdev(netdevID string, network *config.InternalNetworkConfig) string {
+	if network.Backend == bridgeBackend && network.BridgeName != "" {
+		return bridgeNetdev(netdevID, network.BridgeName)
+	}
+	return fmt.Sprintf("socket,id=%s,mcast=%s", netdevID, socketMulticastTarget(network))
+}
+
 func socketMulticastTarget(network *config.InternalNetworkConfig) string {
 	return fmt.Sprintf("%s:%d", network.MulticastGroup, network.MulticastPort)
 }
@@ -52,6 +59,17 @@ func socketSegmentNetdev(netdevID string, segment config.InternalNetworkSegment)
 		netdevID,
 		segment.MulticastGroup,
 		segment.MulticastPort)
+}
+
+func segmentNetdev(netdevID string, segment config.InternalNetworkSegment) string {
+	if segment.Backend == bridgeBackend && segment.BridgeName != "" {
+		return bridgeNetdev(netdevID, segment.BridgeName)
+	}
+	return socketSegmentNetdev(netdevID, segment)
+}
+
+func bridgeNetdev(netdevID string, bridgeName string) string {
+	return qemuOptions("bridge", qemuKeyValue("id", netdevID), qemuKeyValue("br", bridgeName))
 }
 
 func virtioNetDevice(netdevID, mac string) string {

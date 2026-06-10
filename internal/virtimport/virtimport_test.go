@@ -197,7 +197,7 @@ func TestConvertPreservesBridgeInterfaceIntent(t *testing.T) {
 	if got := svc.Networks["bridgevm-br0"].MacAddress; got != "52:54:00:aa:bb:cc" {
 		t.Fatalf("network mac = %q, want libvirt mac", got)
 	}
-	assertWarningsContain(t, warns, `preserved as network "bridgevm-br0" metadata`)
+	assertWarningsContain(t, warns, `imported as bridge network "bridgevm-br0"; host qemu-bridge-helper access to "br0" is required`)
 }
 
 const minimalDomainXML = `

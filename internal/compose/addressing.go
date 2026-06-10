@@ -32,6 +32,10 @@ func allocateServiceNetworks(services map[string]Service, order []string, networ
 			if !serviceAttachedToNetwork(attached[serviceName], networkName) {
 				continue
 			}
+			if segment.Backend == "bridge" {
+				ipsByService[serviceName] = nil
+				continue
+			}
 			replicas, _ := serviceReplicas(services[serviceName])
 			ips := make([]string, replicas)
 			for i := 0; i < replicas; i++ {

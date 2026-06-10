@@ -187,8 +187,21 @@ internal NIC per segment. A service `mac_address`, or one matching per-network
 replicas. Per-service network `aliases` are added to generated `/etc/hosts`
 only for peers that share the relevant segment, and `dns_search` is rendered
 into the primary internal NIC's netplan nameserver search list. `holos import`
-preserves libvirt NIC source and model in network `driver_opts` for future
-bridge/tap support.
+preserves libvirt NIC source and model in network `driver_opts`.
+
+For LAN-visible guests, use an existing host bridge through QEMU's bridge
+helper:
+
+```yaml
+networks:
+  lan:
+    driver: bridge
+    driver_opts:
+      holos.bridge.name: br0
+```
+
+Bridge-backed networks use DHCP in the guest. Holos does not create bridges,
+edit `/etc/qemu/bridge.conf`, or grant helper permissions automatically.
 
 Top-level `configs`/`secrets` and per-service references are distributed into
 guests as cloud-init write files. `file`, `content` (configs), and

@@ -278,6 +278,45 @@ networks:
 	}
 }
 
+func TestResolveBridgeNetworkBackend(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: bridge
+services:
+  web:
+    image: ./base.qcow2
+    networks:
+      lan: {}
+  api:
+    image: ./base.qcow2
+    networks:
+      lan: {}
+networks:
+  lan:
+    driver: bridge
+    driver_opts:
+      holos.bridge.name: br0
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+
+	web := project.Services["web"]
+	if got := web.InternalNetwork.Backend; got != "bridge" {
+		t.Fatalf("web backend = %q, want bridge", got)
+	}
+	if got := web.InternalNetwork.BridgeName; got != "br0" {
+		t.Fatalf("web bridge = %q, want br0", got)
+	}
+	if len(web.InternalNetwork.InstanceIPs) != 0 {
+		t.Fatalf("web bridge instance IPs = %#v, want none for DHCP bridge", web.InternalNetwork.InstanceIPs)
+	}
+	if len(web.ExtraHosts) != 0 {
+		t.Fatalf("web bridge hosts = %#v, want none without static peer IPs", web.ExtraHosts)
+	}
+}
+
 func TestDecodeServiceNetworkListItem(t *testing.T) {
 	t.Parallel()
 

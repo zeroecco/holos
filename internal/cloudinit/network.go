@@ -13,17 +13,22 @@ const (
 )
 
 func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
-	ip := manifest.InternalNetwork.InstanceIP(instanceIndex)
 	mac := manifest.InternalNetwork.InstanceMAC(instanceIndex)
-	if ip == "" || mac == "" {
+	if mac == "" {
+		return ""
+	}
+	primaryIP := manifest.InternalNetwork.InstanceIP(instanceIndex)
+	primaryDHCP := manifest.InternalNetwork.Backend == "bridge"
+	if primaryIP == "" && !primaryDHCP {
 		return ""
 	}
 
 	ethernets := map[string]ethernetDef{
-		internalNetworkInterface: {
-			Match:     matchDef{MACAddress: mac},
-			Addresses: []string{ip + internalNetworkAddressCIDR},
-		},
+		internalNetworkInterface: internalEthernetDef(
+			mac,
+			primaryIP,
+			primaryDHCP,
+		),
 	}
 	if len(manifest.InternalNetwork.DNSSearch) > 0 {
 		internal := ethernets[internalNetworkInterface]
@@ -42,13 +47,15 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 	for _, segment := range manifest.InternalNetwork.Segments {
 		ip := segment.SegmentIP(instanceIndex)
 		mac := segment.SegmentMAC(instanceIndex)
-		if ip == "" || mac == "" {
+		dhcp := segment.Backend == "bridge"
+		if mac == "" || (ip == "" && !dhcp) {
 			continue
 		}
-		ethernets[segmentInterfaceName(segment.Name)] = ethernetDef{
-			Match:     matchDef{MACAddress: mac},
-			Addresses: []string{ip + internalNetworkAddressCIDR},
-		}
+		ethernets[segmentInterfaceName(segment.Name)] = internalEthernetDef(
+			mac,
+			ip,
+			dhcp,
+		)
 	}
 
 	nc := netConfig{Network: netConfigBody{
@@ -62,4 +69,14 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 
 func segmentInterfaceName(name string) string {
 	return "internal-" + name
+}
+
+func internalEthernetDef(mac string, ip string, dhcp bool) ethernetDef {
+	def := ethernetDef{Match: matchDef{MACAddress: mac}}
+	if dhcp {
+		def.DHCP4 = true
+		return def
+	}
+	def.Addresses = []string{ip + internalNetworkAddressCIDR}
+	return def
 }

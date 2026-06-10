@@ -230,7 +230,7 @@ func TestImportAccumulatorDeclaresImportedBridgeNetworks(t *testing.T) {
 	if got := network.DriverOpts["holos.import.source"]; got != "br0" {
 		t.Fatalf("network source = %q, want br0", got)
 	}
-	wantWarning := `web: interface (type=bridge, bridge=br0) preserved as network "web-br0" metadata`
+	wantWarning := `web: interface (type=bridge, bridge=br0) imported as bridge network "web-br0"; host qemu-bridge-helper access to "br0" is required`
 	if len(acc.warnings) != 1 || !strings.Contains(acc.warnings[0], wantWarning) {
 		t.Fatalf("warnings = %+v, want %q", acc.warnings, wantWarning)
 	}

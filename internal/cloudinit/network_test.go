@@ -85,6 +85,23 @@ func TestRenderNetworkConfigAddsAdditionalSegments(t *testing.T) {
 	)
 }
 
+func TestRenderNetworkConfigUsesDHCPForBridgeBackend(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{InternalNetwork: &config.InternalNetworkConfig{
+		BaseMAC: "52:54:02:ab:cd:00",
+		Backend: "bridge",
+	}}
+
+	got := renderNetworkConfig(manifest, 0)
+	assertContains(t, got,
+		internalNetworkInterface+":",
+		"dhcp4: true",
+		"52:54:02:ab:cd:00",
+	)
+	assertOmits(t, got, "addresses:")
+}
+
 func TestRenderNetworkConfigSkipsMissingInstance(t *testing.T) {
 	t.Parallel()
 

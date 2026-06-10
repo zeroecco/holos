@@ -9,6 +9,7 @@ const (
 	userNetdevID      = "net0"
 	socketNetdevID    = "net1"
 	userNetdevBase    = "user,id=" + userNetdevID
+	bridgeBackend     = "bridge"
 	defaultHostAddr   = "127.0.0.1"
 	tcpProtocol       = "tcp"
 	udpProtocol       = "udp"

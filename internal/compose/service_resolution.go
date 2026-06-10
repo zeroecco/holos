@@ -111,6 +111,8 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			BaseMAC:        baseMAC,
 			UserBaseMAC:    generateMAC(0x01, f.Name, name),
 			DNSSearch:      append([]string(nil), svc.DNSSearch...),
+			Backend:        allocation.Primary.Plan.Backend,
+			BridgeName:     allocation.Primary.Plan.BridgeName,
 			Segments:       resolveAdditionalNetworkSegments(allocation.Additional),
 		},
 		ExtraHosts:         extraHosts,
@@ -131,6 +133,8 @@ func resolveAdditionalNetworkSegments(attachments []serviceNetworkAttachment) []
 			Subnet:         attachment.Plan.Subnet,
 			InstanceIPs:    append([]string(nil), attachment.IPs...),
 			BaseMAC:        attachment.BaseMAC,
+			Backend:        attachment.Plan.Backend,
+			BridgeName:     attachment.Plan.BridgeName,
 		})
 	}
 	return segments

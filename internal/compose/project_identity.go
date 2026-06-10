@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 const defaultNetworkName = "default"
@@ -30,7 +31,9 @@ func (f *File) planNetwork() NetworkPlan {
 	segments := make(map[string]NetworkSegmentPlan, len(names)+1)
 	segments[defaultNetworkName] = planNetworkSegment(f.Name, defaultNetworkName, 0)
 	for i, name := range names {
-		segments[name] = planNetworkSegment(f.Name, name, i+1)
+		segment := planNetworkSegment(f.Name, name, i+1)
+		segment.Backend, segment.BridgeName = networkBackend(f.Networks[name])
+		segments[name] = segment
 	}
 	primary := segments[defaultNetworkName]
 
@@ -86,4 +89,41 @@ func generateMAC(prefix byte, project, service string) string {
 func generateNetworkMAC(project, service, network string) string {
 	sum := sha256.Sum256([]byte(project + "/" + service + "/" + network))
 	return fmt.Sprintf("52:54:02:%02x:%02x:00", sum[0], sum[1])
+}
+
+func networkBackend(network Network) (backend string, bridgeName string) {
+	if network.Driver != "bridge" {
+		return "", ""
+	}
+	for _, key := range []string{
+		"holos.bridge.name",
+		"holos.bridge",
+		"com.docker.network.bridge.name",
+	} {
+		if value := networkDriverOptString(network.DriverOpts, key); value != "" {
+			return "bridge", value
+		}
+	}
+	if networkDriverOptString(network.DriverOpts, "holos.import.type") == "bridge" {
+		if value := networkDriverOptString(network.DriverOpts, "holos.import.source"); value != "" {
+			return "bridge", value
+		}
+	}
+	return "", ""
+}
+
+func networkDriverOptString(options map[string]any, key string) string {
+	if options == nil {
+		return ""
+	}
+	value, ok := options[key]
+	if !ok {
+		return ""
+	}
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
 }

@@ -191,4 +191,6 @@ type NetworkSegmentPlan struct {
 	MulticastPort  int
 	Subnet         string
 	Hosts          map[string]string
+	Backend        string
+	BridgeName     string
 }
