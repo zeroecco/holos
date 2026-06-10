@@ -36,10 +36,20 @@ type VolumeRecord struct {
 
 // NetworkState records the internal network configuration for a project.
 type NetworkState struct {
+	MulticastGroup string                `json:"multicast_group"`
+	MulticastPort  int                   `json:"multicast_port"`
+	Subnet         string                `json:"subnet"`
+	Hosts          map[string]string     `json:"hosts"`
+	Segments       []NetworkSegmentState `json:"segments,omitempty"`
+}
+
+// NetworkSegmentState records one named internal network segment.
+type NetworkSegmentState struct {
+	Name           string            `json:"name"`
 	MulticastGroup string            `json:"multicast_group"`
 	MulticastPort  int               `json:"multicast_port"`
 	Subnet         string            `json:"subnet"`
-	Hosts          map[string]string `json:"hosts"`
+	Hosts          map[string]string `json:"hosts,omitempty"`
 }
 
 // ServiceRecord tracks the desired and actual replica count for one service.

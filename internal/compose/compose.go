@@ -39,15 +39,16 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 
 	network := f.planNetwork()
 
-	totalReplicas, err := projectInstanceCount(f.Services, order)
-	if err != nil {
+	if _, err := projectInstanceCount(f.Services, order); err != nil {
 		return nil, err
 	}
-	if err := validateProjectInstanceCapacity(totalReplicas); err != nil {
-		return nil, err
+	for name := range network.Segments {
+		if err := validateProjectInstanceCapacity(networkInstanceCount(f.Services, order, name)); err != nil {
+			return nil, fmt.Errorf("network %q: %w", name, err)
+		}
 	}
 
-	hosts, serviceIPs, err := allocateServiceIPs(f.Services, order)
+	hosts, serviceNetworks, err := allocateServiceNetworks(f.Services, order, network, f.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +60,7 @@ func (f *File) Resolve(baseDir string, stateDir string) (*Project, error) {
 	for _, name := range order {
 		svc := f.Services[name]
 		serviceBaseDir := f.serviceBaseDir(name, baseDir)
-		manifest, err := f.resolveService(name, svc, serviceBaseDir, cacheDir, network, hosts, serviceIPs[name], f.resolver())
+		manifest, err := f.resolveService(name, svc, serviceBaseDir, cacheDir, serviceNetworks[name], f.resolver())
 		if err != nil {
 			return nil, fmt.Errorf("service %q: %w", name, err)
 		}

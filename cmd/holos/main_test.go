@@ -335,6 +335,44 @@ func TestWriteValidateReport(t *testing.T) {
 	}
 }
 
+func TestWriteValidateReportIncludesNetworkSegments(t *testing.T) {
+	t.Parallel()
+
+	project := &compose.Project{
+		Name:         "demo",
+		SpecHash:     "abc123",
+		ServiceOrder: []string{"web"},
+		Services: map[string]config.Manifest{
+			"web": {
+				Image:    "web.qcow2",
+				Replicas: 1,
+				VM:       config.VMConfig{VCPU: 1, MemoryMB: 512},
+			},
+		},
+		Network: compose.NetworkPlan{
+			Subnet:         "10.10.0.0/24",
+			MulticastGroup: "239.1.2.3",
+			MulticastPort:  12345,
+			Hosts:          map[string]string{"web": "10.10.1.2"},
+			Segments: map[string]compose.NetworkSegmentPlan{
+				"default":  {Subnet: "10.10.0.0/24", MulticastGroup: "239.1.2.3", MulticastPort: 12345},
+				"backend":  {Subnet: "10.10.1.0/24", MulticastGroup: "239.4.5.6", MulticastPort: 23456},
+				"frontend": {Subnet: "10.10.2.0/24", MulticastGroup: "239.7.8.9", MulticastPort: 34567},
+			},
+		},
+	}
+
+	var out bytes.Buffer
+	if err := writeValidateReport(&out, project); err != nil {
+		t.Fatalf("writeValidateReport: %v", err)
+	}
+	got := out.String()
+	assertContains(t, got, "segments:\n")
+	assertContains(t, got, "  backend: 10.10.1.0/24 (mcast 239.4.5.6:23456)\n")
+	assertContains(t, got, "  default: 10.10.0.0/24 (mcast 239.1.2.3:12345)\n")
+	assertContains(t, got, "  frontend: 10.10.2.0/24 (mcast 239.7.8.9:34567)\n")
+}
+
 func TestDoctorCommandRequiresExecutableProbe(t *testing.T) {
 	dir := t.TempDir()
 	probe := writeTestFile(t, dir, "probe", "#!/bin/sh\necho probe-ok\n", 0o755)

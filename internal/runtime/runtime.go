@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/zeroecco/holos/internal/compose"
 )
@@ -68,6 +69,7 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 		MulticastPort:  project.Network.MulticastPort,
 		Subnet:         project.Network.Subnet,
 		Hosts:          project.Network.Hosts,
+		Segments:       networkSegmentRecords(project.Network),
 	}
 
 	existingByService := existingServicesByName(record.Services)
@@ -118,4 +120,24 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 		return record, upErr
 	}
 	return record, nil
+}
+
+func networkSegmentRecords(network compose.NetworkPlan) []NetworkSegmentState {
+	segments := make([]NetworkSegmentState, 0, len(network.Segments))
+	names := make([]string, 0, len(network.Segments))
+	for name := range network.Segments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		segment := network.Segments[name]
+		segments = append(segments, NetworkSegmentState{
+			Name:           name,
+			MulticastGroup: segment.MulticastGroup,
+			MulticastPort:  segment.MulticastPort,
+			Subnet:         segment.Subnet,
+			Hosts:          segment.Hosts,
+		})
+	}
+	return segments
 }

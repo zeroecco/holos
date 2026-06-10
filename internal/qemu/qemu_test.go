@@ -399,6 +399,52 @@ func TestBuildArgsWithInternalNetwork(t *testing.T) {
 	)
 }
 
+func TestBuildArgsWithAdditionalInternalNetworkSegments(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{
+		Name:        "proxy",
+		Image:       "/images/base.qcow2",
+		ImageFormat: config.ImageFormatQCOW2,
+		VM: config.VMConfig{
+			VCPU:     1,
+			MemoryMB: 512,
+			Machine:  config.DefaultMachine,
+			CPUModel: config.DefaultCPUModel,
+		},
+		InternalNetwork: &config.InternalNetworkConfig{
+			MulticastGroup: "230.0.0.1",
+			MulticastPort:  12345,
+			Subnet:         "10.10.1.0/24",
+			InstanceIPs:    []string{"10.10.1.3"},
+			BaseMAC:        "52:54:02:ab:cd:00",
+			UserBaseMAC:    "52:54:01:ab:cd:00",
+			Segments: []config.InternalNetworkSegment{
+				{
+					Name:           "frontend",
+					MulticastGroup: "230.0.0.2",
+					MulticastPort:  12346,
+					Subnet:         "10.10.2.0/24",
+					InstanceIPs:    []string{"10.10.2.3"},
+					BaseMAC:        "52:54:02:ef:01:00",
+				},
+			},
+		},
+	}
+	spec := LaunchSpec{Name: "proxy-0", Index: 0, OverlayPath: "/state/root.qcow2"}
+
+	args, err := BuildArgs(manifest, spec)
+	if err != nil {
+		t.Fatalf("build args: %v", err)
+	}
+	assertArgsContain(t, args,
+		"socket,id=net1,mcast=230.0.0.1:12345",
+		"virtio-net-pci,netdev=net1,mac=52:54:02:ab:cd:00",
+		"socket,id=net2,mcast=230.0.0.2:12346",
+		"virtio-net-pci,netdev=net2,mac=52:54:02:ef:01:00",
+	)
+}
+
 func TestBuildArgsWithVFIODevices(t *testing.T) {
 	t.Parallel()
 

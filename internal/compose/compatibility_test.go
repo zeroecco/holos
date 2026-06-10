@@ -206,6 +206,78 @@ networks:
 	assertErrorContains(t, err, `service "worker" alias "shared": conflicts with existing host "shared"`)
 }
 
+func TestResolveMapsNamedNetworksToSeparateSegments(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeTestImage(t, dir)
+	yamlDoc := `
+name: segments
+services:
+  web:
+    image: ./base.qcow2
+    networks:
+      frontend:
+        aliases: [site]
+  db:
+    image: ./base.qcow2
+    networks:
+      backend: {}
+  proxy:
+    image: ./base.qcow2
+    networks:
+      frontend: {}
+      backend: {}
+networks:
+  frontend: {}
+  backend: {}
+`
+	project := resolveTestCompose(t, dir, yamlDoc)
+
+	web := project.Services["web"]
+	if got := web.InternalNetwork.Subnet; got != "10.10.2.0/24" {
+		t.Fatalf("web subnet = %q, want frontend subnet", got)
+	}
+	if _, ok := web.ExtraHosts["db"]; ok {
+		t.Fatalf("web hosts unexpectedly include db: %#v", web.ExtraHosts)
+	}
+
+	db := project.Services["db"]
+	if got := db.InternalNetwork.Subnet; got != "10.10.1.0/24" {
+		t.Fatalf("db subnet = %q, want backend subnet", got)
+	}
+	if _, ok := db.ExtraHosts["web"]; ok {
+		t.Fatalf("db hosts unexpectedly include web: %#v", db.ExtraHosts)
+	}
+	if got := db.ExtraHosts["proxy"]; got != "10.10.1.3" {
+		t.Fatalf("db proxy host = %q, want backend proxy IP", got)
+	}
+
+	proxy := project.Services["proxy"]
+	if got := proxy.InternalNetwork.Subnet; got != "10.10.1.0/24" {
+		t.Fatalf("proxy primary subnet = %q, want backend first", got)
+	}
+	if len(proxy.InternalNetwork.Segments) != 1 {
+		t.Fatalf("proxy segments = %#v, want one additional segment", proxy.InternalNetwork.Segments)
+	}
+	if got := proxy.InternalNetwork.Segments[0].Subnet; got != "10.10.2.0/24" {
+		t.Fatalf("proxy additional subnet = %q, want frontend", got)
+	}
+	proxyFrontendIP := proxy.InternalNetwork.Segments[0].InstanceIPs[0]
+	if got := web.ExtraHosts["proxy"]; got != proxyFrontendIP {
+		t.Fatalf("web proxy host = %q, want frontend proxy IP %q", got, proxyFrontendIP)
+	}
+	if got := proxy.ExtraHosts["web"]; got != web.InternalNetwork.InstanceIPs[0] {
+		t.Fatalf("proxy web host = %q, want frontend web IP", got)
+	}
+	if got := proxy.ExtraHosts["db"]; got != "10.10.1.2" {
+		t.Fatalf("proxy db host = %q, want backend db IP", got)
+	}
+	if got := proxy.ExtraHosts["site"]; got != web.InternalNetwork.InstanceIPs[0] {
+		t.Fatalf("proxy site alias = %q, want frontend web IP", got)
+	}
+}
+
 func TestDecodeServiceNetworkListItem(t *testing.T) {
 	t.Parallel()
 

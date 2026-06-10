@@ -51,6 +51,18 @@ func validateProjectInstanceCapacity(instances int) error {
 		instances, subnetCIDR, maxProjectInstances)
 }
 
+func networkInstanceCount(services map[string]Service, order []string, networkName string) int {
+	total := 0
+	for _, name := range order {
+		if !serviceAttachedToNetwork(serviceNetworkNames(services[name]), networkName) {
+			continue
+		}
+		replicas, _ := serviceReplicas(services[name])
+		total += replicas
+	}
+	return total
+}
+
 func validateReplicaCount(replicas int) error {
 	if replicas < 1 {
 		return fmt.Errorf("replicas must be >= 1")

@@ -7,7 +7,7 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
-func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir string, network NetworkPlan, hosts map[string]string, instanceIPs []string, resolver composeImageResolver) (config.Manifest, error) {
+func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir string, allocation serviceNetworkAllocation, resolver composeImageResolver) (config.Manifest, error) {
 	replicas, err := serviceReplicas(svc)
 	if err != nil {
 		return config.Manifest{}, err
@@ -45,7 +45,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 	}
 	hostname := resolveServiceHostname(svc)
 
-	baseMAC, err := resolveServiceInternalMAC(svc, generateMAC(0x00, f.Name, name))
+	baseMAC, err := resolveServiceInternalMAC(svc, allocation.Primary.BaseMAC)
 	if err != nil {
 		return config.Manifest{}, err
 	}
@@ -73,7 +73,7 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		return config.Manifest{}, err
 	}
 
-	extraHosts := resolveServiceExtraHosts(hosts, svc.ExtraHosts)
+	extraHosts := resolveServiceExtraHosts(allocation.Hosts, svc.ExtraHosts)
 
 	labels, err := resolveLabels(baseDir, svc.LabelFile, svc.Labels)
 	if err != nil {
@@ -104,13 +104,14 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 			BootCmd:           svc.CloudInit.BootCmd,
 		},
 		InternalNetwork: &config.InternalNetworkConfig{
-			MulticastGroup: network.MulticastGroup,
-			MulticastPort:  network.MulticastPort,
-			Subnet:         network.Subnet,
-			InstanceIPs:    instanceIPs,
+			MulticastGroup: allocation.Primary.Plan.MulticastGroup,
+			MulticastPort:  allocation.Primary.Plan.MulticastPort,
+			Subnet:         allocation.Primary.Plan.Subnet,
+			InstanceIPs:    allocation.Primary.IPs,
 			BaseMAC:        baseMAC,
 			UserBaseMAC:    generateMAC(0x01, f.Name, name),
 			DNSSearch:      append([]string(nil), svc.DNSSearch...),
+			Segments:       resolveAdditionalNetworkSegments(allocation.Additional),
 		},
 		ExtraHosts:         extraHosts,
 		StopGracePeriodSec: gracePeriodSec,
@@ -118,6 +119,21 @@ func (f *File) resolveService(name string, svc Service, baseDir string, cacheDir
 		PreStopCommands:    servicePreStopCmd(svc),
 		DependsOn:          append([]string(nil), svc.DependsOn...),
 	}, nil
+}
+
+func resolveAdditionalNetworkSegments(attachments []serviceNetworkAttachment) []config.InternalNetworkSegment {
+	segments := make([]config.InternalNetworkSegment, 0, len(attachments))
+	for _, attachment := range attachments {
+		segments = append(segments, config.InternalNetworkSegment{
+			Name:           attachment.Name,
+			MulticastGroup: attachment.Plan.MulticastGroup,
+			MulticastPort:  attachment.Plan.MulticastPort,
+			Subnet:         attachment.Plan.Subnet,
+			InstanceIPs:    append([]string(nil), attachment.IPs...),
+			BaseMAC:        attachment.BaseMAC,
+		})
+	}
+	return segments
 }
 
 func resolveServicePorts(composePorts []config.PortForward, dockerfilePorts []config.PortForward) []config.PortForward {

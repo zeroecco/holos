@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/zeroecco/holos/internal/compose"
 	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/qemu"
 )
@@ -29,6 +30,39 @@ func TestRunningCountUsesInstanceStatus(t *testing.T) {
 	}
 	if got, want := service.RunningCount(), 1; got != want {
 		t.Fatalf("RunningCount = %d, want %d", got, want)
+	}
+}
+
+func TestNetworkSegmentRecordsSortsAndPersistsSegments(t *testing.T) {
+	t.Parallel()
+
+	segments := networkSegmentRecords(compose.NetworkPlan{
+		Segments: map[string]compose.NetworkSegmentPlan{
+			"frontend": {
+				Name:           "frontend",
+				MulticastGroup: "239.0.0.2",
+				MulticastPort:  10002,
+				Subnet:         "10.10.2.0/24",
+				Hosts:          map[string]string{"web": "10.10.2.2"},
+			},
+			"backend": {
+				Name:           "backend",
+				MulticastGroup: "239.0.0.1",
+				MulticastPort:  10001,
+				Subnet:         "10.10.1.0/24",
+				Hosts:          map[string]string{"db": "10.10.1.2"},
+			},
+		},
+	})
+
+	if len(segments) != 2 {
+		t.Fatalf("segments len = %d, want 2: %#v", len(segments), segments)
+	}
+	if segments[0].Name != "backend" || segments[1].Name != "frontend" {
+		t.Fatalf("segments order = %#v, want backend then frontend", segments)
+	}
+	if got := segments[0].Hosts["db"]; got != "10.10.1.2" {
+		t.Fatalf("backend host db = %q, want 10.10.1.2", got)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -64,11 +65,32 @@ func writeValidateReport(output io.Writer, project *compose.Project) error {
 		project.Network.MulticastGroup,
 		project.Network.MulticastPort,
 	)
+	if len(project.Network.Segments) > 1 {
+		fmt.Fprintln(output, "segments:")
+		for _, name := range sortedNetworkSegmentNames(project.Network.Segments) {
+			segment := project.Network.Segments[name]
+			fmt.Fprintf(output, "  %s: %s (mcast %s:%d)\n",
+				name,
+				segment.Subnet,
+				segment.MulticastGroup,
+				segment.MulticastPort,
+			)
+		}
+	}
 	fmt.Fprintln(output, "hosts:")
 	for host, ip := range project.Network.Hosts {
 		fmt.Fprintf(output, "  %s -> %s\n", host, ip)
 	}
 	return nil
+}
+
+func sortedNetworkSegmentNames(segments map[string]compose.NetworkSegmentPlan) []string {
+	names := make([]string, 0, len(segments))
+	for name := range segments {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func runVersion(args []string) error {

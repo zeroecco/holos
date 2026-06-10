@@ -39,6 +39,17 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 			DHCP4: true,
 		}
 	}
+	for _, segment := range manifest.InternalNetwork.Segments {
+		ip := segment.SegmentIP(instanceIndex)
+		mac := segment.SegmentMAC(instanceIndex)
+		if ip == "" || mac == "" {
+			continue
+		}
+		ethernets[segmentInterfaceName(segment.Name)] = ethernetDef{
+			Match:     matchDef{MACAddress: mac},
+			Addresses: []string{ip + internalNetworkAddressCIDR},
+		}
+	}
 
 	nc := netConfig{Network: netConfigBody{
 		Version:   networkConfigVersion,
@@ -47,4 +58,8 @@ func renderNetworkConfig(manifest config.Manifest, instanceIndex int) string {
 
 	data, _ := yaml.Marshal(nc)
 	return string(data)
+}
+
+func segmentInterfaceName(name string) string {
+	return "internal-" + name
 }

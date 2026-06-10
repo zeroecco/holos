@@ -180,4 +180,15 @@ type NetworkPlan struct {
 	MulticastPort  int
 	Subnet         string
 	Hosts          map[string]string
+	Segments       map[string]NetworkSegmentPlan
+}
+
+// NetworkSegmentPlan is a named internal L2 segment derived from Compose
+// network declarations and service attachments.
+type NetworkSegmentPlan struct {
+	Name           string
+	MulticastGroup string
+	MulticastPort  int
+	Subnet         string
+	Hosts          map[string]string
 }

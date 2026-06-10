@@ -94,14 +94,22 @@ func TestResolveDockerfileBuildAdoptsFromImage(t *testing.T) {
 	writeTestFile(t, fromDir, "Dockerfile", "FROM debian:bookworm\nRUN echo frombase\n")
 
 	file := &File{Name: "buildsyntax"}
+	network := file.planNetwork()
+	_, serviceNetworks, err := allocateServiceNetworks(
+		map[string]Service{"frombase": {Build: ComposeBuild{Context: "./frombase"}}},
+		[]string{"frombase"},
+		network,
+		file.Name,
+	)
+	if err != nil {
+		t.Fatalf("allocateServiceNetworks: %v", err)
+	}
 	manifest, err := file.resolveService(
 		"frombase",
 		Service{Build: ComposeBuild{Context: "./frombase"}},
 		dir,
 		dir,
-		file.planNetwork(),
-		map[string]string{"frombase": "10.10.0.2", "frombase-0": "10.10.0.2"},
-		[]string{"10.10.0.2"},
+		serviceNetworks["frombase"],
 		composeTestImages,
 	)
 	if err != nil {

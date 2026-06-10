@@ -14,9 +14,16 @@ func networkArgs(manifest config.Manifest, spec LaunchSpec, userNetdev string) [
 	}
 
 	mac := manifest.InternalNetwork.InstanceMAC(spec.Index)
-	return append(args,
+	args = append(args,
 		"-netdev", socketNetdev(manifest.InternalNetwork),
 		qemuArgDevice, virtioNetDevice(socketNetdevID, mac))
+	for i, segment := range manifest.InternalNetwork.Segments {
+		netdevID := segmentNetdevID(i)
+		args = append(args,
+			"-netdev", socketSegmentNetdev(netdevID, segment),
+			qemuArgDevice, virtioNetDevice(netdevID, segment.SegmentMAC(spec.Index)))
+	}
+	return args
 }
 
 func userNetDevice(network *config.InternalNetworkConfig, index int) string {
@@ -34,6 +41,17 @@ func socketNetdev(network *config.InternalNetworkConfig) string {
 
 func socketMulticastTarget(network *config.InternalNetworkConfig) string {
 	return fmt.Sprintf("%s:%d", network.MulticastGroup, network.MulticastPort)
+}
+
+func segmentNetdevID(index int) string {
+	return fmt.Sprintf("net%d", index+2)
+}
+
+func socketSegmentNetdev(netdevID string, segment config.InternalNetworkSegment) string {
+	return fmt.Sprintf("socket,id=%s,mcast=%s:%d",
+		netdevID,
+		segment.MulticastGroup,
+		segment.MulticastPort)
 }
 
 func virtioNetDevice(netdevID, mac string) string {

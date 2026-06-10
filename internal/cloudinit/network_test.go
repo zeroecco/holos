@@ -59,6 +59,32 @@ func TestRenderNetworkConfigAddsDNSSearch(t *testing.T) {
 	)
 }
 
+func TestRenderNetworkConfigAddsAdditionalSegments(t *testing.T) {
+	t.Parallel()
+
+	manifest := config.Manifest{InternalNetwork: &config.InternalNetworkConfig{
+		InstanceIPs: []string{"10.10.1.3"},
+		BaseMAC:     "52:54:02:ab:cd:00",
+		Segments: []config.InternalNetworkSegment{
+			{
+				Name:        "frontend",
+				InstanceIPs: []string{"10.10.2.3"},
+				BaseMAC:     "52:54:02:ef:01:00",
+			},
+		},
+	}}
+
+	got := renderNetworkConfig(manifest, 0)
+	assertContains(t, got,
+		"internal:",
+		"10.10.1.3"+internalNetworkAddressCIDR,
+		"52:54:02:ab:cd:00",
+		"internal-frontend:",
+		"10.10.2.3"+internalNetworkAddressCIDR,
+		"52:54:02:ef:01:00",
+	)
+}
+
 func TestRenderNetworkConfigSkipsMissingInstance(t *testing.T) {
 	t.Parallel()
 

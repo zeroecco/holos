@@ -86,5 +86,10 @@ func validateInternalNetwork(network *InternalNetworkConfig) error {
 	if err := ValidateMACAddress(network.UserBaseMAC); err != nil {
 		return fmt.Errorf("internal_network.user_base_mac: %w", err)
 	}
+	for _, segment := range network.Segments {
+		if err := ValidateMACAddress(segment.BaseMAC); err != nil {
+			return fmt.Errorf("internal_network.segment %q base_mac: %w", segment.Name, err)
+		}
+	}
 	return nil
 }

@@ -178,13 +178,15 @@ volumes:
 ```
 
 Top-level `networks` and per-service `networks` are accepted for Docker
-Compose compatibility. Holos currently uses its own internal VM network plan,
-so these declarations do not create separate runtime segments yet. A service
-`mac_address`, or one matching per-network `mac_address`, is applied to the
-internal VM NIC and offset for replicas. Conflicting per-network MACs are
-rejected because holos has one internal VM NIC today. Per-service network
-`aliases` are added to the generated `/etc/hosts`, and `dns_search` is rendered
-into the internal NIC's netplan nameserver search list. `holos import`
+Compose compatibility. Named networks become distinct socket-multicast VM
+segments with separate subnets, multicast endpoints, virtio NICs, and generated
+cloud-init network config. Services without an explicit `networks` attachment
+join the implicit `default` segment; services with multiple attachments get one
+internal NIC per segment. A service `mac_address`, or one matching per-network
+`mac_address`, is applied to the primary internal VM NIC and offset for
+replicas. Per-service network `aliases` are added to generated `/etc/hosts`
+only for peers that share the relevant segment, and `dns_search` is rendered
+into the primary internal NIC's netplan nameserver search list. `holos import`
 preserves libvirt NIC source and model in network `driver_opts` for future
 bridge/tap support.
 

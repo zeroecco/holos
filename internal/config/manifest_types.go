@@ -75,13 +75,25 @@ type NetworkConfig struct {
 // assigned by the compose resolver: multicast group/port, subnet, per-replica
 // IPs, and base MAC addresses for both the internal and user-mode NICs.
 type InternalNetworkConfig struct {
+	MulticastGroup string                   `json:"multicast_group"`
+	MulticastPort  int                      `json:"multicast_port"`
+	Subnet         string                   `json:"subnet"`
+	InstanceIPs    []string                 `json:"instance_ips"`
+	BaseMAC        string                   `json:"base_mac"`
+	UserBaseMAC    string                   `json:"user_base_mac"`
+	DNSSearch      []string                 `json:"dns_search,omitempty"`
+	Segments       []InternalNetworkSegment `json:"segments,omitempty"`
+}
+
+// InternalNetworkSegment is an additional named internal L2 segment attached
+// to a VM alongside the primary internal network.
+type InternalNetworkSegment struct {
+	Name           string   `json:"name"`
 	MulticastGroup string   `json:"multicast_group"`
 	MulticastPort  int      `json:"multicast_port"`
 	Subnet         string   `json:"subnet"`
 	InstanceIPs    []string `json:"instance_ips"`
 	BaseMAC        string   `json:"base_mac"`
-	UserBaseMAC    string   `json:"user_base_mac"`
-	DNSSearch      []string `json:"dns_search,omitempty"`
 }
 
 // InstanceMAC returns the internal NIC MAC address for the given replica index.
@@ -99,6 +111,19 @@ func (n *InternalNetworkConfig) UserMAC(index int) string {
 func (n *InternalNetworkConfig) InstanceIP(index int) string {
 	if index < len(n.InstanceIPs) {
 		return n.InstanceIPs[index]
+	}
+	return ""
+}
+
+// SegmentMAC returns the segment NIC MAC address for the given replica index.
+func (s InternalNetworkSegment) SegmentMAC(index int) string {
+	return offsetMAC(s.BaseMAC, index)
+}
+
+// SegmentIP returns the static segment IP for the given replica index.
+func (s InternalNetworkSegment) SegmentIP(index int) string {
+	if index < len(s.InstanceIPs) {
+		return s.InstanceIPs[index]
 	}
 	return ""
 }
