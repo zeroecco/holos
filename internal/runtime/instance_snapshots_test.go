@@ -76,6 +76,18 @@ func TestSnapshotInstanceRootRejectsInvalidSnapshotName(t *testing.T) {
 	assertErrorContains(t, err, "invalid snapshot name")
 }
 
+func TestParseSnapshotList(t *testing.T) {
+	output := `Snapshot list:
+ID        TAG                     VM SIZE                DATE        VM CLOCK
+1         before-upgrade          0 B     2026-07-09 10:00:00   00:00:00.000
+2         clean                   0 B     2026-07-09 10:01:00   00:00:00.000
+`
+	got := parseSnapshotList(output)
+	if len(got) != 2 || got[0].Name != "before-upgrade" || got[1].Name != "clean" {
+		t.Fatalf("parseSnapshotList = %+v", got)
+	}
+}
+
 func writeTestInstanceOverlay(t *testing.T, stateDir, project, service string, index int) string {
 	t.Helper()
 

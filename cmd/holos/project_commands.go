@@ -13,6 +13,7 @@ func runUp(args []string) error {
 	flags := newFlagSet("up")
 	projectFlags := addProjectFlags(flags, "")
 	lock := addLockFlags(flags)
+	locked := flags.Bool("locked", false, "require holos.images.lock and reject image drift")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -21,7 +22,7 @@ func runUp(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyProjectImageLock(composePath, project); err != nil {
+	if err := verifyProjectImageLockMode(composePath, project, *locked); err != nil {
 		return err
 	}
 

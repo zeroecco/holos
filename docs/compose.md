@@ -245,13 +245,15 @@ fails while any instance workdir still references the volume. Use
 `holos volumes export <project> <volume> <path>` to copy a detached volume
 backing file to a new destination without overwriting existing files. Use
 `holos volumes snapshot <project> <volume> <snapshot>` to create an internal
-qcow2 snapshot on a detached named volume. Use
+qcow2 snapshot on a detached named volume. Use `holos volumes snapshots` and
+`holos volumes snapshot-rm` to inspect and remove them. Use
 `holos volumes resize <project> <volume> <size>` to grow a detached named
 volume's virtual size; pass `--shrink` only when intentionally reducing it.
 
 Use `holos snapshots create <project> <instance> <snapshot>` to create an
-internal qcow2 snapshot on a stopped instance's root overlay. Root overlay
-snapshots are refused while the instance is running.
+internal qcow2 snapshot on a stopped instance's root overlay. Use `list` and
+`rm` to inspect and remove snapshots. Root overlay snapshots are refused while
+the instance is running.
 
 ## Healthchecks And `depends_on`
 

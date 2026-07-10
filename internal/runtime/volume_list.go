@@ -332,6 +332,58 @@ func (m *Manager) SnapshotVolume(projectName, volumeName, snapshotName string) e
 	})
 }
 
+// ListVolumeSnapshots lists internal snapshots on a detached named volume.
+func (m *Manager) ListVolumeSnapshots(projectName, volumeName string) ([]SnapshotInfo, error) {
+	return m.volumeSnapshots(projectName, volumeName, false, "")
+}
+
+// RemoveVolumeSnapshot deletes an internal snapshot from a detached named volume.
+func (m *Manager) RemoveVolumeSnapshot(projectName, volumeName, snapshotName string) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	if err := compose.ValidateName(snapshotName); err != nil {
+		return fmt.Errorf("invalid snapshot name: %w", err)
+	}
+	_, err := m.volumeSnapshots(projectName, volumeName, true, snapshotName)
+	return err
+}
+
+func (m *Manager) volumeSnapshots(projectName, volumeName string, remove bool, snapshotName string) ([]SnapshotInfo, error) {
+	var snapshots []SnapshotInfo
+	err := m.withProjectLock(projectName, func() error {
+		volume, ok, err := m.findVolume(projectName, volumeName)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+		}
+		if len(volume.Attachments) > 0 {
+			return fmt.Errorf("volume %q in project %q is attached to %s", volumeName, projectName, volumeAttachmentSummary(volume.Attachments))
+		}
+		qemuImg, err := m.qemuImgBinary()
+		if err != nil {
+			return err
+		}
+		path := volumeBackingPath(m.stateDir, projectName, volumeName)
+		if remove {
+			output, err := exec.Command(qemuImg, diskSnapshotDeleteArgs(snapshotName, path)...).CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("remove snapshot %q: %w: %s", snapshotName, err, strings.TrimSpace(string(output)))
+			}
+			return nil
+		}
+		output, err := exec.Command(qemuImg, diskSnapshotListArgs(path)...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("list snapshots: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		snapshots = parseSnapshotList(string(output))
+		return nil
+	})
+	return snapshots, err
+}
+
 func (m *Manager) snapshotVolumeLocked(projectName, volumeName, snapshotName string) error {
 	volume, ok, err := m.findVolume(projectName, volumeName)
 	if err != nil {

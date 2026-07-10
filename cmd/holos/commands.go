@@ -38,13 +38,14 @@ var commandOrder = []string{
 	"install",
 	"uninstall",
 	"import",
+	"completion",
 	"version",
 }
 
 var commands = map[string]command{
 	"up": {
 		run:         runUp,
-		usage:       "holos up [-f holos.yaml] [--lock-timeout 5m|--no-wait]",
+		usage:       "holos up [-f holos.yaml] [--locked] [--lock-timeout 5m|--no-wait]",
 		description: "start all services",
 	},
 	"run": {
@@ -94,7 +95,7 @@ var commands = map[string]command{
 	},
 	"validate": {
 		run:         runValidate,
-		usage:       "holos validate [-f holos.yaml]",
+		usage:       "holos validate [-f holos.yaml] [--capacity] [--network]",
 		description: "validate compose file",
 	},
 	"pull": {
@@ -114,12 +115,12 @@ var commands = map[string]command{
 	},
 	"snapshots": {
 		run:         runSnapshots,
-		usage:       "holos snapshots create <project> <instance> <snapshot>",
-		description: "snapshot stopped instance root overlays",
+		usage:       "holos snapshots {create|list|rm} ...",
+		description: "manage stopped instance root snapshots",
 	},
 	"volumes": {
 		run:         runVolumes,
-		usage:       "holos volumes [-f holos.yaml] [--json] | holos volumes rm <project> <volume> | holos volumes export <project> <volume> <path> | holos volumes snapshot <project> <volume> <snapshot> | holos volumes resize [--shrink] <project> <volume> <size>",
+		usage:       "holos volumes [list|rm|export|snapshot|snapshots|snapshot-rm|resize] ...",
 		description: "list, remove, export, snapshot, or resize named volumes",
 	},
 	"devices": {
@@ -146,6 +147,11 @@ var commands = map[string]command{
 		run:         runImport,
 		usage:       "holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]",
 		description: "convert virsh-defined VMs into a holos.yaml",
+	},
+	"completion": {
+		run:         runCompletion,
+		usage:       "holos completion <bash|zsh|fish>",
+		description: "print shell completion script",
 	},
 	"version": {
 		run:         runVersion,

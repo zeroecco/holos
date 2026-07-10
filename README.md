@@ -60,7 +60,7 @@ Pre-built binaries are attached to every
 [GitHub release](https://github.com/zeroecco/holos/releases):
 
 ```bash
-TAG=v0.2.3
+TAG=v0.6.0
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
 curl -LO $BASE/$ASSET
@@ -86,7 +86,7 @@ bin/holos doctor
 ## CLI
 
 ```text
-holos up [-f holos.yaml] [--lock-timeout 5m|--no-wait]
+holos up [-f holos.yaml] [--locked] [--lock-timeout 5m|--no-wait]
                                      start all services
 holos run [flags] <image> [-- cmd...] launch a one-off VM
 holos down <project>                 stop and remove a project
@@ -99,14 +99,14 @@ holos exec <project> [<inst>] [-- cmd...]
 holos logs <project> [<svc|inst>]    show console logs
 holos inspect [-f holos.yaml] [project|instance]
                                      inspect state as JSON
-holos validate [-f holos.yaml]       validate compose file
+holos validate [-f holos.yaml]       validate compose file (--capacity/--network)
 holos pull <image>                   pull a cloud image
 holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
 holos images lock -f holos.yaml [-o holos.images.lock]
                                      write project image lockfile
-holos snapshots create <project> <instance> <snapshot>
-                                     snapshot a stopped root overlay
+holos snapshots {create|list|rm} ...  manage stopped root-overlay snapshots
+                                     (create/list/rm <project> <instance> ...)
 holos volumes [-f holos.yaml] [--json]
                                      list named volumes
 holos volumes rm <project> <volume>  remove a detached named volume
@@ -114,9 +114,14 @@ holos volumes export <project> <volume> <path>
                                      export a detached named volume
 holos volumes snapshot <project> <volume> <snapshot>
                                      snapshot a detached named volume
+holos volumes snapshots <project> <volume>
+                                     list volume snapshots
+holos volumes snapshot-rm <project> <volume> <snapshot>
+                                     remove a volume snapshot
 holos volumes resize [--shrink] <project> <volume> <size>
                                      resize a detached named volume
 holos devices [--gpu]                list PCI devices and IOMMU groups
+holos completion <bash|zsh|fish>      print shell completion script
 holos doctor [--json]                check host dependencies
 holos install [-f holos.yaml] [--system] [--enable]
                                      install a systemd unit

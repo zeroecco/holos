@@ -6,6 +6,33 @@ permalink: /cli/
 
 # CLI Guide
 
+## Shell completion
+
+Generate completion for the shell in use:
+
+```bash
+holos completion bash > ~/.local/share/bash-completion/completions/holos
+holos completion zsh > ~/.zfunc/_holos
+holos completion fish > ~/.config/fish/completions/holos.fish
+```
+
+The scripts complete top-level commands and subcommands for `snapshots`,
+`volumes`, and `completion`.
+
+## Image locks
+
+Run `holos images lock -f holos.yaml` to write a project image lockfile. Use
+`holos up --locked` in CI or deployment scripts to require the lockfile and
+reject changed image bytes or service entries.
+
+## Capacity preflight
+
+`holos validate --capacity` checks aggregate replica CPU and memory requests
+against the current host before launch. `--network` checks that configured
+bridge/tap networks refer to bridges that already exist. Both checks are
+optional; use them in deployment scripts when host overcommit or missing host
+network setup is not desired.
+
 ## Ad Hoc VMs
 
 `holos run` launches a one-off VM without a compose file:
@@ -97,6 +124,8 @@ Stopped instances can snapshot their root overlay with qemu-img:
 ```bash
 holos stop -f holos.yaml web
 holos snapshots create demo web-0 before-upgrade
+holos snapshots list demo web-0
+holos snapshots rm demo web-0 before-upgrade
 ```
 
 The command refuses running instances because mutating an active qcow2 overlay

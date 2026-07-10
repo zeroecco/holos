@@ -50,7 +50,7 @@ func TestRunSnapshotsRequiresCreateSubcommand(t *testing.T) {
 	t.Parallel()
 
 	err := runSnapshots(nil)
-	if err == nil || !strings.Contains(err.Error(), "usage: holos snapshots create") {
+	if err == nil || !strings.Contains(err.Error(), "usage: holos snapshots {create|list|rm}") {
 		t.Fatalf("runSnapshots(nil) err = %v, want usage", err)
 	}
 }

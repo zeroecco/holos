@@ -19,6 +19,12 @@ func runVolumes(args []string) error {
 	if len(args) > 0 && args[0] == "snapshot" {
 		return runVolumeSnapshot(args[1:])
 	}
+	if len(args) > 0 && args[0] == "snapshots" {
+		return runVolumeSnapshots(args[1:])
+	}
+	if len(args) > 0 && (args[0] == "snapshot-rm" || args[0] == "snapshot-remove") {
+		return runVolumeSnapshotRemove(args[1:])
+	}
 	if len(args) > 0 && args[0] == "resize" {
 		return runVolumeResize(args[1:])
 	}
@@ -99,6 +105,43 @@ func runVolumeSnapshot(args []string) error {
 	manager := runtime.NewManager(*stateDir)
 	applyLockFlags(manager, lock)
 	return manager.SnapshotVolume(flags.Arg(0), flags.Arg(1), flags.Arg(2))
+}
+
+func runVolumeSnapshots(args []string) error {
+	flags := newFlagSet("volumes snapshots")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 2 {
+		return fmt.Errorf("usage: holos volumes snapshots <project> <volume>")
+	}
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	snapshots, err := manager.ListVolumeSnapshots(flags.Arg(0), flags.Arg(1))
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range snapshots {
+		fmt.Println(snapshot.Name)
+	}
+	return nil
+}
+
+func runVolumeSnapshotRemove(args []string) error {
+	flags := newFlagSet("volumes snapshot-rm")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 3 {
+		return fmt.Errorf("usage: holos volumes snapshot-rm <project> <volume> <snapshot>")
+	}
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	return manager.RemoveVolumeSnapshot(flags.Arg(0), flags.Arg(1), flags.Arg(2))
 }
 
 func runVolumeResize(args []string) error {

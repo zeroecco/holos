@@ -8,6 +8,7 @@ import (
 	goruntime "runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -26,6 +27,8 @@ const (
 func runValidate(args []string) error {
 	flags := newFlagSet("validate")
 	projectFlags := addProjectFlags(flags, "")
+	capacity := flags.Bool("capacity", false, "fail if the project requests more host CPU or memory than available")
+	network := flags.Bool("network", false, "check host bridges required by bridge and tap networks")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -34,8 +37,67 @@ func runValidate(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *capacity {
+		if err := validateProjectCapacity(project); err != nil {
+			return err
+		}
+	}
+	if *network {
+		if err := validateProjectNetwork(project); err != nil {
+			return err
+		}
+	}
 
 	return writeValidateReport(os.Stdout, project)
+}
+
+func validateProjectNetwork(project *compose.Project) error {
+	for name, segment := range project.Network.Segments {
+		if (segment.Backend != "bridge" && segment.Backend != "tap") || segment.BridgeName == "" {
+			continue
+		}
+		path := filepath.Join("/sys/class/net", segment.BridgeName)
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("network %q requires host bridge %q: %w", name, segment.BridgeName, err)
+		}
+	}
+	return nil
+}
+
+func validateProjectCapacity(project *compose.Project) error {
+	var vcpu, memoryMB int
+	for _, manifest := range project.Services {
+		vcpu += manifest.VM.VCPU * manifest.Replicas
+		memoryMB += manifest.VM.MemoryMB * manifest.Replicas
+	}
+	hostCPU := goruntime.NumCPU()
+	hostMemoryMB, ok := hostMemoryMB()
+	if vcpu > hostCPU {
+		return fmt.Errorf("project requests %d vCPUs across replicas, host reports %d CPUs", vcpu, hostCPU)
+	}
+	if ok && memoryMB > hostMemoryMB {
+		return fmt.Errorf("project requests %dMB memory across replicas, host reports %dMB", memoryMB, hostMemoryMB)
+	}
+	return nil
+}
+
+func hostMemoryMB() (int, bool) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "MemTotal:" {
+			continue
+		}
+		kb, err := strconv.ParseInt(fields[1], 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return int(kb / 1024), true
+	}
+	return 0, false
 }
 
 func writeValidateReport(output io.Writer, project *compose.Project) error {

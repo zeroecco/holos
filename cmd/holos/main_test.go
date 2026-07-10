@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -27,6 +28,15 @@ func writeTestFile(t *testing.T, dir, name, content string, perm os.FileMode) st
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestCompletionScripts(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish"} {
+		script, ok := completionScripts[shell]
+		if !ok || strings.TrimSpace(script) == "" {
+			t.Fatalf("completion script for %s is empty", shell)
+		}
+	}
 }
 
 func writeTestOVMFFirmware(t *testing.T, dir string) (string, string) {

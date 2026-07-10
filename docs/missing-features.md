@@ -23,11 +23,18 @@ Recent coverage added:
 - Device/import coverage: extra qcow2 disks as named volumes, imported NIC
   source/MAC intent, imported USB hostdev metadata, and GPU passthrough
   diagnostics.
+- Snapshot operations: stopped root-overlay snapshots can be created, listed,
+  and removed; `holos up --locked` can require and verify a project image lock.
+- Host preflight coverage: `holos validate --capacity` checks aggregate VM
+  resources and `--network` checks required bridge/tap host interfaces.
 
 The remaining accepted Docker Compose fields such as `network_mode`, `dns`,
 `dns_opt`, `links`, and `external_links` stay compatibility metadata unless a
 future single-host VM workflow needs different behavior. They are not tracked as
 active gaps today.
+
+Holos intentionally uses deterministic generated `/etc/hosts` entries for
+single-host service naming rather than running a DNS control plane.
 
 Add new entries here when a concrete missing feature fits holos' single-host KVM
 compose goal and has a clear testable runtime or authoring behavior.

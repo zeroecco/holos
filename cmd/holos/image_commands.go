@@ -225,12 +225,19 @@ func writeImageLockfile(path string, lockfile imageLockfile) error {
 }
 
 func verifyProjectImageLock(composePath string, project *compose.Project) error {
+	return verifyProjectImageLockMode(composePath, project, false)
+}
+
+func verifyProjectImageLockMode(composePath string, project *compose.Project, required bool) error {
 	lockPath := imageLockOutputPath("", composePath)
 	lockfile, ok, err := loadImageLockfile(lockPath)
 	if err != nil {
 		return err
 	}
 	if !ok {
+		if required {
+			return fmt.Errorf("image lockfile %s not found; run 'holos images lock -f %s' or omit --locked", lockPath, composePath)
+		}
 		return nil
 	}
 	current, err := imageLockfileForProject(project)
