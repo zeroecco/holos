@@ -42,7 +42,7 @@ jobs:
           python3 --version
           qemu-system-x86_64 --version
           qemu-img --version
-          cloud-localds --version || genisoimage --version || mkisofs --version || xorriso --version
+          genisoimage --version || mkisofs --version || xorriso --version
 
       - name: Build holos
         run: go build -o bin/holos ./cmd/holos
