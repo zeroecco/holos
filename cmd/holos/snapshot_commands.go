@@ -16,7 +16,13 @@ func runSnapshots(args []string) error {
 	if len(args) > 0 && (args[0] == "rm" || args[0] == "remove") {
 		return runSnapshotRemove(args[1:])
 	}
-	return fmt.Errorf("usage: holos snapshots {create|list|rm} ...")
+	if len(args) > 0 && args[0] == "restore" {
+		return runSnapshotRestore(args[1:])
+	}
+	if len(args) > 0 && args[0] == "export" {
+		return runSnapshotExport(args[1:])
+	}
+	return fmt.Errorf("usage: holos snapshots {create|list|rm|restore|export} ...")
 }
 
 func runSnapshotList(args []string) error {
@@ -70,4 +76,34 @@ func runSnapshotCreate(args []string) error {
 	manager := runtime.NewManager(*stateDir)
 	applyLockFlags(manager, lock)
 	return manager.SnapshotInstanceRoot(flags.Arg(0), flags.Arg(1), flags.Arg(2))
+}
+
+func runSnapshotRestore(args []string) error {
+	flags := newFlagSet("snapshots restore")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 3 {
+		return fmt.Errorf("usage: holos snapshots restore <project> <instance> <snapshot>")
+	}
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	return manager.RestoreInstanceSnapshot(flags.Arg(0), flags.Arg(1), flags.Arg(2))
+}
+
+func runSnapshotExport(args []string) error {
+	flags := newFlagSet("snapshots export")
+	stateDir := addStateDirFlag(flags)
+	lock := addLockFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 4 {
+		return fmt.Errorf("usage: holos snapshots export <project> <instance> <snapshot> <path>")
+	}
+	manager := runtime.NewManager(*stateDir)
+	applyLockFlags(manager, lock)
+	return manager.ExportInstanceSnapshot(flags.Arg(0), flags.Arg(1), flags.Arg(2), flags.Arg(3))
 }

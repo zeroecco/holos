@@ -15,11 +15,18 @@ type SnapshotInfo struct {
 	Name string `json:"name"`
 }
 
+func validateSnapshotName(snapshotName string) error {
+	if err := compose.ValidateName(snapshotName); err != nil {
+		return fmt.Errorf("invalid snapshot name: %w", err)
+	}
+	return nil
+}
+
 // SnapshotInstanceRoot creates an internal qcow2 snapshot on a stopped
 // instance's root overlay.
 func (m *Manager) SnapshotInstanceRoot(projectName, instanceName, snapshotName string) error {
-	if err := compose.ValidateName(snapshotName); err != nil {
-		return fmt.Errorf("invalid snapshot name: %w", err)
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
 	}
 	return m.withProjectLock(projectName, func() error {
 		return m.snapshotInstanceRootLocked(projectName, instanceName, snapshotName)
@@ -35,11 +42,95 @@ func (m *Manager) ListInstanceSnapshots(projectName, instanceName string) ([]Sna
 
 // RemoveInstanceSnapshot deletes an internal snapshot from a stopped instance.
 func (m *Manager) RemoveInstanceSnapshot(projectName, instanceName, snapshotName string) error {
-	if err := compose.ValidateName(snapshotName); err != nil {
-		return fmt.Errorf("invalid snapshot name: %w", err)
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
 	}
 	_, err := m.instanceSnapshots(projectName, instanceName, true, snapshotName)
 	return err
+}
+
+// RestoreInstanceSnapshot applies an internal snapshot to a stopped instance
+// root overlay. The active image is changed in place.
+func (m *Manager) RestoreInstanceSnapshot(projectName, instanceName, snapshotName string) error {
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
+	}
+	return m.withProjectLock(projectName, func() error {
+		path, err := m.instanceSnapshotPathLocked(projectName, instanceName)
+		if err != nil {
+			return err
+		}
+		return m.applySnapshot(path, snapshotName)
+	})
+}
+
+// ExportInstanceSnapshot writes a standalone qcow2 image containing the state
+// represented by an internal snapshot. It refuses to overwrite a destination.
+func (m *Manager) ExportInstanceSnapshot(projectName, instanceName, snapshotName, destination string) error {
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
+	}
+	return m.withProjectLock(projectName, func() error {
+		path, err := m.instanceSnapshotPathLocked(projectName, instanceName)
+		if err != nil {
+			return err
+		}
+		return m.exportSnapshot(path, snapshotName, destination)
+	})
+}
+
+func (m *Manager) instanceSnapshotPathLocked(projectName, instanceName string) (string, error) {
+	record, err := m.projectStatusLocked(projectName)
+	if err != nil {
+		return "", err
+	}
+	inst, _, ok := findInstanceRecord(record, instanceName)
+	if !ok {
+		return "", instanceNotFoundError(projectName, instanceName)
+	}
+	if inst.Status == InstanceStatusRunning {
+		return "", fmt.Errorf("instance %q in project %q is running; stop it first", instanceName, projectName)
+	}
+	if inst.OverlayPath == "" {
+		return "", fmt.Errorf("instance %q has no root overlay path", instanceName)
+	}
+	if _, err := os.Stat(inst.OverlayPath); err != nil {
+		return "", fmt.Errorf("stat instance root overlay: %w", err)
+	}
+	return inst.OverlayPath, nil
+}
+
+func (m *Manager) applySnapshot(path, snapshotName string) error {
+	qemuImg, err := m.qemuImgBinary()
+	if err != nil {
+		return err
+	}
+	output, err := exec.Command(qemuImg, diskSnapshotApplyArgs(snapshotName, path)...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("apply snapshot %q: %w: %s", snapshotName, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func (m *Manager) exportSnapshot(source, snapshotName, destination string) error {
+	if destination == "" {
+		return fmt.Errorf("snapshot export destination is required")
+	}
+	if _, err := os.Stat(destination); err == nil {
+		return fmt.Errorf("export destination %q already exists", destination)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat export destination %q: %w", destination, err)
+	}
+	qemuImg, err := m.qemuImgBinary()
+	if err != nil {
+		return err
+	}
+	output, err := exec.Command(qemuImg, diskSnapshotExportArgs(snapshotName, source, destination)...).CombinedOutput()
+	if err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("export snapshot %q: %w: %s", snapshotName, err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func (m *Manager) instanceSnapshots(projectName, instanceName string, remove bool, snapshotName string) ([]SnapshotInfo, error) {

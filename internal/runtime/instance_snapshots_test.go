@@ -88,6 +88,43 @@ ID        TAG                     VM SIZE                DATE        VM CLOCK
 	}
 }
 
+func TestRestoreInstanceSnapshotAppliesSnapshot(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	overlayPath := writeTestInstanceOverlay(t, stateDir, testPathProject, testPathService, 0)
+	if err := manager.saveProject(&ProjectRecord{Name: testPathProject, Services: []ServiceRecord{{Name: testPathService, Instances: []InstanceRecord{{Name: instanceDirName(testPathService, 0), Status: InstanceStatusStopped, OverlayPath: overlayPath}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	logPath := installQEMUImgVolumeMock(t)
+	if err := manager.RestoreInstanceSnapshot(testPathProject, instanceDirName(testPathService, 0), "before-upgrade"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSliceEqual(t, "qemu-img args", strings.Split(strings.TrimSpace(string(data)), "\n"), []string{"snapshot", "-a", "before-upgrade", overlayPath})
+}
+
+func TestExportInstanceSnapshotUsesSnapshotInput(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	overlayPath := writeTestInstanceOverlay(t, stateDir, testPathProject, testPathService, 0)
+	if err := manager.saveProject(&ProjectRecord{Name: testPathProject, Services: []ServiceRecord{{Name: testPathService, Instances: []InstanceRecord{{Name: instanceDirName(testPathService, 0), Status: InstanceStatusStopped, OverlayPath: overlayPath}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	logPath := installQEMUImgVolumeMock(t)
+	destination := filepath.Join(t.TempDir(), "snapshot.qcow2")
+	if err := manager.ExportInstanceSnapshot(testPathProject, instanceDirName(testPathService, 0), "before-upgrade", destination); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSliceEqual(t, "qemu-img args", strings.Split(strings.TrimSpace(string(data)), "\n"), []string{"convert", "-O", "qcow2", "-l", "before-upgrade", overlayPath, destination})
+}
+
 func writeTestInstanceOverlay(t *testing.T, stateDir, project, service string, index int) string {
 	t.Helper()
 

@@ -69,9 +69,10 @@ For teams using private images:
 ## Project Image Lockfiles
 
 For reproducible environments, keep a project-owned image lockfile in source
-control next to `holos.yaml`. holos does not yet enforce a first-class lockfile,
-but a simple `holos.images.lock` or `images/SHA256SUMS` gives reviewers and CI a
-stable contract:
+control next to `holos.yaml`. `holos up --locked` enforces the adjacent
+`holos.images.lock`; use `--lockfile <path>` when the lockfile lives elsewhere.
+For local/private images, a simple `images/SHA256SUMS` remains useful for
+reviewers and CI:
 
 ```text
 sha256  ./images/api-base-2026-05-01.qcow2  3f2a...

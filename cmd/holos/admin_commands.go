@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
@@ -52,7 +54,13 @@ func runValidate(args []string) error {
 }
 
 func validateProjectNetwork(project *compose.Project) error {
+	if err := checkMulticastPort(project.Network.MulticastPort); err != nil {
+		return fmt.Errorf("internal network: %w", err)
+	}
 	for name, segment := range project.Network.Segments {
+		if err := checkMulticastPort(segment.MulticastPort); err != nil {
+			return fmt.Errorf("network %q: %w", name, err)
+		}
 		if (segment.Backend != "bridge" && segment.Backend != "tap") || segment.BridgeName == "" {
 			continue
 		}
@@ -60,8 +68,62 @@ func validateProjectNetwork(project *compose.Project) error {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("network %q requires host bridge %q: %w", name, segment.BridgeName, err)
 		}
+		if segment.Backend == "bridge" {
+			if err := checkBridgeHelper(segment.BridgeName); err != nil {
+				return fmt.Errorf("network %q: %w", name, err)
+			}
+		}
+		if segment.Backend == "tap" {
+			if _, err := exec.LookPath("ip"); err != nil {
+				return fmt.Errorf("network %q uses tap backend but ip is not installed", name)
+			}
+			tun, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
+			if err != nil {
+				return fmt.Errorf("network %q uses tap backend but /dev/net/tun is unavailable or inaccessible", name)
+			}
+			_ = tun.Close()
+		}
 	}
 	return nil
+}
+
+func checkMulticastPort(port int) error {
+	if port <= 0 {
+		return nil
+	}
+	listener, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: port})
+	if err != nil {
+		return fmt.Errorf("multicast port %d is unavailable: %w", port, err)
+	}
+	return listener.Close()
+}
+
+func checkBridgeHelper(bridge string) error {
+	paths := []string{"/usr/lib/qemu/qemu-bridge-helper", "/usr/libexec/qemu-bridge-helper", "/usr/lib/x86_64-linux-gnu/qemu/qemu-bridge-helper"}
+	var helper string
+	for _, path := range paths {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			helper = path
+			break
+		}
+	}
+	if helper == "" {
+		return fmt.Errorf("qemu-bridge-helper is not installed or executable")
+	}
+	config, err := os.ReadFile("/etc/qemu/bridge.conf")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("/etc/qemu/bridge.conf is missing; allow bridge %q for unprivileged QEMU", bridge)
+		}
+		return fmt.Errorf("read /etc/qemu/bridge.conf: %w", err)
+	}
+	for _, line := range strings.Split(string(config), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "allow" && (fields[1] == bridge || fields[1] == "all") {
+			return nil
+		}
+	}
+	return fmt.Errorf("/etc/qemu/bridge.conf does not allow bridge %q", bridge)
 }
 
 func validateProjectCapacity(project *compose.Project) error {
@@ -70,19 +132,92 @@ func validateProjectCapacity(project *compose.Project) error {
 		vcpu += manifest.VM.VCPU * manifest.Replicas
 		memoryMB += manifest.VM.MemoryMB * manifest.Replicas
 	}
-	hostCPU := goruntime.NumCPU()
-	hostMemoryMB, ok := hostMemoryMB()
-	if vcpu > hostCPU {
-		return fmt.Errorf("project requests %d vCPUs across replicas, host reports %d CPUs", vcpu, hostCPU)
+	hostCPU, hostMemoryMB, memoryOK := hostCapacity()
+	if float64(vcpu) > hostCPU {
+		return fmt.Errorf("project requests %d vCPUs across replicas, host capacity is %.2f CPUs", vcpu, hostCPU)
 	}
-	if ok && memoryMB > hostMemoryMB {
+	if memoryOK && memoryMB > hostMemoryMB {
 		return fmt.Errorf("project requests %dMB memory across replicas, host reports %dMB", memoryMB, hostMemoryMB)
 	}
 	return nil
 }
 
+var capacityCgroupRoot = "/sys/fs/cgroup"
+var capacityMeminfoPath = "/proc/meminfo"
+var capacityCgroupPath = "/proc/self/cgroup"
+
+func hostCapacity() (cpu float64, memoryMB int, memoryOK bool) {
+	cpu = float64(goruntime.NumCPU())
+	cgroupRoot := effectiveCgroupRoot(capacityCgroupRoot)
+	if quota, ok := cgroupCPUQuota(cgroupRoot); ok && quota < cpu {
+		cpu = quota
+	}
+	memoryMB, memoryOK = hostMemoryMB()
+	if limit, ok := cgroupMemoryLimit(cgroupRoot); ok && (!memoryOK || limit < memoryMB) {
+		memoryMB, memoryOK = limit, true
+	}
+	return cpu, memoryMB, memoryOK
+}
+
+func effectiveCgroupRoot(root string) string {
+	if root != "/sys/fs/cgroup" {
+		return root
+	}
+	data, err := os.ReadFile(capacityCgroupPath)
+	if err != nil {
+		return root
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.SplitN(line, ":", 3)
+		if len(fields) == 3 && fields[0] == "0" && fields[1] == "" {
+			return filepath.Join(root, fields[2])
+		}
+	}
+	return root
+}
+
+func cgroupCPUQuota(root string) (float64, bool) {
+	data, err := os.ReadFile(filepath.Join(root, "cpu.max"))
+	if err == nil {
+		fields := strings.Fields(string(data))
+		if len(fields) >= 2 && fields[0] != "max" {
+			quota, qErr := strconv.ParseFloat(fields[0], 64)
+			period, pErr := strconv.ParseFloat(fields[1], 64)
+			if qErr == nil && pErr == nil && quota > 0 && period > 0 {
+				return quota / period, true
+			}
+		}
+	}
+	quotaData, qErr := os.ReadFile(filepath.Join(root, "cpu", "cpu.cfs_quota_us"))
+	periodData, pErr := os.ReadFile(filepath.Join(root, "cpu", "cpu.cfs_period_us"))
+	if qErr != nil || pErr != nil {
+		return 0, false
+	}
+	quota, qErr := strconv.ParseFloat(strings.TrimSpace(string(quotaData)), 64)
+	period, pErr := strconv.ParseFloat(strings.TrimSpace(string(periodData)), 64)
+	if qErr != nil || pErr != nil || quota <= 0 || period <= 0 {
+		return 0, false
+	}
+	return quota / period, true
+}
+
+func cgroupMemoryLimit(root string) (int, bool) {
+	paths := []string{filepath.Join(root, "memory.max"), filepath.Join(root, "memory", "memory.limit_in_bytes")}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil || strings.TrimSpace(string(data)) == "max" {
+			continue
+		}
+		bytes, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+		if err == nil && bytes > 0 {
+			return int(bytes / (1024 * 1024)), true
+		}
+	}
+	return 0, false
+}
+
 func hostMemoryMB() (int, bool) {
-	data, err := os.ReadFile("/proc/meminfo")
+	data, err := os.ReadFile(capacityMeminfoPath)
 	if err != nil {
 		return 0, false
 	}

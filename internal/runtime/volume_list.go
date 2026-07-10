@@ -342,11 +342,63 @@ func (m *Manager) RemoveVolumeSnapshot(projectName, volumeName, snapshotName str
 	if err := compose.ValidateName(volumeName); err != nil {
 		return fmt.Errorf("invalid volume name: %w", err)
 	}
-	if err := compose.ValidateName(snapshotName); err != nil {
-		return fmt.Errorf("invalid snapshot name: %w", err)
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
 	}
 	_, err := m.volumeSnapshots(projectName, volumeName, true, snapshotName)
 	return err
+}
+
+// RestoreVolumeSnapshot applies an internal snapshot to a detached named volume.
+func (m *Manager) RestoreVolumeSnapshot(projectName, volumeName, snapshotName string) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
+	}
+	return m.withProjectLock(projectName, func() error {
+		path, err := m.volumeSnapshotPathLocked(projectName, volumeName)
+		if err != nil {
+			return err
+		}
+		return m.applySnapshot(path, snapshotName)
+	})
+}
+
+// ExportVolumeSnapshot writes a standalone qcow2 image for an internal snapshot.
+func (m *Manager) ExportVolumeSnapshot(projectName, volumeName, snapshotName, destination string) error {
+	if err := compose.ValidateName(volumeName); err != nil {
+		return fmt.Errorf("invalid volume name: %w", err)
+	}
+	if err := validateSnapshotName(snapshotName); err != nil {
+		return err
+	}
+	return m.withProjectLock(projectName, func() error {
+		path, err := m.volumeSnapshotPathLocked(projectName, volumeName)
+		if err != nil {
+			return err
+		}
+		return m.exportSnapshot(path, snapshotName, destination)
+	})
+}
+
+func (m *Manager) volumeSnapshotPathLocked(projectName, volumeName string) (string, error) {
+	volume, ok, err := m.findVolume(projectName, volumeName)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("volume %q not found in project %q", volumeName, projectName)
+	}
+	if len(volume.Attachments) > 0 {
+		return "", fmt.Errorf("volume %q in project %q is attached to %s", volumeName, projectName, volumeAttachmentSummary(volume.Attachments))
+	}
+	path := volumeBackingPath(m.stateDir, projectName, volumeName)
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("stat volume %q: %w", volumeName, err)
+	}
+	return path, nil
 }
 
 func (m *Manager) volumeSnapshots(projectName, volumeName string, remove bool, snapshotName string) ([]SnapshotInfo, error) {

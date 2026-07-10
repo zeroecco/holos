@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.1] - 2026-07-10
+
+This patch release completes the operational safeguards introduced in 0.6.0.
+
+### Added
+
+- Restore stopped root-overlay and detached-volume qcow2 snapshots.
+- Export snapshots as standalone qcow2 images for copying or reuse on another
+  host.
+- Cgroup-aware capacity checks for CPU and memory limits.
+- Stronger network preflight checks for multicast ports, bridge helper access,
+  tap prerequisites, and `/dev/net/tun` access.
+- `holos up --lockfile <path>` for projects whose image lockfile is not next to
+  the compose file.
+
+### Tests and documentation
+
+- Added focused regression coverage for snapshot restore/export, image-lock
+  modes, cgroup capacity, and network validation.
+- Updated CLI, Compose, and threat-model documentation to match the current
+  lockfile and snapshot behavior.
+
+[0.6.1]: https://github.com/zeroecco/holos/releases/tag/v0.6.1
+
 ## [0.6.0] - 2026-07-09
 
 This release improves day-to-day operation of single-host VM stacks without

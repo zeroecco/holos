@@ -296,6 +296,37 @@ func TestSnapshotVolumeRejectsInvalidSnapshotName(t *testing.T) {
 	assertErrorContains(t, err, "invalid snapshot name")
 }
 
+func TestRestoreVolumeSnapshotAppliesSnapshot(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	logPath := installQEMUImgVolumeMock(t)
+	if err := manager.RestoreVolumeSnapshot(testVolumeProject, testVolumeName, "before-upgrade"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSliceEqual(t, "qemu-img args", strings.Split(strings.TrimSpace(string(data)), "\n"), []string{"snapshot", "-a", "before-upgrade", backing})
+}
+
+func TestExportVolumeSnapshotUsesSnapshotInput(t *testing.T) {
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	backing := writeTestVolumeBacking(t, stateDir, testVolumeName)
+	logPath := installQEMUImgVolumeMock(t)
+	destination := filepath.Join(t.TempDir(), "snapshot.qcow2")
+	if err := manager.ExportVolumeSnapshot(testVolumeProject, testVolumeName, "before-upgrade", destination); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSliceEqual(t, "qemu-img args", strings.Split(strings.TrimSpace(string(data)), "\n"), []string{"convert", "-O", "qcow2", "-l", "before-upgrade", backing, destination})
+}
+
 func TestResizeVolumeResizesDetachedVolumeAndUpdatesRecord(t *testing.T) {
 	stateDir := t.TempDir()
 	manager := NewManager(stateDir)

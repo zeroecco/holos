@@ -22,13 +22,15 @@ The scripts complete top-level commands and subcommands for `snapshots`,
 ## Image locks
 
 Run `holos images lock -f holos.yaml` to write a project image lockfile. Use
-`holos up --locked` in CI or deployment scripts to require the lockfile and
-reject changed image bytes or service entries.
+`holos up --locked` in CI or deployment scripts to require the adjacent
+lockfile and reject changed image bytes or service entries. If you generated a
+custom lockfile with `images lock -o`, pass the same path to `up --lockfile`.
 
 ## Capacity preflight
 
 `holos validate --capacity` checks aggregate replica CPU and memory requests
-against the current host before launch. `--network` checks that configured
+against the current host and the process's cgroup limits before launch.
+`--network` checks that configured
 bridge/tap networks refer to bridges that already exist. Both checks are
 optional; use them in deployment scripts when host overcommit or missing host
 network setup is not desired.
@@ -126,7 +128,13 @@ holos stop -f holos.yaml web
 holos snapshots create demo web-0 before-upgrade
 holos snapshots list demo web-0
 holos snapshots rm demo web-0 before-upgrade
+holos snapshots restore demo web-0 before-upgrade
+holos snapshots export demo web-0 before-upgrade ./web-before-upgrade.qcow2
 ```
+
+Snapshot export creates a standalone qcow2 image; it can be copied to another
+host or used as a local image. Volume snapshots have equivalent
+`snapshot-restore` and `snapshot-export` commands under `holos volumes`.
 
 The command refuses running instances because mutating an active qcow2 overlay
 outside QEMU is unsafe.

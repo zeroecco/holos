@@ -24,9 +24,11 @@ Recent coverage added:
   source/MAC intent, imported USB hostdev metadata, and GPU passthrough
   diagnostics.
 - Snapshot operations: stopped root-overlay snapshots can be created, listed,
-  and removed; `holos up --locked` can require and verify a project image lock.
+  removed, restored, and exported as standalone qcow2 images; `holos up
+  --locked` can require and verify a project image lock.
 - Host preflight coverage: `holos validate --capacity` checks aggregate VM
-  resources and `--network` checks required bridge/tap host interfaces.
+  resources against host/cgroup limits and `--network` checks required
+  bridge/tap host interfaces and tap prerequisites.
 
 The remaining accepted Docker Compose fields such as `network_mode`, `dns`,
 `dns_opt`, `links`, and `external_links` stay compatibility metadata unless a

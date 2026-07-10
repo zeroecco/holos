@@ -214,6 +214,27 @@ func TestVerifyProjectImageLockSkipsMissingLockfile(t *testing.T) {
 	}
 }
 
+func TestVerifyProjectImageLockRequiredAndExplicitPath(t *testing.T) {
+	dir := t.TempDir()
+	imagePath := writeImageLockTestFile(t, dir, "base.qcow2", "base-image")
+	project := &compose.Project{Name: "demo", Services: map[string]config.Manifest{"web": {Image: imagePath, ImageFormat: config.ImageFormatQCOW2}}}
+	composePath := filepath.Join(dir, "holos.yaml")
+	if err := verifyProjectImageLockMode(composePath, project, true, ""); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("required missing lock err = %v", err)
+	}
+	lockfile, err := imageLockfileForProject(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit := filepath.Join(dir, "custom.lock")
+	if err := writeImageLockfile(explicit, lockfile); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyProjectImageLockMode(composePath, project, true, explicit); err != nil {
+		t.Fatalf("explicit lock verification: %v", err)
+	}
+}
+
 func TestVerifyProjectImageLockRejectsDigestDrift(t *testing.T) {
 	t.Parallel()
 

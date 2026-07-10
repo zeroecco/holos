@@ -225,11 +225,11 @@ func writeImageLockfile(path string, lockfile imageLockfile) error {
 }
 
 func verifyProjectImageLock(composePath string, project *compose.Project) error {
-	return verifyProjectImageLockMode(composePath, project, false)
+	return verifyProjectImageLockMode(composePath, project, false, "")
 }
 
-func verifyProjectImageLockMode(composePath string, project *compose.Project, required bool) error {
-	lockPath := imageLockOutputPath("", composePath)
+func verifyProjectImageLockMode(composePath string, project *compose.Project, required bool, explicitPath string) error {
+	lockPath := imageLockOutputPath(explicitPath, composePath)
 	lockfile, ok, err := loadImageLockfile(lockPath)
 	if err != nil {
 		return err

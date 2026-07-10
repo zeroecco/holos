@@ -14,6 +14,7 @@ func runUp(args []string) error {
 	projectFlags := addProjectFlags(flags, "")
 	lock := addLockFlags(flags)
 	locked := flags.Bool("locked", false, "require holos.images.lock and reject image drift")
+	lockfile := flags.String("lockfile", "", "image lockfile path (defaults to holos.images.lock beside the compose file)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -22,7 +23,7 @@ func runUp(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyProjectImageLockMode(composePath, project, *locked); err != nil {
+	if err := verifyProjectImageLockMode(composePath, project, *locked, *lockfile); err != nil {
 		return err
 	}
 

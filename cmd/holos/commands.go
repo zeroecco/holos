@@ -45,7 +45,7 @@ var commandOrder = []string{
 var commands = map[string]command{
 	"up": {
 		run:         runUp,
-		usage:       "holos up [-f holos.yaml] [--locked] [--lock-timeout 5m|--no-wait]",
+		usage:       "holos up [-f holos.yaml] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]",
 		description: "start all services",
 	},
 	"run": {
@@ -115,12 +115,12 @@ var commands = map[string]command{
 	},
 	"snapshots": {
 		run:         runSnapshots,
-		usage:       "holos snapshots {create|list|rm} ...",
+		usage:       "holos snapshots {create|list|rm|restore|export} ...",
 		description: "manage stopped instance root snapshots",
 	},
 	"volumes": {
 		run:         runVolumes,
-		usage:       "holos volumes [list|rm|export|snapshot|snapshots|snapshot-rm|resize] ...",
+		usage:       "holos volumes [list|rm|export|snapshot|snapshots|snapshot-rm|snapshot-restore|snapshot-export|resize] ...",
 		description: "list, remove, export, snapshot, or resize named volumes",
 	},
 	"devices": {

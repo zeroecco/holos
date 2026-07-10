@@ -41,8 +41,8 @@ var completionScripts = map[string]string{
         return
     fi
     case "${COMP_WORDS[1]}" in
-        snapshots) COMPREPLY=($(compgen -W "create list rm" -- "$cur"));;
-        volumes) COMPREPLY=($(compgen -W "list rm remove export snapshot snapshots snapshot-rm resize" -- "$cur"));;
+        snapshots) COMPREPLY=($(compgen -W "create list rm restore export" -- "$cur"));;
+        volumes) COMPREPLY=($(compgen -W "list rm remove export snapshot snapshots snapshot-rm snapshot-restore snapshot-export resize" -- "$cur"));;
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"));;
     esac
 }
@@ -60,7 +60,7 @@ compdef _holos holos
 	"fish": fmt.Sprintf(`set -l holos_commands %s
 complete -c holos -f -n '__fish_use_subcommand' -a "$holos_commands"
 complete -c holos -f -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
-complete -c holos -f -n '__fish_seen_subcommand_from snapshots' -a 'create list rm'
-complete -c holos -f -n '__fish_seen_subcommand_from volumes' -a 'rm remove export snapshot snapshots snapshot-rm resize'
+complete -c holos -f -n '__fish_seen_subcommand_from snapshots' -a 'create list rm restore export'
+complete -c holos -f -n '__fish_seen_subcommand_from volumes' -a 'rm remove export snapshot snapshots snapshot-rm snapshot-restore snapshot-export resize'
 `, completionCommands),
 }

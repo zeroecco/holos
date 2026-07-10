@@ -39,6 +39,36 @@ func TestCompletionScripts(t *testing.T) {
 	}
 }
 
+func TestHostCapacityHonorsCgroupLimits(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "cpu.max"), []byte("150000 100000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.max"), []byte("536870912\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meminfo := filepath.Join(t.TempDir(), "meminfo")
+	if err := os.WriteFile(meminfo, []byte("MemTotal:       16777216 kB\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldRoot, oldMeminfo := capacityCgroupRoot, capacityMeminfoPath
+	capacityCgroupRoot, capacityMeminfoPath = root, meminfo
+	t.Cleanup(func() { capacityCgroupRoot, capacityMeminfoPath = oldRoot, oldMeminfo })
+	cpu, memory, ok := hostCapacity()
+	if cpu != 1.5 || memory != 512 || !ok {
+		t.Fatalf("hostCapacity = (%v, %d, %v), want (1.5, 512, true)", cpu, memory, ok)
+	}
+}
+
+func TestValidateProjectNetworkRejectsMissingBridge(t *testing.T) {
+	project := &compose.Project{Network: compose.NetworkPlan{Segments: map[string]compose.NetworkSegmentPlan{
+		"lan": {Backend: "bridge", BridgeName: "definitely-missing-holos-bridge"},
+	}}}
+	if err := validateProjectNetwork(project); err == nil || !strings.Contains(err.Error(), "requires host bridge") {
+		t.Fatalf("validateProjectNetwork error = %v, want missing bridge error", err)
+	}
+}
+
 func writeTestOVMFFirmware(t *testing.T, dir string) (string, string) {
 	t.Helper()
 

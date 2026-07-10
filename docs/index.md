@@ -48,7 +48,7 @@ hello from holos</code></pre>
 Runtime commands require Linux with `/dev/kvm`. macOS binaries are still useful for authoring and offline commands such as `validate`, `images`, `pull`, and `import`.
 
 ```bash
-TAG=v0.6.0
+TAG=v0.6.1
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
 curl -LO $BASE/$ASSET

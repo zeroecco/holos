@@ -10,6 +10,10 @@ const (
 	qemuImgSnapshotCreateFlag = "-c"
 	qemuImgSnapshotListFlag   = "-l"
 	qemuImgSnapshotDeleteFlag = "-d"
+	qemuImgSnapshotApplyFlag  = "-a"
+	qemuImgConvertSubcommand  = "convert"
+	qemuImgOutputFormatFlag   = "-O"
+	qemuImgSnapshotInputFlag  = "-l"
 	qemuImgFormatFlag         = "-f"
 	qemuImgBackingFormatFlag  = "-F"
 	qemuImgBackingFileFlag    = "-b"
@@ -25,4 +29,12 @@ func diskSnapshotListArgs(path string) []string {
 
 func diskSnapshotDeleteArgs(snapshotName, path string) []string {
 	return []string{qemuImgSnapshotSubcommand, qemuImgSnapshotDeleteFlag, snapshotName, path}
+}
+
+func diskSnapshotApplyArgs(snapshotName, path string) []string {
+	return []string{qemuImgSnapshotSubcommand, qemuImgSnapshotApplyFlag, snapshotName, path}
+}
+
+func diskSnapshotExportArgs(snapshotName, source, destination string) []string {
+	return []string{qemuImgConvertSubcommand, qemuImgOutputFormatFlag, "qcow2", qemuImgSnapshotInputFlag, snapshotName, source, destination}
 }
