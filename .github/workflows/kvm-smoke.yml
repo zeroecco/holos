@@ -36,14 +36,6 @@ jobs:
           go-version: "1.26"
           check-latest: true
 
-      - name: Verify host
-        run: |
-          test -r /dev/kvm
-          python3 --version
-          qemu-system-x86_64 --version
-          qemu-img --version
-          genisoimage --version || mkisofs --version || xorriso --version
-
       - name: Build holos
         run: go build -o bin/holos ./cmd/holos
 
