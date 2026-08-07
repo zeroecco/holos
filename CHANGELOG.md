@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Upgrade `golang.org/x/crypto` to 0.52.0 to fix five reachable SSH
+  vulnerabilities affecting console, exec, and SSH health-check paths.
+- Add a pinned `govulncheck` CI gate and weekly dependency update checks for Go
+  modules and GitHub Actions.
+- Validate GitHub Actions workflow syntax in CI and bound every CI job with an
+  explicit timeout.
+- Pin every third-party workflow action to an immutable commit and limit
+  release/Pages write permissions to their publishing jobs; release builds now
+  use an exact GoReleaser version instead of a moving major-version range.
+- Tighten image cache directories to owner-only permissions, including caches
+  created by older releases.
+
+### Reliability
+
+- Persist project records with a synced temporary file and atomic rename so a
+  crash or full filesystem cannot truncate the only lifecycle state record.
+- Validate project identities again at the persistence boundary to prevent an
+  invalid in-memory record from escaping the state directory.
+
 ## [0.6.1] - 2026-07-10
 
 This patch release completes the operational safeguards introduced in 0.6.0.

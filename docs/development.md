@@ -11,6 +11,9 @@ permalink: /development/
 ```bash
 go build -o bin/holos ./cmd/holos
 go test ./...
+go test -race ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 ```
 
 Build a guest image with mkosi:

@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func projectRecordNames(records []*ProjectRecord) []string {
 	names := make([]string, len(records))
@@ -49,6 +53,50 @@ func TestSaveProjectWritesPrivateRecord(t *testing.T) {
 		t.Fatalf("loadProject: %v", err)
 	}
 	assertSavedProjectRecord(t, loaded, record)
+}
+
+func TestSaveProjectAtomicallyReplacesRecord(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	if err := manager.saveProject(&ProjectRecord{Name: "demo", SpecHash: "old"}); err != nil {
+		t.Fatalf("save initial project: %v", err)
+	}
+	if err := manager.saveProject(&ProjectRecord{Name: "demo", SpecHash: "new"}); err != nil {
+		t.Fatalf("replace project: %v", err)
+	}
+
+	loaded, err := manager.loadProject("demo")
+	if err != nil {
+		t.Fatalf("load replaced project: %v", err)
+	}
+	if loaded.SpecHash != "new" {
+		t.Fatalf("loaded SpecHash = %q, want new", loaded.SpecHash)
+	}
+	leftovers, err := filepath.Glob(filepath.Join(projectsDir(stateDir), ".project-*.tmp"))
+	if err != nil {
+		t.Fatalf("glob temporary records: %v", err)
+	}
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary project records remain after save: %v", leftovers)
+	}
+	assertMode(t, projectFile(stateDir, "demo"), projectRecordPerm)
+}
+
+func TestSaveProjectRejectsUnsafeOrMissingIdentity(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	manager := NewManager(stateDir)
+	for _, record := range []*ProjectRecord{nil, {Name: "../escaped"}, {}} {
+		if err := manager.saveProject(record); err == nil {
+			t.Fatalf("saveProject(%#v) succeeded, want error", record)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "escaped.json")); !os.IsNotExist(err) {
+		t.Fatalf("unsafe project record escaped state directory: %v", err)
+	}
 }
 
 func TestSaveUpdatedProjectStampsAndPersistsRecord(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 
 const (
 	unknownImageErrorPrefix = "unknown image"
-	imageCacheDirPerm       = os.FileMode(0o755)
+	imageCacheDirPerm       = os.FileMode(0o700)
 )
 
 // Resolve looks up an image reference. Accepts:
@@ -101,5 +101,11 @@ func cachedImageShouldBeVerified(expected imageHash) bool {
 }
 
 func ensureImageCacheDir(cacheDir string) error {
-	return os.MkdirAll(cacheDir, imageCacheDirPerm)
+	if err := os.MkdirAll(cacheDir, imageCacheDirPerm); err != nil {
+		return err
+	}
+	// MkdirAll leaves an existing directory's mode untouched. Tighten caches
+	// created by older releases so image contents remain private even when a
+	// caller places the cache outside the already-private holos state tree.
+	return os.Chmod(cacheDir, imageCacheDirPerm)
 }
