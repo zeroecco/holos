@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## [0.6.2] - 2026-08-13
+
+This maintenance release hardens state persistence, dependency hygiene, and
+the project supply chain.
 
 ### Security
 
-- Upgrade `golang.org/x/crypto` to 0.52.0 to fix five reachable SSH
+- Upgrade `golang.org/x/crypto` to 0.54.0 to fix five reachable SSH
   vulnerabilities affecting console, exec, and SSH health-check paths.
 - Add a pinned `govulncheck` CI gate and weekly dependency update checks for Go
   modules and GitHub Actions.
@@ -22,6 +25,15 @@
   crash or full filesystem cannot truncate the only lifecycle state record.
 - Validate project identities again at the persistence boundary to prevent an
   invalid in-memory record from escaping the state directory.
+
+### Dependency maintenance
+
+- Upgrade `golang.org/x/crypto` to 0.54.0, `golang.org/x/term` to 0.45.0, and
+  `golang.org/x/sys` to 0.47.0.
+- Upgrade pinned GitHub Actions across CI, release, KVM smoke, and Pages
+  workflows, including checkout 7, setup-go 7, and GoReleaser Action 7.
+
+[0.6.2]: https://github.com/zeroecco/holos/releases/tag/v0.6.2
 
 ## [0.6.1] - 2026-07-10
 
