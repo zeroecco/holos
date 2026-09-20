@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/zeroecco/holos/internal/compose"
@@ -436,5 +439,34 @@ func TestRunVerifyMissingCacheHandling(t *testing.T) {
 				t.Fatalf("runVerify stdout = %q, want %q", out, tt.wantOutput)
 			}
 		})
+	}
+}
+
+func TestRunVerifyAllSkipsUncachedUbuntuWithoutNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+
+	originalRegistry := images.Registry
+	images.Registry = []images.Image{{
+		Name: "ubuntu", Tag: testImageNobleTag, URL: server.URL,
+		UbuntuRelease: testImageNobleTag, Format: config.ImageFormatQCOW2, Default: true,
+	}}
+	t.Cleanup(func() { images.Registry = originalRegistry })
+
+	out, err := captureStdout(t, func() error {
+		return runVerify([]string{"--all", "--state-dir", t.TempDir()})
+	})
+	if err != nil {
+		t.Fatalf("runVerify --all with uncached Ubuntu: %v", err)
+	}
+	if want := "ubuntu:noble: skipped (not cached)\n"; out != want {
+		t.Fatalf("runVerify stdout = %q, want %q", out, want)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("runVerify made %d network requests for uncached Ubuntu", got)
 	}
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Resolve Ubuntu cloud images from released simplestreams metadata instead of
+  expired daily build URLs. Save each verified image selection for stable cache
+  reuse and offline verification, preserving existing Ubuntu aliases (#8).
+
 ## [0.6.2] - 2026-08-13
 
 This maintenance release hardens state persistence, dependency hygiene, and

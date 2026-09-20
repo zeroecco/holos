@@ -150,6 +150,19 @@ holos verify alpine
 holos verify --all
 ```
 
+On the first pull into a cache, Ubuntu aliases select the newest released
+amd64 server image from Ubuntu's simplestreams feed. The dated download URL and
+SHA-256 come from the same feed entry. Holos saves that selection only after
+verifying the download, and later pulls and `verify` reuse it without contacting
+Ubuntu. A cached Ubuntu image stays on its selected build when upstream
+publishes a newer one. A fresh cache (or a missing cached artifact) resolves
+the release again. Existing VM backing images are not replaced by newer builds.
+
+`ubuntu` still defaults to `noble` (24.04); `ubuntu:26` and `ubuntu:26.04` select
+`resolute`. The `jammy` and `22.04` aliases remain available. Caches created by
+older holos versions remain on disk; the first pull with this resolver selects
+a released image into a separate cache path.
+
 `holos images` shows the guest OS metadata and hash algorithm used for each
 built-in entry. `holos images lock -f holos.yaml` writes `holos.images.lock`
 next to the compose file with each service's resolved image path, format, size,

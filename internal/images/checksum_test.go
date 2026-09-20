@@ -57,6 +57,7 @@ func TestImageChecksumAlgorithm(t *testing.T) {
 	}{
 		{name: "sha256 inline", img: Image{SHA256: "abc"}, want: hashAlgorithmSHA256},
 		{name: "sha256 url", img: Image{SHA256URL: testChecksumSHA256URL}, want: hashAlgorithmSHA256},
+		{name: "ubuntu release", img: Image{UbuntuRelease: "noble"}, want: hashAlgorithmSHA256},
 		{name: "sha512 inline", img: Image{SHA512: "abc"}, want: hashAlgorithmSHA512},
 		{name: "sha512 url", img: Image{SHA512URL: testChecksumSHA512URL}, want: hashAlgorithmSHA512},
 		{name: "sha256 wins precedence", img: Image{SHA256: "abc", SHA512: "def"}, want: hashAlgorithmSHA256},

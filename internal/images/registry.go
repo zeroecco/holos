@@ -46,10 +46,8 @@ func unknownImageError(name, tag string) error {
 // If already cached, re-verifies the bytes when the registry entry has
 // checksum metadata before returning.
 //
-// When the resolved registry entry carries a non-empty SHA256, the newly
-// downloaded bytes are verified against it; a mismatch deletes the partial
-// file and returns an error. Cached files are trusted: the file is only
-// in the cache if a prior successful pull placed it there.
+// Ubuntu release selections are saved after successful verification so a
+// later pull reuses the same build even if upstream publishes a newer one.
 func Pull(ref string, cacheDir string) (localPath string, format string, err error) {
 	img, err := Resolve(ref)
 	if err != nil {
@@ -64,6 +62,15 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 		return "", "", fmt.Errorf("create image cache: %w", err)
 	}
 
+	entry := img
+	newSelection := false
+	if img.UbuntuRelease != "" {
+		img, newSelection, err = ubuntuImageForPull(img, cacheDir)
+		if err != nil {
+			return "", "", fmt.Errorf("resolve image for %s: %w", ref, err)
+		}
+	}
+
 	cached := cachePath(cacheDir, img)
 
 	expected, err := expectedHash(img)
@@ -74,9 +81,13 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 	if _, err := os.Stat(cached); err == nil {
 		if cachedImageShouldBeVerified(expected) {
 			if err := verifyFile(cached, expected); err != nil {
-				_ = os.Remove(cached)
 				fmt.Printf("cached image failed verification; re-pulling %s:%s\n", img.Name, img.Tag)
 			} else {
+				if newSelection {
+					if err := saveUbuntuSelection(cacheDir, entry, img); err != nil {
+						return "", "", err
+					}
+				}
 				fmt.Printf("verified cached %s (%s:%s)\n", cached, expected.Algorithm, hashDisplayPrefix(expected.Value))
 				return cached, img.Format, nil
 			}
@@ -88,8 +99,14 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 	fmt.Printf("pulling %s:%s ...\n", img.Name, img.Tag)
 
 	if err := download(img.URL, cached, expected); err != nil {
-		_ = os.Remove(cached)
+		// The downloader cleans up its own partial file. A concurrent pull
+		// may have verified and promoted this destination in the meantime.
 		return "", "", fmt.Errorf("pull %s: %w", ref, err)
+	}
+	if newSelection {
+		if err := saveUbuntuSelection(cacheDir, entry, img); err != nil {
+			return "", "", err
+		}
 	}
 
 	fmt.Printf("cached  %s\n", cached)

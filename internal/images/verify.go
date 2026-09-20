@@ -36,6 +36,15 @@ func Verify(ref string, cacheDir string) (Verification, error) {
 	if img == nil {
 		return skippedVerification(ref, ref, inferFormat(ref), localImageNoChecksumReason), nil
 	}
+	if img.UbuntuRelease != "" {
+		img, err = loadUbuntuSelection(cacheDir, img)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return Verification{}, err
+			}
+			return Verification{}, fmt.Errorf("read cached image for %s: %w", ref, err)
+		}
+	}
 	expected, err := expectedHash(img)
 	if err != nil {
 		return Verification{}, fmt.Errorf("resolve checksum for %s: %w", ref, err)

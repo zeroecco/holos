@@ -22,4 +22,7 @@
 // cache directory if not already present. Downloads use a .part temporary
 // file and print a SHA-256 summary on completion. Cache filenames include
 // a truncated hash of the source URL for uniqueness.
+// Ubuntu aliases resolve a dated artifact URL and SHA-256 together from the
+// released simplestreams feed. The verified selection is persisted so cached
+// pulls and [Verify] remain stable and work without the feed.
 package images

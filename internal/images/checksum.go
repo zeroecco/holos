@@ -26,7 +26,7 @@ const (
 
 func (img Image) ChecksumAlgorithm() string {
 	switch {
-	case img.SHA256 != "" || img.SHA256URL != "":
+	case img.SHA256 != "" || img.SHA256URL != "" || img.UbuntuRelease != "":
 		return hashAlgorithmSHA256
 	case img.SHA512 != "" || img.SHA512URL != "":
 		return hashAlgorithmSHA512

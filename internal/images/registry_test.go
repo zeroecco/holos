@@ -205,6 +205,33 @@ func TestResolveKnownImages(t *testing.T) {
 	}
 }
 
+func TestUbuntuAliasesUseReleasedMetadata(t *testing.T) {
+	t.Parallel()
+
+	aliases := map[string]string{
+		"ubuntu":          "noble",
+		"ubuntu:noble":    "noble",
+		"ubuntu:24.04":    "noble",
+		"ubuntu:jammy":    "jammy",
+		"ubuntu:22.04":    "jammy",
+		"ubuntu:resolute": "resolute",
+		"ubuntu:26":       "resolute",
+		"ubuntu:26.04":    "resolute",
+	}
+	for ref, release := range aliases {
+		img, err := Resolve(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if img.UbuntuRelease != release || img.URL != "https://cloud-images.ubuntu.com/" {
+			t.Errorf("%s source = %q, %q; want released %s", ref, img.URL, img.UbuntuRelease, release)
+		}
+		if img.ChecksumAlgorithm() != hashAlgorithmSHA256 || img.SHA256URL != "" {
+			t.Errorf("%s must verify via released metadata, got %+v", ref, img)
+		}
+	}
+}
+
 func TestResolveLocalPathReturnsNil(t *testing.T) {
 	t.Parallel()
 

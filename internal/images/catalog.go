@@ -9,10 +9,12 @@ type Image struct {
 	Format  string // qcow2 or raw
 	Default bool   // true = default tag for this distro
 	Tag     string // version tag (e.g. "3.21", "noble")
+	// UbuntuRelease selects a server image from Ubuntu's released simplestreams
+	// feed. URL is the feed's root until Pull resolves an immutable artifact.
+	UbuntuRelease string
 	// SHA256 is the expected hex-encoded sha256 of the artifact at URL.
 	// When set, Pull verifies the downloaded bytes and aborts on
-	// mismatch. Empty means verification is skipped (registry entries
-	// that track a mutable "latest" URL can't pin a hash).
+	// mismatch. Empty falls back to remote checksum metadata when available.
 	SHA256 string
 	// SHA512 is the expected hex-encoded sha512 of the artifact at URL.
 	SHA512 string
@@ -42,10 +44,9 @@ type Image struct {
 
 // Registry maps short names like "alpine" or "ubuntu:noble" to download URLs.
 //
-// Registry entries prefer dated or versioned artifacts over mutable "latest" /
-// "current" aliases. Checksums still come from upstream checksum URLs so the
-// registry avoids embedding static hashes while also avoiding symlink/checksum
-// races during publisher rotations.
+// Registry entries use dated or versioned artifacts. Ubuntu resolves its
+// artifact URL and hash together from release metadata at the first pull;
+// other entries fetch checksums from upstream manifests.
 var Registry = []Image{
 	// Alpine Linux (tiny-cloud, NoCloud datasource, BIOS).
 	{Name: "alpine", Tag: "3.21", URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2", Format: config.ImageFormatQCOW2, Default: true, User: "alpine", OSFamily: config.ImageOSOpenRC, SHA512URL: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.6-x86_64-bios-tiny-r0.qcow2.sha512"},
@@ -74,15 +75,15 @@ var Registry = []Image{
 	{Name: "debian", Tag: "13", URL: "https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-generic-amd64-20260518-2482.qcow2", Format: config.ImageFormatQCOW2, User: "debian", OSFamily: config.ImageOSSystemd, SHA512URL: "https://cloud.debian.org/images/cloud/trixie/20260518-2482/SHA512SUMS", RequiresVGA: true},
 	{Name: "debian", Tag: "trixie", URL: "https://cloud.debian.org/images/cloud/trixie/20260518-2482/debian-13-generic-amd64-20260518-2482.qcow2", Format: config.ImageFormatQCOW2, User: "debian", OSFamily: config.ImageOSSystemd, SHA512URL: "https://cloud.debian.org/images/cloud/trixie/20260518-2482/SHA512SUMS", RequiresVGA: true},
 
-	// Ubuntu (cloud images, NoCloud compatible). Use dated directories for the
-	// same reason: "current" can rotate independently from SHA256SUMS fetches.
-	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, Default: true, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/noble/20260323/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/noble/20260323/noble-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/noble/20260323/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "resolute", URL: "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/resolute/20260421/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "26", URL: "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/resolute/20260421/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "26.04", URL: "https://cloud-images.ubuntu.com/resolute/20260421/resolute-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/resolute/20260421/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/jammy/20260320/jammy-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/jammy/20260320/SHA256SUMS"},
-	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/jammy/20260320/jammy-server-cloudimg-amd64.img", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd, SHA256URL: "https://cloud-images.ubuntu.com/jammy/20260320/SHA256SUMS"},
+	// Ubuntu daily build directories expire. Resolve released server images
+	// instead, keeping the artifact URL and checksum from the same snapshot.
+	{Name: "ubuntu", Tag: "noble", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "noble", Format: config.ImageFormatQCOW2, Default: true, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "24.04", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "noble", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "resolute", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "resolute", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "26", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "resolute", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "26.04", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "resolute", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "jammy", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "jammy", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
+	{Name: "ubuntu", Tag: "22.04", URL: "https://cloud-images.ubuntu.com/", UbuntuRelease: "jammy", Format: config.ImageFormatQCOW2, User: "ubuntu", OSFamily: config.ImageOSSystemd},
 
 	// Fedora Cloud Base. Point release URL but still versioned.
 	{Name: "fedora", Tag: "44", URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-44-1.7.x86_64.qcow2", Format: config.ImageFormatQCOW2, Default: true, User: "fedora", OSFamily: config.ImageOSSystemd, SHA256URL: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/x86_64/images/Fedora-Cloud-44-1.7-x86_64-CHECKSUM"},
