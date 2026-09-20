@@ -1,12 +1,24 @@
 # Changelog
 
-## Unreleased
+## [0.6.3] - 2026-09-20
+
+This patch release restores Ubuntu image pulls and keeps cached builds stable
+as upstream publishes new images.
 
 ### Fixed
 
 - Resolve Ubuntu cloud images from released simplestreams metadata instead of
   expired daily build URLs. Save each verified image selection for stable cache
   reuse and offline verification, preserving existing Ubuntu aliases (#8).
+- Preserve verified cache files when another concurrent pull fails, avoiding
+  deletion of an image successfully downloaded by another process.
+
+### Security
+
+- Upgrade `golang.org/x/crypto` from 0.54.0 to 0.56.0 to fix two reachable SSH
+  denial-of-service vulnerabilities (GO-2026-6354 and GO-2026-6355).
+
+[0.6.3]: https://github.com/zeroecco/holos/releases/tag/v0.6.3
 
 ## [0.6.2] - 2026-08-13
 

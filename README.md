@@ -60,7 +60,7 @@ Pre-built binaries are attached to every
 [GitHub release](https://github.com/zeroecco/holos/releases):
 
 ```bash
-TAG=v0.6.1
+TAG=v0.6.3
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
 curl -LO $BASE/$ASSET
