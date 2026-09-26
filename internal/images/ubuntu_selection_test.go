@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestUbuntuSelectionValidation(t *testing.T) {
@@ -84,5 +86,64 @@ func TestSaveUbuntuSelectionAtomic(t *testing.T) {
 	partials, err := filepath.Glob(filepath.Join(cacheDir, ".ubuntu-selection-*"))
 	if err != nil || len(partials) != 0 {
 		t.Fatalf("temporary selection files left behind: %v, %v", partials, err)
+	}
+}
+
+func TestCommitUbuntuSelectionRechecksAfterLock(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	entry := Image{Name: "ubuntu", Tag: "noble", UbuntuRelease: "noble", URL: "https://example.test/", Format: "qcow2"}
+	older := ubuntuCacheBuild("20260911", "older Ubuntu image")
+	newer := ubuntuCacheBuild("20260912", "newer Ubuntu image")
+	candidate, winner := entry, entry
+	candidate.URL, candidate.SHA256 = entry.URL+older.path, older.hash
+	winner.URL, winner.SHA256 = entry.URL+newer.path, newer.hash
+	for _, build := range []testUbuntuCacheBuild{older, newer} {
+		if err := os.WriteFile(ubuntuResolvedCachePath(cacheDir, entry, build), []byte(build.payload), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file, err := os.OpenFile(ubuntuSelectionPath(cacheDir, &entry)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	done := make(chan struct{})
+	var selected *Image
+	var commitErr error
+	go func() {
+		close(started)
+		selected, commitErr = commitUbuntuSelection(cacheDir, &entry, &candidate)
+		close(done)
+	}()
+	<-started
+	select {
+	case <-done:
+		t.Fatalf("selection commit bypassed held lock: %+v, %v", selected, commitErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	// Simulate another process committing a winner before releasing its lock.
+	if err := saveUbuntuSelection(cacheDir, &entry, &winner); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+		if commitErr != nil || selected == nil || *selected != winner {
+			t.Fatalf("selection after waiting = %+v, %v; want %+v", selected, commitErr, winner)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("selection commit did not finish after lock release")
+	}
+	stored, err := loadUbuntuSelection(cacheDir, &entry)
+	if err != nil || *stored != winner {
+		t.Fatalf("stored selection = %+v, %v; want %+v", stored, err, winner)
 	}
 }
