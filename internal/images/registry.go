@@ -71,6 +71,23 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 		}
 	}
 
+	cached, format, err := pullResolvedImage(ref, img, cacheDir)
+	if err != nil || !newSelection {
+		return cached, format, err
+	}
+	selected, err := commitUbuntuSelection(cacheDir, entry, img)
+	if err != nil {
+		return "", "", err
+	}
+	if selected.URL != img.URL || selected.SHA256 != img.SHA256 {
+		// A concurrent pull won the selection. Verify its bytes before returning
+		// that build, retaining our download for any existing overlays.
+		return pullResolvedImage(ref, selected, cacheDir)
+	}
+	return cached, format, nil
+}
+
+func pullResolvedImage(ref string, img *Image, cacheDir string) (string, string, error) {
 	cached := cachePath(cacheDir, img)
 
 	expected, err := expectedHash(img)
@@ -83,11 +100,6 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 			if err := verifyFile(cached, expected); err != nil {
 				fmt.Printf("cached image failed verification; re-pulling %s:%s\n", img.Name, img.Tag)
 			} else {
-				if newSelection {
-					if err := saveUbuntuSelection(cacheDir, entry, img); err != nil {
-						return "", "", err
-					}
-				}
 				fmt.Printf("verified cached %s (%s:%s)\n", cached, expected.Algorithm, hashDisplayPrefix(expected.Value))
 				return cached, img.Format, nil
 			}
@@ -103,12 +115,6 @@ func Pull(ref string, cacheDir string) (localPath string, format string, err err
 		// may have verified and promoted this destination in the meantime.
 		return "", "", fmt.Errorf("pull %s: %w", ref, err)
 	}
-	if newSelection {
-		if err := saveUbuntuSelection(cacheDir, entry, img); err != nil {
-			return "", "", err
-		}
-	}
-
 	fmt.Printf("cached  %s\n", cached)
 	return cached, img.Format, nil
 }
