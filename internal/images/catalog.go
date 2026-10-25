@@ -53,7 +53,7 @@ var Registry = []Image{
 
 	// Arch Linux (cloud-init, official arch-boxes). Tag stays "latest" because
 	// Arch is rolling, but the artifact URL is pinned to a dated image build.
-	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/v20260515.530093/Arch-Linux-x86_64-cloudimg-20260515.530093.qcow2", Format: config.ImageFormatQCOW2, Default: true, User: "arch", OSFamily: config.ImageOSSystemd, SHA256URL: "https://geo.mirror.pkgbuild.com/images/v20260515.530093/Arch-Linux-x86_64-cloudimg-20260515.530093.qcow2.SHA256"},
+	{Name: "arch", Tag: "latest", URL: "https://geo.mirror.pkgbuild.com/images/v20261015.611680/Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2", Format: config.ImageFormatQCOW2, Default: true, User: "arch", OSFamily: config.ImageOSSystemd, SHA256URL: "https://geo.mirror.pkgbuild.com/images/v20261015.611680/Arch-Linux-x86_64-cloudimg-20261015.611680.qcow2.SHA256"},
 
 	// Debian (generic variant, cloud-init). Use dated build directories rather
 	// than "latest" because the symlink and SHA512SUMS can update at different
