@@ -284,7 +284,7 @@ services:
 }
 
 // TestLifecycle_SpecChangeRestarts verifies that mutating the compose file
-// triggers a teardown-and-recreate when we `up` again.
+// requires explicit recreation when we `up` again.
 func TestLifecycle_SpecChangeRestarts(t *testing.T) {
 	h := newHarness(t)
 
@@ -307,7 +307,7 @@ services:
 	changed := strings.Replace(compose, "memory_mb: 256", "memory_mb: 512", 1)
 	_, _ = writeFile(dir, "holos.yaml", changed)
 
-	h.mustRun("up", "-f", dir+"/holos.yaml")
+	h.mustRun("up", "--recreate", "-f", dir+"/holos.yaml")
 	after := psList(t, h)[0]
 	afterPID := after.Services[0].Instances[0].PID
 

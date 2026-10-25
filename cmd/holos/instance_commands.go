@@ -16,10 +16,6 @@ func runLogs(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if flags.NArg() < 1 {
-		return errors.New("logs requires a project name (e.g. \"my-stack\") or a service/instance (e.g. \"vm\", \"vm-0\")")
-	}
-
 	manager := runtime.NewManager(*projectFlags.stateDir)
 	var (
 		record *runtime.ProjectRecord
@@ -34,10 +30,10 @@ func runLogs(args []string) error {
 		}
 	}
 	if record == nil {
-		if flags.NArg() != 1 {
+		if flags.NArg() > 1 {
 			return errors.New("logs <project> [<service|instance>]  OR  logs [-f file] <service|instance>")
 		}
-		project, err := loadProject(*projectFlags.filePath, *projectFlags.stateDir)
+		project, _, err := loadComposeFile(*projectFlags.filePath)
 		if err != nil {
 			return err
 		}

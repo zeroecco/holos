@@ -131,7 +131,7 @@ func runImagesLock(args []string) error {
 		return fmt.Errorf("usage: holos images lock -f holos.yaml [-o %s]", defaultImageLockName)
 	}
 
-	project, composePath, err := loadProjectWithPath(*projectFlags.filePath, *projectFlags.stateDir)
+	project, composePath, err := loadResolvedProject(*projectFlags.filePath, *projectFlags.stateDir, false)
 	if err != nil {
 		return err
 	}

@@ -16,16 +16,21 @@ type Manager struct {
 // Up brings a compose project to the desired state, starting services
 // in topological order.
 func (m *Manager) Up(project *compose.Project) (*ProjectRecord, error) {
+	return m.UpWithOptions(project, UpOptions{})
+}
+
+// UpWithOptions previews or applies a service-level update under one lock.
+func (m *Manager) UpWithOptions(project *compose.Project, options UpOptions) (*ProjectRecord, error) {
 	var record *ProjectRecord
 	err := m.withProjectLock(project.Name, func() error {
 		var err error
-		record, err = m.upLocked(project)
+		record, err = m.upLocked(project, options)
 		return err
 	})
 	return record, err
 }
 
-func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
+func (m *Manager) upLocked(project *compose.Project, options UpOptions) (*ProjectRecord, error) {
 	if err := m.ensureLayout(); err != nil {
 		return nil, err
 	}
@@ -35,27 +40,32 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 		return nil, err
 	}
 
-	// Pre-provision named volumes before any service starts so that
-	// every instance finds its backing file ready. Volumes persist
-	// across `down` by design; re-running `up` with an existing
-	// state_dir/volumes/<project>/ is a cheap no-op (existing files
-	// are left alone, including their contents).
+	changes := projectChanges(project, record)
+	if options.PreserveOtherServices {
+		selected := changes[:0]
+		for _, change := range changes {
+			if change.Action != ChangeRemove {
+				selected = append(selected, change)
+			}
+		}
+		changes = selected
+	}
+	if options.Report != nil {
+		options.Report(changes)
+	}
+	if options.DryRun {
+		return record, nil
+	}
+	if err := m.prepareUpdates(record, changes, options.Recreate); err != nil {
+		return record, err
+	}
+
+	// Provision backing files before launch; existing named volumes remain intact.
 	if err := m.ensureProjectVolumes(project); err != nil {
 		return nil, fmt.Errorf("provision volumes: %w", err)
 	}
 
-	// Generate (or reuse) the project's `holos exec` keypair and
-	// append the public half to every service's authorized_keys.
-	//
-	// Earlier code wrote the augmented manifest back into
-	// project.Services, which quietly mutated the caller's struct.
-	// A second Up() on the same *compose.Project (tests, a REPL, a
-	// future watch-mode loop) would then find the public key
-	// already present and append it a second time, growing
-	// authorized_keys unboundedly and changing the spec hash with
-	// every call. Keep the augmented manifests in a local map so
-	// the caller's Project is read-only from our perspective, as
-	// the existing comment always promised.
+	// Add the generated SSH key to copies so repeated calls do not mutate input.
 	_, pubKey, err := ensureProjectSSHKey(m.stateDir, project.Name)
 	if err != nil {
 		return nil, fmt.Errorf("ensure exec ssh key: %w", err)
@@ -77,35 +87,16 @@ func (m *Manager) upLocked(project *compose.Project) (*ProjectRecord, error) {
 
 	privKeyPath := privateKeyPath(m.stateDir, project.Name)
 
-	// Service starts are not transactional: each reconcileService
-	// spawns QEMU processes that keep running even after this
-	// function returns an error. If we bail out of the loop without
-	// persisting what got started, `holos ps` shows nothing while
-	// real VMs still hold ports, memory, and kernel resources, and
-	// `holos down` has no record to target. The only way to
-	// recover would be `pkill qemu`, which is both unfriendly and
-	// dangerous on shared hosts.
-	//
-	// Instead we always save whatever made it past reconcileService
-	// before returning the loop error. The saved record is a
-	// superset: services already started this call, plus carry-over
-	// entries for services we never reached so earlier instances
-	// aren't silently dropped. A subsequent `holos down <project>`
-	// (or a retry `holos up`) then has complete visibility.
-	started, upErr := m.reconcileProjectServices(project.Name, project.ServiceOrder, augmented, existingByService, hasDependents, privKeyPath)
+	// Launches are not transactional. Persist newly started and unreached
+	// services on failure so every surviving VM remains manageable.
+	services, upErr := m.reconcileProjectServices(project.Name, project.ServiceOrder, augmented, existingByService, hasDependents, privKeyPath)
 
-	services := started
-	if upErr != nil {
-		services = carryOverUnreachedServices(started, record.Services)
-	} else {
-		// Happy path only: tear down services that disappeared from
-		// the compose file. On a mid-run failure we skip this so an
-		// error in service B does not collaterally stop a healthy
-		// service that was simply removed from the file and would
-		// have cleaned up on the next Up.
-		if err := m.cleanupRemovedServices(project.Name, existingByService, augmented); err != nil {
-			upErr = fmt.Errorf("cleanup removed services: %w", err)
-		}
+	for i := range services {
+		services[i].SpecHash = serviceFingerprint(project.Services[services[i].Name])
+	}
+
+	if upErr != nil || options.PreserveOtherServices {
+		services = carryOverUnreachedServices(services, record.Services)
 	}
 
 	record.Services = services

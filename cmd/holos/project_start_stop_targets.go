@@ -50,7 +50,7 @@ func resolveStopTarget(manager *runtime.Manager, filePath, stateDir string, args
 		}
 	}
 
-	project, err := loadProject(filePath, stateDir)
+	project, _, err := loadComposeFile(filePath)
 	if err != nil {
 		return "", "", err
 	}

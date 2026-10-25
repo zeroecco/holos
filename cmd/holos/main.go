@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 )
@@ -29,11 +30,32 @@ func run(args []string) error {
 	}
 
 	if command, ok := resolveCommand(args[0]); ok {
-		return command.run(args[1:])
+		if len(args) == 2 && (args[1] == "-h" || args[1] == "--help") {
+			fmt.Fprintln(os.Stderr, command.usage)
+			fmt.Fprintln(os.Stderr, command.description)
+			fmt.Fprintln(os.Stderr)
+			if command.synopsisOnlyHelp {
+				return nil
+			}
+		}
+		err := command.run(args[1:])
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
 	}
 
 	switch args[0] {
 	case "help", "-h", "--help":
+		if len(args) == 2 {
+			if _, ok := resolveCommand(args[1]); !ok {
+				return fmt.Errorf("unknown command %q", args[1])
+			}
+			return run([]string{args[1], "-h"})
+		}
+		if len(args) > 2 {
+			return fmt.Errorf("usage: holos help [command]")
+		}
 		usage()
 		return nil
 	default:

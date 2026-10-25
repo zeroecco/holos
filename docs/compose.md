@@ -31,6 +31,11 @@ services:
         - systemctl restart nginx
 ```
 
+Fields documented as compatibility metadata/no-ops produce CLI warnings when
+supplied. Use `holos validate --strict` or `holos up --strict` to reject ignored
+settings. See the [CLI guide](./cli.md) for previewing configuration updates
+with `up --dry-run` and applying destructive changes with `up --recreate`.
+
 Core fields:
 
 - Top-level `version` and `include`: accepted for Docker Compose compatibility.

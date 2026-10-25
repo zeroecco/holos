@@ -6,19 +6,9 @@ import (
 	"github.com/zeroecco/holos/internal/config"
 )
 
-// carryOverUnreachedServices builds the service list to persist when
-// Up's reconcile loop aborted midway. It keeps everything the failed
-// call started (so real running VMs have a record) and then appends
-// every prior ServiceRecord this call never reached, regardless of
-// whether the service is still declared in the current compose file.
-//
-// The "still declared" check we used to do looked sensible but leaked
-// orphans: if an operator removed service X from compose.yaml and the
-// subsequent `up` failed before the happy-path teardown ran, X's
-// QEMU processes kept running with no record, so `holos ps` showed
-// nothing and `holos down <project>` had no target. Keeping prior
-// entries on failure preserves full visibility; the next successful
-// Up will run the normal teardown sweep and reconcile state.
+// carryOverUnreachedServices retains prior services outside a scoped start or
+// unreached after a launch failure. Fresh records take precedence; surviving
+// VMs must remain tracked even if absent from the requested service set.
 func carryOverUnreachedServices(started, prior []ServiceRecord) []ServiceRecord {
 	seen := make(map[string]struct{}, len(started))
 	for _, s := range started {
@@ -34,13 +24,8 @@ func carryOverUnreachedServices(started, prior []ServiceRecord) []ServiceRecord 
 	return out
 }
 
-// augmentServicesWithExecKey returns a copy of the service map with
-// pubKey appended to every service's authorized_keys list. The caller's
-// map is not touched, and each returned manifest carries a freshly
-// allocated SSHAuthorizedKeys slice so later mutations (e.g. another
-// Up call) cannot leak back into the original through a shared
-// backing array. This is the single choke point for Up's "don't
-// mutate the input" contract.
+// augmentServicesWithExecKey copies the map and authorized-key slices before
+// adding the generated key, keeping the caller's manifests unchanged.
 func augmentServicesWithExecKey(services map[string]config.Manifest, pubKey string) map[string]config.Manifest {
 	out := make(map[string]config.Manifest, len(services))
 	for name, manifest := range services {

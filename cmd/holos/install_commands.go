@@ -40,7 +40,7 @@ func runInstall(args []string) error {
 		return installSystemUserStateDirError(*runAs)
 	}
 
-	project, absCompose, err := loadProjectWithPath(*projectFlags.filePath, *projectFlags.stateDir)
+	project, absCompose, err := loadResolvedProject(*projectFlags.filePath, *projectFlags.stateDir, false)
 	if err != nil {
 		return err
 	}

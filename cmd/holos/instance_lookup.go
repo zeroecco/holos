@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/zeroecco/holos/internal/compose"
-	"github.com/zeroecco/holos/internal/config"
 	"github.com/zeroecco/holos/internal/runtime"
 )
 
@@ -25,49 +24,73 @@ func resolveInstanceTarget(manager *runtime.Manager, filePath, stateDir string, 
 			return instanceTarget{}, fmt.Errorf("invalid project name: %w", err)
 		}
 		if record, ok := lookupProjectRecord(manager, positional[0]); ok {
-			tgt := instanceTarget{ProjectName: record.Name}
-			if len(positional) >= 2 {
-				if inst, svc, ok := findInstanceInRecord(record, positional[1]); ok {
-					tgt.Inst = inst
-					tgt.LoginUser = serviceLoginUser(svc, record, stateDir)
-					tgt.CmdArgs = positional[2:]
-					return tgt, nil
-				}
-			}
-			inst, svc, ok := soleInstance(record)
-			if !ok {
-				return instanceTarget{}, fmt.Errorf(
-					"project %q has multiple instances%s; specify one (available: %s)",
-					record.Name, missingInstanceDetail(positional), instanceList(record))
-			}
-			tgt.Inst = inst
-			tgt.LoginUser = serviceLoginUser(svc, record, stateDir)
-			tgt.CmdArgs = positional[1:]
-			return tgt, nil
+			return resolveProjectInstanceTarget(record, stateDir, positional)
 		}
 	}
 
-	project, err := loadProject(filePath, stateDir)
+	file, _, err := loadComposeFile(filePath)
 	if err != nil {
 		return instanceTarget{}, err
 	}
-	inst, svcName, err := manager.FindInstance(project.Name, positional[0])
+	record, err := manager.ProjectStatus(file.Name)
 	if err != nil {
 		return instanceTarget{}, err
 	}
-	tgt := instanceTarget{
+	inst, service, err := resolveRecordInstance(record, positional[0])
+	if err != nil {
+		return instanceTarget{}, err
+	}
+	return instanceTarget{
 		Inst:        inst,
-		ProjectName: project.Name,
+		ProjectName: record.Name,
+		LoginUser:   serviceLoginUser(service, record, stateDir),
 		CmdArgs:     positional[1:],
-	}
-	if svc, ok := project.Services[svcName]; serviceHasLoginUser(svc, ok) {
-		tgt.LoginUser = svc.CloudInit.User
-	}
-	return tgt, nil
+	}, nil
 }
 
-func serviceHasLoginUser(svc config.Manifest, found bool) bool {
-	return found && svc.CloudInit.User != ""
+// A project target may name a guest or, for a single-guest project, go straight
+// to the command. Keep that argument handling separate from compose lookup.
+func resolveProjectInstanceTarget(record *runtime.ProjectRecord, stateDir string, positional []string) (instanceTarget, error) {
+	target := instanceTarget{ProjectName: record.Name}
+	if len(positional) >= 2 {
+		if inst, svc, err := resolveRecordInstance(record, positional[1]); err == nil {
+			target.Inst = inst
+			target.LoginUser = serviceLoginUser(svc, record, stateDir)
+			target.CmdArgs = positional[2:]
+			return target, nil
+		}
+	}
+	inst, svc, ok := soleInstance(record)
+	if !ok {
+		return instanceTarget{}, fmt.Errorf(
+			"project %q has multiple instances%s; specify one (available: %s)",
+			record.Name, missingInstanceDetail(positional), instanceList(record))
+	}
+	target.Inst = inst
+	target.LoginUser = serviceLoginUser(svc, record, stateDir)
+	target.CmdArgs = positional[1:]
+	return target, nil
+}
+
+// Exact instance names take precedence. Service shorthand is safe only when
+// there is one replica; never silently choose a machine for an exec command.
+func resolveRecordInstance(record *runtime.ProjectRecord, name string) (runtime.InstanceRecord, runtime.ServiceRecord, error) {
+	if inst, service, ok := findInstanceInRecord(record, name); ok {
+		return inst, service, nil
+	}
+	for _, service := range record.Services {
+		if service.Name != name {
+			continue
+		}
+		if len(service.Instances) == 1 {
+			return service.Instances[0], service, nil
+		}
+		available := instanceList(&runtime.ProjectRecord{Services: []runtime.ServiceRecord{service}})
+		return runtime.InstanceRecord{}, runtime.ServiceRecord{}, fmt.Errorf(
+			"service %q has %d instances; specify an instance (available: %s)",
+			name, len(service.Instances), available)
+	}
+	return runtime.InstanceRecord{}, runtime.ServiceRecord{}, fmt.Errorf("no service or instance %q in project %q (available: %s)", name, record.Name, instanceList(record))
 }
 
 func missingInstanceDetail(positional []string) string {
@@ -81,13 +104,13 @@ func serviceLoginUser(svc runtime.ServiceRecord, record *runtime.ProjectRecord, 
 	if svc.LoginUser != "" {
 		return svc.LoginUser
 	}
-	if record != nil {
-		if user := projectRecordLoginUser(record); user != "" {
-			return user
-		}
-		return lookupLoginUser(stateDir, record.Name)
+	if record == nil {
+		return ""
 	}
-	return ""
+	if user := projectRecordLoginUser(record); user != "" {
+		return user
+	}
+	return lookupLoginUser(stateDir, record.Name)
 }
 
 func projectRecordLoginUser(record *runtime.ProjectRecord) string {

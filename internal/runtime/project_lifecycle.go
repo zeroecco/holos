@@ -10,29 +10,14 @@ import (
 
 func (m *Manager) loadProjectForUp(project *compose.Project) (*ProjectRecord, error) {
 	record, err := m.loadProject(project.Name)
-	if projectLoadErrorBlocksUp(err) {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
-	}
-
-	if shouldResetProjectState(record, project.SpecHash) {
-		if err := m.tearDownProject(record); err != nil {
-			return nil, err
-		}
-		record = nil
 	}
 
 	if record == nil {
 		record = &ProjectRecord{Name: project.Name}
 	}
 	return record, nil
-}
-
-func shouldResetProjectState(record *ProjectRecord, nextSpecHash string) bool {
-	return record != nil && record.SpecHash != "" && record.SpecHash != nextSpecHash
-}
-
-func projectLoadErrorBlocksUp(err error) bool {
-	return err != nil && !errors.Is(err, os.ErrNotExist)
 }
 
 func (m *Manager) tearDownProject(record *ProjectRecord) error {
