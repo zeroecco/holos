@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0] - 2026-10-25
+
+This release makes everyday VM updates safer and simplifies the CLI workflow.
+
+### Added
+
+- Preview service changes with `holos up --dry-run`. Preserve unchanged VMs and
+  require `--recreate` for replacements or removals.
+- Report unsupported Compose settings, with strict validation available to
+  reject settings that holos cannot apply.
+- Use service names with `exec` and `console`, view logs without a project
+  argument, and get focused help for individual commands.
+
+### Fixed
+
+- Keep state-only commands independent of image resolution.
+- Preserve the first verified Ubuntu image selection across concurrent pulls.
+- Refresh Arch, AlmaLinux, Rocky Linux, and CentOS Stream image URLs and enable
+  the VGA boot workaround for Rocky Linux 9.
+- Explain how to reconnect after changing KVM group permissions.
+
+[0.7.0]: https://github.com/zeroecco/holos/releases/tag/v0.7.0
+
 ## [0.6.3] - 2026-09-20
 
 This patch release restores Ubuntu image pulls and keeps cached builds stable
