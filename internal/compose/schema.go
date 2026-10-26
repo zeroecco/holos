@@ -4,6 +4,7 @@ import "github.com/zeroecco/holos/internal/config"
 
 // File is the user-facing YAML compose format.
 type File struct {
+	sourceFields    map[string]any
 	Version         string             `yaml:"version,omitempty"`
 	Name            string             `yaml:"name"`
 	Include         IncludeFiles       `yaml:"include,omitempty"`

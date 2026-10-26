@@ -29,13 +29,14 @@ const (
 func runValidate(args []string) error {
 	flags := newFlagSet("validate")
 	projectFlags := addProjectFlags(flags, "")
+	strict := flags.Bool("strict", false, "reject ignored Compose settings before resolving images")
 	capacity := flags.Bool("capacity", false, "fail if the project requests more host CPU or memory than available")
 	network := flags.Bool("network", false, "check host bridges required by bridge and tap networks")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	project, err := loadProject(*projectFlags.filePath, *projectFlags.stateDir)
+	project, _, err := loadResolvedProject(*projectFlags.filePath, *projectFlags.stateDir, *strict)
 	if err != nil {
 		return err
 	}

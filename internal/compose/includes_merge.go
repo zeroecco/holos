@@ -69,6 +69,7 @@ func attributeIncludedServiceBaseDirs(file *File, projectDir string) {
 }
 
 func mergeIncludedFile(dst *File, src *File) {
+	mergeIncludedSourceFields(dst, src)
 	mergeMap(&dst.Services, src.Services)
 	mergeMap(&dst.Volumes, src.Volumes)
 	mergeMap(&dst.Networks, src.Networks)
@@ -81,6 +82,21 @@ func mergeIncludedFile(dst *File, src *File) {
 	for name, dir := range src.serviceBaseDirs {
 		if _, exists := dst.serviceBaseDirs[name]; !exists {
 			dst.serviceBaseDirs[name] = dir
+		}
+	}
+}
+
+// Mirror typed include precedence for diagnostics. The source representation
+// retains field presence and options that custom YAML decoders discard.
+func mergeIncludedSourceFields(dst *File, src *File) {
+	if dst.sourceFields == nil {
+		dst.sourceFields = map[string]any{}
+	}
+	for _, section := range []string{"services", "volumes", "networks", "configs", "secrets", "models"} {
+		values := sourceObject(dst.sourceFields[section])
+		mergeMap(&values, sourceObject(src.sourceFields[section]))
+		if len(values) > 0 {
+			dst.sourceFields[section] = values
 		}
 	}
 }

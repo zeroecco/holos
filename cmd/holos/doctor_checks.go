@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,6 +70,9 @@ func checkKVM() doctorCheck {
 	}
 	f, err := os.OpenFile(doctorKVMPath, os.O_RDWR, 0)
 	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return doctorCheck{Name: doctorKVMCheckName, Status: doctorStatusFail, Message: "permission denied; check id -nG and ls -l /dev/kvm. If access is granted through the kvm group, run sudo usermod -aG kvm \"$USER\", then log out and reconnect (existing shells keep their old groups)"}
+		}
 		return doctorCheck{Name: doctorKVMCheckName, Status: doctorStatusFail, Message: "cannot open " + doctorKVMPath + " read-write; enable virtualization, load kvm/kvm-intel or kvm-amd, and check group permissions: " + err.Error()}
 	}
 	_ = f.Close()

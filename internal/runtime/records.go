@@ -54,6 +54,7 @@ type NetworkSegmentState struct {
 
 // ServiceRecord tracks the desired and actual replica count for one service.
 type ServiceRecord struct {
+	SpecHash        string           `json:"spec_hash,omitempty"`
 	Name            string           `json:"name"`
 	DesiredReplicas int              `json:"desired_replicas"`
 	Instances       []InstanceRecord `json:"instances"`

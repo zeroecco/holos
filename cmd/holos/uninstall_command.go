@@ -48,7 +48,7 @@ func uninstallProjectName(name, filePath, stateDir string) (string, error) {
 		return name, nil
 	}
 
-	project, _, err := loadProjectWithPath(filePath, stateDir)
+	project, _, err := loadResolvedProject(filePath, stateDir, false)
 	if err != nil {
 		return "", err
 	}

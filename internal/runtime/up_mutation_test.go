@@ -24,25 +24,8 @@ func assertServiceAuthorizedKeys(t *testing.T, name string, services map[string]
 	assertStringSliceEqual(t, name, services[service].CloudInit.SSHAuthorizedKeys, want)
 }
 
-// TestCarryOverUnreachedServices pins the mid-run-failure contract:
-// every VM that got started this call must end up in the saved
-// record, and pre-existing entries for services the loop never
-// reached must survive so `holos ps` and `holos down` can still
-// manage them. Without this, a failing healthcheck on service B
-// in a three-service project would quietly erase A's record from
-// the previous Up while A's qemu process was still running.
-//
-// Prior records for services no longer in the compose file must
-// ALSO survive a failed Up. The happy-path teardown sweep is gated
-// behind `upErr == nil`, so if we dropped those records on failure
-// their QEMU processes would keep running with nothing to track
-// them; `holos ps` would show empty and `holos down` would have no
-// target. We only reconcile the disappeared services on the next
-// successful Up.
-//
-// DesiredReplicas is used as a "which copy won" marker: the fresh
-// `started` record for service a carries a different count from its
-// prior entry, and the helper must prefer the fresh one.
+// Retained services must remain visible after a partial or scoped update,
+// including services absent from the requested set. Fresh records take priority.
 func TestCarryOverUnreachedServices(t *testing.T) {
 	t.Parallel()
 

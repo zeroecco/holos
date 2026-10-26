@@ -63,16 +63,3 @@ func serviceRecordHasInstances(record *ServiceRecord) bool {
 func shouldWaitForServiceHealth(manifest config.Manifest, hasDependents bool) bool {
 	return manifest.Healthcheck != nil && hasDependents
 }
-
-func (m *Manager) cleanupRemovedServices(projectName string, existingByService map[string]*ServiceRecord, desired map[string]config.Manifest) error {
-	for name, existing := range existingByService {
-		if _, ok := desired[name]; ok {
-			continue
-		}
-		if err := m.stopServiceInstances(projectName, existing); err != nil {
-			return fmt.Errorf("service %q: %w", name, err)
-		}
-		m.removeInstanceDirs(existing.Instances)
-	}
-	return nil
-}

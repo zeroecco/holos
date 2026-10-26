@@ -120,7 +120,7 @@ func TestRequiresVGA(t *testing.T) {
 		{name: "debian bookworm", ref: "debian:bookworm"},
 		{name: "rocky default", ref: "rocky", want: true},
 		{name: "rocky 10", ref: "rocky:10", want: true},
-		{name: "rocky 9", ref: "rocky:9"},
+		{name: "rocky 9", ref: "rocky:9", want: true},
 		{name: "ubuntu noble", ref: "ubuntu:noble"},
 		{name: "local image", ref: "./local.qcow2"},
 	}

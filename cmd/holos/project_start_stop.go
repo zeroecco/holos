@@ -29,7 +29,7 @@ func runStart(args []string) error {
 	}
 
 	applyLockFlags(manager, lock)
-	record, err := manager.Up(project)
+	record, err := manager.UpWithOptions(project, runtime.UpOptions{PreserveOtherServices: svcName != ""})
 	if err != nil {
 		return err
 	}

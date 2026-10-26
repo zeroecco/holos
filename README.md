@@ -54,6 +54,21 @@ holos down hello
 That is a real VM booting a cloud image, installing a package, writing config,
 and forwarding a host port.
 
+## Daily use
+
+Inside a project directory:
+
+```bash
+holos exec web       # open a guest shell
+holos logs           # read project boot logs
+holos stop web       # keep its disk
+holos start web
+holos up --dry-run   # preview configuration changes
+holos help exec      # command syntax and options
+```
+
+Use an instance name such as `web-0` when a service has multiple replicas.
+
 ## Install
 
 Pre-built binaries are attached to every
@@ -86,7 +101,7 @@ bin/holos doctor
 ## CLI
 
 ```text
-holos up [-f holos.yaml] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]
+holos up [-f holos.yaml] [--dry-run] [--recreate] [--strict] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]
                                      start all services
 holos run [flags] <image> [-- cmd...] launch a one-off VM
 holos down <project>                 stop and remove a project
@@ -99,7 +114,8 @@ holos exec <project> [<inst>] [-- cmd...]
 holos logs <project> [<svc|inst>]    show console logs
 holos inspect [-f holos.yaml] [project|instance]
                                      inspect state as JSON
-holos validate [-f holos.yaml]       validate compose file (--capacity/--network)
+holos validate [-f holos.yaml] [--strict]
+                                     validate compose file (--capacity/--network)
 holos pull <image>                   pull a cloud image
 holos verify <image>|--all           verify cached image checksums
 holos images                         list available images
@@ -180,6 +196,13 @@ replicas.
 Run `holos doctor` to check the host.
 
 ## Troubleshooting
+
+### Permission denied opening /dev/kvm
+
+Check `id -nG` and `ls -l /dev/kvm`. On hosts where the device belongs to the
+`kvm` group, add your user with `sudo usermod -aG kvm "$USER"`, then log out
+and reconnect. Existing shells keep their old group membership. Run
+`holos doctor` again from the new session.
 
 ### SSH resets on first boot
 

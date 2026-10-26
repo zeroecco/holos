@@ -313,30 +313,6 @@ func TestMissingInstanceDetail(t *testing.T) {
 	}
 }
 
-func TestServiceHasLoginUser(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name  string
-		svc   config.Manifest
-		found bool
-		want  bool
-	}{
-		{name: "found with user", svc: config.Manifest{CloudInit: config.CloudInit{User: "debian"}}, found: true, want: true},
-		{name: "found without user", found: true},
-		{name: "missing with user", svc: config.Manifest{CloudInit: config.CloudInit{User: "debian"}}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			if got := serviceHasLoginUser(tt.svc, tt.found); got != tt.want {
-				t.Fatalf("serviceHasLoginUser = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestProjectRecordLoginUser(t *testing.T) {
 	t.Parallel()
 

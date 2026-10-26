@@ -6,9 +6,10 @@ import (
 )
 
 type command struct {
-	run         func([]string) error
-	usage       string
-	description string
+	run              func([]string) error
+	usage            string
+	description      string
+	synopsisOnlyHelp bool // Commands without a top-level flag parser.
 }
 
 const (
@@ -45,7 +46,7 @@ var commandOrder = []string{
 var commands = map[string]command{
 	"up": {
 		run:         runUp,
-		usage:       "holos up [-f holos.yaml] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]",
+		usage:       "holos up [-f holos.yaml] [--dry-run] [--recreate] [--strict] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]",
 		description: "start all services",
 	},
 	"run": {
@@ -75,18 +76,18 @@ var commands = map[string]command{
 	},
 	"console": {
 		run:         runConsole,
-		usage:       "holos console [-f holos.yaml] <inst>",
+		usage:       "holos console [-f holos.yaml] <service|instance|project>",
 		description: "attach serial console to an instance",
 	},
 	"exec": {
 		run:         runExec,
-		usage:       "holos exec [-f holos.yaml] <inst> [cmd...]",
+		usage:       "holos exec [-f holos.yaml] <service|instance|project> [-- cmd...]",
 		description: "ssh into an instance (project's generated key)",
 	},
 	"logs": {
 		run:         runLogs,
-		usage:       "holos logs [-f holos.yaml] <svc|inst>",
-		description: "show logs for a service (all replicas) or one instance",
+		usage:       "holos logs [-f holos.yaml] [service|instance|project]",
+		description: "show current project logs, or select a service/instance",
 	},
 	"inspect": {
 		run:         runInspect,
@@ -95,7 +96,7 @@ var commands = map[string]command{
 	},
 	"validate": {
 		run:         runValidate,
-		usage:       "holos validate [-f holos.yaml] [--capacity] [--network]",
+		usage:       "holos validate [-f holos.yaml] [--strict] [--capacity] [--network]",
 		description: "validate compose file",
 	},
 	"pull": {
@@ -109,14 +110,16 @@ var commands = map[string]command{
 		description: "verify cached image checksums",
 	},
 	"images": {
-		run:         runImages,
-		usage:       "holos images | holos images lock -f holos.yaml [-o holos.images.lock]",
-		description: "list available images or write an image lockfile",
+		synopsisOnlyHelp: true,
+		run:              runImages,
+		usage:            "holos images | holos images lock -f holos.yaml [-o holos.images.lock]",
+		description:      "list available images or write an image lockfile",
 	},
 	"snapshots": {
-		run:         runSnapshots,
-		usage:       "holos snapshots {create|list|rm|restore|export} ...",
-		description: "manage stopped instance root snapshots",
+		synopsisOnlyHelp: true,
+		run:              runSnapshots,
+		usage:            "holos snapshots {create|list|rm|restore|export} ...",
+		description:      "manage stopped instance root snapshots",
 	},
 	"volumes": {
 		run:         runVolumes,
@@ -149,9 +152,10 @@ var commands = map[string]command{
 		description: "convert virsh-defined VMs into a holos.yaml",
 	},
 	"completion": {
-		run:         runCompletion,
-		usage:       "holos completion <bash|zsh|fish>",
-		description: "print shell completion script",
+		synopsisOnlyHelp: true,
+		run:              runCompletion,
+		usage:            "holos completion <bash|zsh|fish>",
+		description:      "print shell completion script",
 	},
 	"version": {
 		run:         runVersion,

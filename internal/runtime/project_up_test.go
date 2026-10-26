@@ -130,7 +130,7 @@ func TestServiceRecordHasInstances(t *testing.T) {
 	}
 }
 
-func TestCleanupRemovedServicesRemovesOnlyUndesiredWorkdirs(t *testing.T) {
+func TestPrepareUpdatesRemovesOnlyUndesiredWorkdirs(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -142,27 +142,20 @@ func TestCleanupRemovedServicesRemovesOnlyUndesiredWorkdirs(t *testing.T) {
 		}
 	}
 
-	existing := map[string]*ServiceRecord{
-		projectUpWebServiceName: {
-			Name: projectUpWebServiceName,
-			Instances: []InstanceRecord{
-				{Name: instanceDirName(projectUpWebServiceName, 0), WorkDir: keptDir},
-			},
+	record := &ProjectRecord{Name: "demo", Services: []ServiceRecord{
+		{
+			Name:      projectUpWebServiceName,
+			Instances: []InstanceRecord{{Name: instanceDirName(projectUpWebServiceName, 0), WorkDir: keptDir}},
 		},
-		projectUpOldServiceName: {
-			Name: projectUpOldServiceName,
-			Instances: []InstanceRecord{
-				{Name: instanceDirName(projectUpOldServiceName, 0), WorkDir: removedDir},
-			},
+		{
+			Name:      projectUpOldServiceName,
+			Instances: []InstanceRecord{{Name: instanceDirName(projectUpOldServiceName, 0), WorkDir: removedDir}},
 		},
-	}
-	desired := map[string]config.Manifest{
-		projectUpWebServiceName: {Name: projectUpWebServiceName},
-	}
-
-	manager := &Manager{}
-	if err := manager.cleanupRemovedServices("", existing, desired); err != nil {
-		t.Fatalf("cleanupRemovedServices: %v", err)
+	}}
+	manager := NewManager(t.TempDir())
+	changes := []ServiceChange{{Service: projectUpOldServiceName, Action: ChangeRemove}}
+	if err := manager.prepareUpdates(record, changes, true); err != nil {
+		t.Fatalf("prepareUpdates: %v", err)
 	}
 
 	if _, err := os.Stat(keptDir); err != nil {
@@ -171,7 +164,7 @@ func TestCleanupRemovedServicesRemovesOnlyUndesiredWorkdirs(t *testing.T) {
 	if _, err := os.Stat(removedDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("removed workdir stat err = %v, want os.ErrNotExist", err)
 	}
-	if got := existing[projectUpOldServiceName].Instances[0].Status; got != InstanceStatusStopped {
-		t.Fatalf("removed service instance status = %q, want %q", got, InstanceStatusStopped)
+	if len(record.Services) != 1 || record.Services[0].Name != projectUpWebServiceName {
+		t.Fatalf("unexpected remaining services: %+v", record.Services)
 	}
 }

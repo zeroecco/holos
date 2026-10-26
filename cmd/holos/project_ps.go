@@ -35,7 +35,7 @@ func loadProjectStatuses(manager *runtime.Manager, filePath, stateDir string) ([
 		return manager.ListProjects()
 	}
 
-	project, err := loadProject(filePath, stateDir)
+	project, _, err := loadComposeFile(filePath)
 	if err != nil {
 		return nil, err
 	}

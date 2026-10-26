@@ -71,6 +71,10 @@ func load(path string, seen map[string]bool) (*File, error) {
 		return nil, fmt.Errorf("parse compose file: %w", err)
 	}
 
+	if err := yaml.Unmarshal(data, &file.sourceFields); err != nil {
+		return nil, fmt.Errorf("parse compatibility settings: %w", err)
+	}
+
 	if file.Name == "" {
 		file.Name = defaultProjectName(path)
 	}

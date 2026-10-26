@@ -25,7 +25,7 @@
 //
 // # Spec hashing
 //
-// The resolved [Project] carries a SpecHash (truncated SHA-256 of the
-// JSON-marshaled [File]). The runtime uses this to detect config drift and
-// trigger a full teardown-and-recreate when the compose file changes.
+// The resolved [Project] carries a SpecHash (SHA-256 of the JSON-marshaled
+// [File]) for inspection. The runtime separately fingerprints resolved service
+// manifests to plan selective replacements, requiring explicit recreation.
 package compose

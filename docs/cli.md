@@ -6,6 +6,36 @@ permalink: /cli/
 
 # CLI Guide
 
+## Everyday development
+
+From the directory containing `holos.yaml`:
+
+```bash
+holos up
+holos exec web             # shell into the web service
+holos exec web -- uname -a # run a guest command
+holos logs                # boot logs for this project
+holos logs web            # just web
+holos stop web
+holos start web
+holos down                # delete this project's instance disks
+```
+
+`exec` and `console` accept a service name when it has one instance. For a
+replicated service, choose an instance such as `web-0`; Holos lists the choices
+instead of guessing. Explicit project forms such as `holos exec demo web`
+continue to work outside the project directory. If a name matches a saved
+project, that project takes precedence; use `-f holos.yaml` to select the local
+file explicitly.
+
+`logs`, `stop`, `down`, and `ps -f holos.yaml` read project identity without
+resolving images. They remain usable if an image is missing or unavailable.
+`exec` and `console` also use saved instance state and login users for current
+projects. Starting or changing VMs still resolves their configuration.
+
+Use `holos help exec` for a command's syntax and options. Flags go before the
+target: `holos exec -w 2m web -- uname -a`.
+
 ## Shell completion
 
 Generate completion for the shell in use:
@@ -25,6 +55,59 @@ Run `holos images lock -f holos.yaml` to write a project image lockfile. Use
 `holos up --locked` in CI or deployment scripts to require the adjacent
 lockfile and reject changed image bytes or service entries. If you generated a
 custom lockfile with `images lock -o`, pass the same path to `up --lockfile`.
+
+## Previewing and applying configuration changes
+
+`holos up` compares resolved service configurations with saved service
+fingerprints. Unchanged services keep their running processes and root disks;
+stopped instances are started using their existing disks. Changed services are
+replaced individually, and removed services are deleted. Replacement or removal
+requires explicit `--recreate` because it discards the affected root disks,
+including snapshots stored inside those disks. Named volumes survive.
+
+```bash
+holos up --dry-run -f holos.yaml
+holos up --recreate -f holos.yaml
+```
+
+The preview prints `create`, `keep`, `replace`, or `remove` for each service.
+Without `--recreate`, any destructive change refuses the entire update before
+changing VMs. `--recreate` authorizes only the changes shown by the plan; it does
+not force replacement of unchanged services. Planning and application use the
+same project lock. Preview does not modify VM state, but compose resolution may
+populate the image cache and lock acquisition may create state directories.
+
+Fingerprints include resolved provisioning contents, hardware, ports, storage,
+replica counts, and generated networking. A replica-count change currently
+replaces that service. Network topology changes can also affect other services'
+addresses or generated host mappings; those services appear as replacements in
+the preview. Labels, healthchecks, dependency ordering, and pre-stop hooks alone
+do not require replacing disks.
+
+Older project records without service fingerprints cannot reliably identify
+unchanged guests. They are conservatively shown as replacements and require
+`--recreate` for the first update. Export any valuable root-disk data before
+applying that migration; `stop`, `exec`, and inspection remain available.
+
+## Compose compatibility diagnostics
+
+Configuration validation and launch commands warn on stderr about supplied settings that Holos
+accepts but ignores, including nested build/deploy options and unsupported
+volume/device forms. Diagnostics identify field paths without printing values.
+Included files follow the same checks; overridden definitions do not generate
+stale warnings.
+
+```bash
+holos validate --strict -f holos.yaml
+holos up --strict -f holos.yaml
+```
+
+Strict mode rejects ignored settings before resolving images or changing VMs.
+Use it in CI to prevent a valid Compose file from silently requesting behavior
+that Holos does not implement. Ordinary mode retains compatibility and prints
+warnings. For example, `restart: always`, `profiles`, and service-level
+`read_only` do not implement restart policies, profile selection, or a read-only
+VM root disk.
 
 ## Capacity preflight
 
