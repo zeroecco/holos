@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.1] - 2026-10-30
+
+This documentation release improves installation and first-run guidance. Runtime
+behavior is unchanged from 0.7.0.
+
+### Documentation
+
+- Update installation examples to the current release, stop on download or
+  verification failures, and explain required tools and platform support.
+- Walk through a named disposable VM, first-boot provisioning, daily commands,
+  safe updates, and disk preservation or removal.
+- Correct Alpine service commands, snapshot operation order, shell completion
+  setup, and example descriptions; wait for HTTP services during first boot.
+- Clarify image cache behavior and document the release checklist.
+
+[0.7.1]: https://github.com/zeroecco/holos/releases/tag/v0.7.1
+
 ## [0.7.0] - 2026-10-25
 
 This release makes everyday VM updates safer and simplifies the CLI workflow.

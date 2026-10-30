@@ -4,9 +4,13 @@ This example uses a Dockerfile as provisioning input. holos reads the
 Dockerfile, pulls the `FROM` image, translates supported instructions into
 cloud-init, copies `index.html` into the guest, and starts nginx.
 
+Run from the repository root. The HTTP check retries while first-boot
+provisioning finishes; repeated connection errors during startup are expected.
+`down` removes the instance disks.
+
 ```bash
 holos up -f examples/netboot-xyz/holos.yaml
-curl localhost:8080
+curl --fail --retry 120 --retry-delay 2 --retry-connrefused localhost:8080
 holos down netboot-xyz
 ```
 

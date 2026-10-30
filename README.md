@@ -11,21 +11,75 @@ Website and docs: <https://zeroecco.github.io/holos/>
 The primitive is a VM, not a container. Every workload instance gets its own
 kernel boundary, qcow2 overlay, cloud-init seed, and generated SSH access.
 
-## Quick Start
+## Start here
 
-> Requires Linux + `/dev/kvm`. macOS builds run offline commands like
-> `validate`, `import`, `images`, and `pull`, but `up` and `run` need a KVM
-> host.
+Run VMs on a Linux host with `/dev/kvm`, QEMU, and a cloud-init seed builder.
+See [host requirements](#host-requirements). macOS builds support authoring,
+image downloads, and validation; they cannot run KVM VMs.
 
-One disposable VM, no compose file:
+## Install
+
+Pre-built binaries are attached to every
+[GitHub release](https://github.com/zeroecco/holos/releases):
+
+This example installs the Linux x86-64 build. It uses `curl`, `tar`,
+`sha256sum`, and the GitHub CLI (`gh`) for provenance verification. For other
+platforms, choose the matching archive on the release page.
 
 ```bash
-holos run alpine
-holos exec <printed-project-name>
-holos down <printed-project-name>
+(
+set -e
+TAG=v0.7.1
+ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
+BASE=https://github.com/zeroecco/holos/releases/download/$TAG
+curl -fLO $BASE/$ASSET
+curl -fLO $BASE/checksums.txt
+grep " $ASSET$" checksums.txt | sha256sum -c -
+gh attestation verify $ASSET --repo zeroecco/holos
+sudo tar -xz -C /usr/local/bin -f $ASSET holos
+holos version
+holos doctor
+)
 ```
 
-A single-service stack you can `curl`. Save as `holos.yaml`:
+Release pages include SHA-256 checksums and GitHub artifact attestations for
+signed provenance. Verify both before installing binaries on production hosts.
+
+Or, from a checkout of this repository with Go 1.26 installed, build from source:
+
+```bash
+go build -o bin/holos ./cmd/holos
+export PATH="$PWD/bin:$PATH"
+holos doctor
+```
+
+## Try one VM
+
+Use a fixed name so every command below works as written:
+
+```bash
+holos run --name try-holos alpine
+holos exec -w 5m try-holos
+```
+
+You are now in the guest. Run `cat /etc/os-release`, then `exit` to return to
+the host. From the host:
+
+```bash
+holos stop try-holos    # keep the guest disk
+holos start try-holos
+holos exec try-holos
+```
+
+Exit the guest again, then remove the disposable VM:
+
+```bash
+holos down try-holos   # deletes its guest disk
+```
+
+## Run a web service
+
+Create an empty directory and save this as `holos.yaml`:
 
 ```yaml
 name: hello
@@ -36,8 +90,7 @@ services:
     ports:
       - "8080:80"
     cloud_init:
-      packages:
-        - nginx
+      packages: [nginx]
       write_files:
         - path: /var/www/html/index.html
           content: "hello from holos\n"
@@ -45,110 +98,45 @@ services:
         - systemctl restart nginx
 ```
 
+From that directory:
+
 ```bash
 holos up
-curl localhost:8080
-holos down hello
+holos exec -w 5m web -- sudo cloud-init status --wait
+curl --fail localhost:8080
 ```
 
-That is a real VM booting a cloud image, installing a package, writing config,
-and forwarding a host port.
+Expect `hello from holos`. The wait matters: `up` starts the VM, but nginx is
+installed during first boot. If provisioning fails, read `holos logs web`.
 
 ## Daily use
 
 Inside a project directory:
 
 ```bash
-holos exec web       # open a guest shell
-holos logs           # read project boot logs
-holos stop web       # keep its disk
+holos exec web       # guest shell; exit returns to the host
+holos logs web      # boot and provisioning logs
+holos stop web      # keep its disk
 holos start web
-holos up --dry-run   # preview configuration changes
-holos help exec      # command syntax and options
+holos up --dry-run  # preview changes after editing holos.yaml
+holos help exec     # syntax and options
 ```
 
 Use an instance name such as `web-0` when a service has multiple replicas.
+Changes that replace or remove a VM require `holos up --recreate`; check the
+preview first because replacement deletes that VM's root disk. Named volumes
+survive. See the [update guide](./docs/cli.md#previewing-and-applying-configuration-changes)
+before updating projects created by an older release.
 
-## Install
-
-Pre-built binaries are attached to every
-[GitHub release](https://github.com/zeroecco/holos/releases):
-
-```bash
-TAG=v0.6.3
-ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
-BASE=https://github.com/zeroecco/holos/releases/download/$TAG
-curl -LO $BASE/$ASSET
-curl -LO $BASE/checksums.txt
-grep " $ASSET$" checksums.txt | sha256sum -c -
-gh attestation verify $ASSET --repo zeroecco/holos
-sudo tar -xz -C /usr/local/bin -f $ASSET holos
-holos version
-holos doctor
-```
-
-Release pages include SHA-256 checksums and GitHub artifact attestations for
-signed provenance. Verify both before installing binaries on production hosts.
-
-Or build from source:
+When finished with this disposable stack:
 
 ```bash
-go build -o bin/holos ./cmd/holos
-go test ./...
-bin/holos doctor
+holos down hello
 ```
 
-## CLI
-
-```text
-holos up [-f holos.yaml] [--dry-run] [--recreate] [--strict] [--locked] [--lockfile path] [--lock-timeout 5m|--no-wait]
-                                     start all services
-holos run [flags] <image> [-- cmd...] launch a one-off VM
-holos down <project>                 stop and remove a project
-holos ps [-f holos.yaml]             list running projects
-holos start [-f holos.yaml] [svc]    start a stopped service or all services
-holos stop [-f holos.yaml] [svc]     stop a service or all services
-holos console <project> [<inst>]     attach serial console
-holos exec <project> [<inst>] [-- cmd...]
-                                     SSH into an instance
-holos logs <project> [<svc|inst>]    show console logs
-holos inspect [-f holos.yaml] [project|instance]
-                                     inspect state as JSON
-holos validate [-f holos.yaml] [--strict]
-                                     validate compose file (--capacity/--network)
-holos pull <image>                   pull a cloud image
-holos verify <image>|--all           verify cached image checksums
-holos images                         list available images
-holos images lock -f holos.yaml [-o holos.images.lock]
-                                     write project image lockfile
-holos snapshots {create|list|rm|restore|export} ... manage root snapshots
-holos volumes [-f holos.yaml] [--json]
-                                     list named volumes
-holos volumes rm <project> <volume>  remove a detached named volume
-holos volumes export <project> <volume> <path>
-                                     export a detached named volume
-holos volumes snapshot <project> <volume> <snapshot>
-                                     snapshot a detached named volume
-holos volumes snapshots <project> <volume>
-                                     list volume snapshots
-holos volumes snapshot-rm <project> <volume> <snapshot>
-                                     remove a volume snapshot
-holos volumes snapshot-restore <project> <volume> <snapshot>
-                                     restore a volume snapshot
-holos volumes snapshot-export <project> <volume> <snapshot> <path>
-                                     export a volume snapshot
-holos volumes resize [--shrink] <project> <volume> <size>
-                                     resize a detached named volume
-holos devices [--gpu]                list PCI devices and IOMMU groups
-holos completion <bash|zsh|fish>      print shell completion script
-holos doctor [--json]                check host dependencies
-holos install [-f holos.yaml] [--system] [--enable]
-                                     install a systemd unit
-holos uninstall [-f holos.yaml] [--system]
-                                     remove the systemd unit
-holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
-                                     convert virsh VMs into holos.yaml
-```
+`stop` preserves instance disks. `down` deletes them; named volumes remain until
+explicitly removed. See the [CLI guide](./docs/cli.md) for snapshots, volumes,
+image locks, and systemd setup.
 
 ## Docs
 
@@ -169,20 +157,6 @@ holos import [vm...] [--all] [--xml file] [--connect uri] [-o file]
 - [Threat model / hardening](./docs/threat-model.md):
   image verification, state permissions, locks, and operational guidance.
 - [Contributing](./CONTRIBUTING.md): build, test, style, and PR conventions.
-
-## Examples
-
-Start with the small nginx example:
-
-```bash
-holos up -f examples/alpine-nginx/holos.yaml
-curl localhost:8080
-holos down alpine-nginx
-```
-
-The examples directory also includes Dockerfile provisioning, GPU passthrough,
-and a multi-service stack that shows `depends_on`, generated config, and
-replicas.
 
 ## Host Requirements
 

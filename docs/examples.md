@@ -9,14 +9,18 @@ permalink: /examples/
 Each example is a complete `holos.yaml` you can copy or run with `-f`. They are
 intentionally small and show one idea at a time.
 
+Run from the repository root. The HTTP check retries while first-boot
+provisioning finishes; repeated connection errors during startup are expected.
+`down` removes the instance disks.
+
 ## `examples/alpine-nginx`
 
-A tiny Alpine VM that installs nginx, writes an index page with cloud-init, and
-publishes guest port 80 on host port 8080.
+Two Alpine VMs that install nginx with cloud-init and publish guest port 80
+on host ports 8080 and 8081.
 
 ```bash
 holos up -f examples/alpine-nginx/holos.yaml
-curl localhost:8080
+curl --fail --retry 120 --retry-delay 2 --retry-connrefused localhost:8080
 holos down alpine-nginx
 ```
 
@@ -30,7 +34,7 @@ translates supported Dockerfile instructions (`FROM`, `RUN`, `COPY`, `ENV`,
 
 ```bash
 holos up -f examples/netboot-xyz/holos.yaml
-curl localhost:8080
+curl --fail --retry 120 --retry-delay 2 --retry-connrefused localhost:8080
 holos down netboot-xyz
 ```
 

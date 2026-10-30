@@ -16,13 +16,12 @@ description: Define multi-VM KVM stacks in one YAML file.
   </div>
   <div class="terminal" aria-label="holos command example">
     <div class="terminal-bar"><span></span><span></span><span></span></div>
-    <pre><code>$ holos run alpine
-$ holos exec alpine
-$ holos down alpine
-
-$ holos up
-$ curl localhost:8080
-hello from holos</code></pre>
+    <pre><code>$ holos run --name try-holos alpine
+$ holos exec -w 5m try-holos
+# In the guest: explore, then exit.
+$ holos stop try-holos
+$ holos start try-holos
+$ holos down try-holos</code></pre>
   </div>
 </section>
 
@@ -45,21 +44,65 @@ hello from holos</code></pre>
 
 ## Quick Start
 
-Runtime commands require Linux with `/dev/kvm`. macOS binaries are still useful for authoring and offline commands such as `validate`, `images`, `pull`, and `import`.
+Run VMs on a Linux host with `/dev/kvm`, QEMU, and a cloud-init seed builder.
+See [host requirements](./development.md#host-requirements). macOS builds support authoring,
+image downloads, and validation; they cannot run KVM VMs.
+
+## Install
+
+Pre-built binaries are attached to every
+[GitHub release](https://github.com/zeroecco/holos/releases):
+
+This example installs the Linux x86-64 build. It uses `curl`, `tar`,
+`sha256sum`, and the GitHub CLI (`gh`) for provenance verification. For other
+platforms, choose the matching archive on the release page.
 
 ```bash
-TAG=v0.6.3
+(
+set -e
+TAG=v0.7.1
 ASSET=holos_${TAG#v}_Linux_x86_64.tar.gz
 BASE=https://github.com/zeroecco/holos/releases/download/$TAG
-curl -LO $BASE/$ASSET
-curl -LO $BASE/checksums.txt
+curl -fLO $BASE/$ASSET
+curl -fLO $BASE/checksums.txt
 grep " $ASSET$" checksums.txt | sha256sum -c -
 gh attestation verify $ASSET --repo zeroecco/holos
 sudo tar -xz -C /usr/local/bin -f $ASSET holos
+holos version
 holos doctor
+)
 ```
 
-Save this as `holos.yaml`:
+Release pages include SHA-256 checksums and GitHub artifact attestations for
+signed provenance. Verify both before installing binaries on production hosts.
+
+## Try one VM
+
+Use a fixed name so every command below works as written:
+
+```bash
+holos run --name try-holos alpine
+holos exec -w 5m try-holos
+```
+
+You are now in the guest. Run `cat /etc/os-release`, then `exit` to return to
+the host. From the host:
+
+```bash
+holos stop try-holos    # keep the guest disk
+holos start try-holos
+holos exec try-holos
+```
+
+Exit the guest again, then remove the disposable VM:
+
+```bash
+holos down try-holos   # deletes its guest disk
+```
+
+## Run a web service
+
+Create an empty directory and save this as `holos.yaml`:
 
 ```yaml
 name: hello
@@ -70,8 +113,7 @@ services:
     ports:
       - "8080:80"
     cloud_init:
-      packages:
-        - nginx
+      packages: [nginx]
       write_files:
         - path: /var/www/html/index.html
           content: "hello from holos\n"
@@ -79,13 +121,22 @@ services:
         - systemctl restart nginx
 ```
 
-Then launch it:
+From that directory:
 
 ```bash
 holos up
-curl localhost:8080
-holos down hello
+holos exec -w 5m web -- sudo cloud-init status --wait
+curl --fail localhost:8080
 ```
+
+Expect `hello from holos`. The wait matters: `up` starts the VM, but nginx is
+installed during first boot. If provisioning fails, read `holos logs web`.
+
+When finished, run `holos down hello` to delete this stack's instance disks.
+Use `holos stop web` instead when you want to keep the disk and resume later.
+
+Next: [daily commands and safe updates](./cli.md) or
+[the Compose file reference](./compose.md).
 
 ## Documentation
 

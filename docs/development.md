@@ -37,7 +37,15 @@ macOS builds are shipped for offline work: `validate`, `import`, `images`,
 
 ## Cutting A Release
 
-Releases are produced by GoReleaser on every `v*` tag:
+Before tagging:
+
+1. Update `main` and confirm CI and the KVM smoke workflow pass.
+2. Add the release notes to `CHANGELOG.md`.
+3. Update the install version in `README.md` and `docs/index.md`.
+4. Commit and push those documentation changes.
+
+Choose the next version, then publish the tag. This triggers the release
+workflow and publishes the binaries automatically:
 
 ```bash
 git tag -a vX.Y.Z -m "vX.Y.Z"
@@ -50,6 +58,9 @@ checksums, publishes a GitHub release, and emits GitHub artifact attestations.
 Release notes keep the checksum file and signed provenance verification command
 visible near the install command so operators can verify downloads before
 extracting them.
+
+After the workflow finishes, confirm the release contains all four platform
+archives and `checksums.txt`, and that the provenance attestation step passed.
 
 To rehearse locally without publishing:
 

@@ -38,13 +38,25 @@ target: `holos exec -w 2m web -- uname -a`.
 
 ## Shell completion
 
-Generate completion for the shell in use:
+Choose the block for your shell. Create the destination directory first:
 
 ```bash
+mkdir -p ~/.local/share/bash-completion/completions
 holos completion bash > ~/.local/share/bash-completion/completions/holos
+```
+
+```zsh
+mkdir -p ~/.zfunc
 holos completion zsh > ~/.zfunc/_holos
+```
+
+```fish
+mkdir -p ~/.config/fish/completions
 holos completion fish > ~/.config/fish/completions/holos.fish
 ```
+
+For zsh, add `~/.zfunc` to `fpath` before running `compinit` in your shell
+configuration. Restart your shell after installing completion.
 
 The scripts complete top-level commands and subcommands for `snapshots`,
 `volumes`, and `completion`.
@@ -126,7 +138,7 @@ network setup is not desired.
 holos run ubuntu:noble
 holos run --vcpu 4 --memory 4G ubuntu:noble
 holos run -p 8080:80 --pkg nginx \
-  --runcmd 'systemctl enable --now nginx' alpine
+  --runcmd 'rc-update add nginx default && rc-service nginx start' alpine
 holos run -v ./code:/srv:ro ubuntu:noble
 holos run --device 0000:01:00.0 ubuntu:noble
 holos run --image-os openrc ./custom-alpine.qcow2
@@ -134,8 +146,9 @@ holos run alpine -- echo hello world
 ```
 
 The synthesized compose file is stored at
-`state_dir/runs/<name>/holos.yaml`. The project name is derived from the image
-unless you pass `--name`.
+`state_dir/runs/<name>/holos.yaml`. The project name includes the image name
+and a random suffix. Pass `--name try-holos` when you want predictable
+follow-up commands.
 
 Follow-up commands use the project name printed by `holos run`:
 
@@ -204,15 +217,16 @@ instance paths. It does not read or print generated private key files.
 
 ## Snapshots
 
-Stopped instances can snapshot their root overlay with qemu-img:
+Stopped instances can snapshot their root overlay with qemu-img. This example
+uses a project named `demo` with a service named `web`:
 
 ```bash
 holos stop -f holos.yaml web
 holos snapshots create demo web-0 before-upgrade
 holos snapshots list demo web-0
-holos snapshots rm demo web-0 before-upgrade
 holos snapshots restore demo web-0 before-upgrade
 holos snapshots export demo web-0 before-upgrade ./web-before-upgrade.qcow2
+holos snapshots rm demo web-0 before-upgrade
 ```
 
 Snapshot export creates a standalone qcow2 image; it can be copied to another
@@ -245,6 +259,10 @@ the release again. Existing VM backing images are not replaced by newer builds.
 `resolute`. The `jammy` and `22.04` aliases remain available. Caches created by
 older holos versions remain on disk; the first pull with this resolver selects
 a released image into a separate cache path.
+
+Other built-in distributions currently use build URLs shipped with holos;
+`pull` does not discover their newest upstream build. There is no image-refresh
+command yet. Do not delete cached base images while VM disks depend on them.
 
 `holos images` shows the guest OS metadata and hash algorithm used for each
 built-in entry. `holos images lock -f holos.yaml` writes `holos.images.lock`
